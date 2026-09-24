@@ -14,7 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 STATE_DIR = Path(__file__).resolve().parents[1] / "state"
-EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.json"
+# .jsonl, not .json -- see log_generation's own comment for the real
+# disk-write-volume bug this fixes (external audit, 2026-09-24). Any
+# reader expecting a single JSON array at the old evolution_log.json
+# path needs updating to read one JSON object per line instead.
+EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
+MAX_LOG_LINES = 20000
+_ROTATE_CHECK_INTERVAL = 500
 REQUESTS_PATH = STATE_DIR / "requests.json"
 CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
 LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
@@ -93,6 +99,7 @@ class Sandbox:
         self.generation = 0
         self._ceiling_hits: dict[str, int] = {}
         self._recent_window: list[str] = []  # last 10 generations' ceiling-hit reasons, "" if none
+        self._gens_since_rotate_check = 0
 
     def should_continue(self) -> bool:
         if self.generation >= self.limits.max_generations:
@@ -136,17 +143,43 @@ class Sandbox:
         _write_json_atomic(REQUESTS_PATH, entries)
 
     def log_generation(self, record: dict) -> None:
+        """
+        Real bug fix (external audit, 2026-09-24): this used to read
+        the ENTIRE log, append one record, and rewrite the whole thing
+        -- every single generation. Measured live: at the 20000-entry
+        cap that file was 15.6MB, rewritten on every generation, which
+        at the deployed generation rate worked out to roughly 0.8TB/day
+        of real disk writes -- enough to wear out a consumer SSD in
+        months on a service meant to run for YEARS. Now an O(1) append
+        of one JSON line; the only operation that still does a full
+        rewrite is the rare rotation below, not every generation.
+        """
         record = dict(record)
         record["generation"] = self.generation
         record["elapsed_seconds"] = round(time.perf_counter() - self.start_time, 1)
-        entries = _read_json(EVOLUTION_LOG_PATH, [])
-        entries.append(record)
-        # Append-only, but capped -- an unbounded log file is itself a
-        # real resource the sandbox should limit, same reasoning as
-        # every other ceiling here.
-        if len(entries) > 20000:
-            entries = entries[-20000:]
-        _write_json_atomic(EVOLUTION_LOG_PATH, entries)
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with EVOLUTION_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+
+        self._gens_since_rotate_check += 1
+        if self._gens_since_rotate_check >= _ROTATE_CHECK_INTERVAL:
+            self._gens_since_rotate_check = 0
+            self._rotate_log_if_needed()
+
+    def _rotate_log_if_needed(self) -> None:
+        # Checked only every _ROTATE_CHECK_INTERVAL generations, not
+        # every one -- an unbounded log file is still a real resource
+        # to cap (same reasoning as every other ceiling here), but the
+        # cap doesn't need enforcing on every single append.
+        if not EVOLUTION_LOG_PATH.exists():
+            return
+        lines = EVOLUTION_LOG_PATH.read_text(encoding="utf-8").splitlines()
+        if len(lines) <= MAX_LOG_LINES:
+            return
+        kept = lines[-MAX_LOG_LINES:]
+        temp = EVOLUTION_LOG_PATH.with_suffix(".tmp")
+        temp.write_text("\n".join(kept) + "\n", encoding="utf-8")
+        temp.replace(EVOLUTION_LOG_PATH)
 
 
 def _read_json(path: Path, default):

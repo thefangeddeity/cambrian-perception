@@ -192,7 +192,8 @@ PAGE = """<!doctype html>
           : '';
         el.innerHTML = `
           <div><span class="label">generation:</span> ${d.generation}</div>
-          <div><span class="label">best_fitness:</span> ${d.best_fitness}</div>
+          <div><span class="label">fitness (live):</span> ${d.best_fitness}</div>
+          <div><span class="label">peak ever:</span> ${d.peak_fitness_seen !== undefined ? d.peak_fitness_seen : '--'}</div>
           <div><span class="label">response:</span> ${d.response}</div>
           <div><span class="label">habituation:</span> ${d.habituation_exposure}</div>
           <div><span class="label">watching:</span> ${watchingName}${watchingLive}</div>

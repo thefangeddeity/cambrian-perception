@@ -1,14 +1,24 @@
 # cambrian-perception
 
-A recursively self-improving organism that evolves its own perception
-from raw video — no pretrained models, sandboxed, reflex-driven,
-growing its own visual machinery from scratch. The point is to watch
-what it comes up with, not to deploy it for anything.
+A self-improving organism that evolves its own perception from raw
+video — no pretrained models, sandboxed, reflex-driven, growing its
+own visual machinery from scratch. The point is to watch what it comes
+up with, not to deploy it for anything.
 
 Named for the real thing it's meant to echo: watching a Cambrian-era
 nervous system slowly discover what real eyes are for, under real
 evolutionary pressure, on hardware that can iterate millions of times
 faster than 400 million years of actual selection.
+
+**In plain, precise terms** (added 2026-09-24 after an external audit):
+the search algorithm is a (1+1) evolutionary strategy — one parent, one
+mutated offspring per generation, strict-improvement acceptance (plus
+a small amount of neutral drift) — with adaptive operator selection,
+not population-based evolution with crossover, and not unbounded
+recursive self-modification (see the fishbowl boundary's note on
+`update_mutation_weights` below). "Recursive" is accurate only in the
+narrow, explicitly bounded sense described there. Small-scale, honest
+framing over an impressive-sounding one.
 
 ## The fishbowl boundary
 
@@ -30,13 +40,20 @@ do it.
   below). All channels share the exact same safe tree language; there
   is no separate, less-safe code path for the channels that produce
   actions versus the one that produces a response.
-- Mutate not just its output trees but the WEIGHTS that decide how it
-  mutates itself — that's the recursive part: it's not just improving
-  its answer, it's improving how it decides to change its answer.
-  Deliberately bounded to two levels (the trees, and the mutation-
-  strategy weights that shape how they change) plus one scalar meta-
-  mutation rate governing how fast those weights drift — not unbounded
-  meta-meta-regress.
+- Have its own accept/reject evidence (which operator got tried, did
+  it get accepted) continuously reshape which mutation operator is
+  likely to be tried next (`Genome.update_mutation_weights`). Correction
+  (2026-09-24): earlier versions of this README called this "mutating
+  the weights that decide how it mutates itself" and called it "the
+  recursive part." That's no longer accurate and arguably never was in
+  the strong sense implied — the update rule is a fixed, human-written
+  EMA, not something the organism mutates or that competes for
+  acceptance; the organism has no influence over it. What's real here:
+  operator selection adapts to evidence instead of staying uniform.
+  What's not real: unbounded or organism-driven recursion into its own
+  mutation process. Call it adaptive operator selection, not recursive
+  self-modification — see `fishbowl/genome.py`'s own docstring for the
+  full history of why this changed.
 - Log a structured, plain-language request when it hits one of its own
   ceilings repeatedly (`fishbowl/sandbox.py`'s `log_request`). Purely
   observational — it cannot act on a request or change a ceiling. A
@@ -45,25 +62,45 @@ do it.
 
 **What it cannot do, by construction, not by policy:**
 - No `eval`, `exec`, `os.system`, `subprocess`, or dynamic `import`
-  anywhere in this codebase. The block-tree interpreter in `blocks.py`
+  **inside `fishbowl/`** — the package the organism's own authored
+  programs actually run in. The block-tree interpreter in `blocks.py`
   is the only thing that ever "runs" an organism-authored program, and
-  it only ever does arithmetic on numpy arrays.
-- No network access beyond reading its own configured video source —
-  a fixed, human-curated list of URLs/devices (`run_vision.py`'s
-  `LIVE_SOURCES`, or a local device path), never anything the
-  organism itself chooses or discovers. No arbitrary host is ever
-  reachable, and this is the only network access anywhere in the
-  codebase.
-- No filesystem access beyond `state/`, and only through one
-  whitelisted writer (`sandbox.py`'s `_write_json_atomic`).
+  it only ever does arithmetic on numpy arrays. This is NOT a claim
+  about the rest of the repo: `run_vision.py` (the harness, not the
+  organism) calls `subprocess` to resolve a live stream URL via
+  `yt-dlp`, `tools/resource_handler.py` calls `sudo systemctl`, and
+  `tools/fetch_curriculum_videos.py` is a human-run utility that shells
+  out too. All of that is fixed, human-written infrastructure the
+  organism never touches, authored the same day this rule was
+  written — corrected here after an external audit caught the
+  blanket wording no longer matching the code.
+- No network access the organism's own logic can trigger. The ONE
+  outbound fetch per run — its configured video source — is a fixed,
+  human-curated list (`run_vision.py`'s `LIVE_SOURCES`, or a local
+  device path), never anything the organism chooses. Separately,
+  `tools/viewer.py` runs a small, **unauthenticated**, LAN-facing HTTP
+  server so a human can watch derived state — real network exposure,
+  just not organism-controlled or write-capable. Treat the viewer as
+  trusted-LAN-only until it has auth; that's a known gap, not
+  something to read past.
+- No filesystem access beyond `state/` **from `fishbowl/` or
+  `run_vision.py`**, and only through one whitelisted writer
+  (`sandbox.py`'s `_write_json_atomic`). `tools/` scripts are outside
+  that boundary by design (see above) and have their own, separate
+  file writes (`resource_handler.py` has its own atomic-write helper;
+  `fetch_curriculum_videos.py` writes to `media/`).
 - **Raw video frames are never written to disk.** Frames are streamed
   from `video_source.py`, held in memory for one run, and discarded.
   Only derived numeric signals (retina vectors reduced to a 12x12
   grid, reflex scores, fitness, mutation history) ever reach `state/`.
   This matters more than the other rules here: one of the real camera
-  sources this runs against faces the user's own bedroom. Nothing
-  reconstructable into an actual image of it should ever exist on
-  disk, even transiently, even in a debug log.
+  sources this runs against faces the user's own bedroom. Worth being
+  precise, not just reassuring: the 12x12 grid IS a (very coarse,
+  144-value) derived image, written to `state/live_status.json` every
+  generation and served by the viewer above — nowhere near
+  reconstructable into anything recognizable, but not literally
+  "nothing," either. The hard rule is narrower and still holds: no
+  FULL-resolution frame, not even transiently, ever reaches disk.
 - No unbounded loops, recursion, or wall-clock time — every run is
   hard-capped on generations, wall-clock seconds, and tree size
   (`fishbowl/sandbox.py`'s `Limits`), checked before each generation,
@@ -88,6 +125,24 @@ Models of Visual Attention" — a small glimpse window, and choosing
 where to look next is itself a trainable action). This is what makes
 CONSPEC's "seek" (below) a real, actionable drive instead of a passive
 correlation.
+
+Each `response`/`pan`/`tilt` tree sees the CURRENT fovea vector AND
+the PREVIOUS one (`run_vision.py`'s `evaluate_genome`) — added
+2026-09-24 after an external audit found the original memoryless,
+single-frame input made it structurally impossible for the response
+tree to represent the frame-DIFFERENCE reflex signals it's graded
+against. Whether it evolves to actually use the difference is still up
+to it; it just isn't impossible anymore.
+
+Real self-stimulation gotcha, found and fixed the same day: grading
+used to run on the fovea's OWN cropped, panned view, which meant
+simply MOVING the fovea across a static scene manufactured apparent
+motion/luminance-change out of nothing (the same way saccades would
+look like the world moved without a real eye's corollary-discharge
+correction). All reflex/conspec grading now runs on the FULL,
+un-foveated frame instead (`run_vision.py`'s `_world_vectors`),
+computed once per run, independent of any genome's fovea path — see
+that function's own docstring.
 
 ## Reflexes and drives (fitness, never input)
 
@@ -150,16 +205,27 @@ strict no-persistence rule above without exception.
 | `fishbowl/task.py`                | The original synthetic sanity-check task |
 | `run_vision.py`                   | Real entry point: evolve against real video |
 | `tools/fetch_curriculum_videos.py`| yt-dlp wrapper for curated clips |
-| `state/evolution_log.json`        | Append-only real run history |
+| `state/evolution_log.jsonl`       | Append-only real run history, one JSON object per line (not a JSON array -- see `sandbox.py`'s `log_generation`) |
+| `tools/viewer.py`                 | Unauthenticated LAN HTTP viewer for `state/live_status.json` |
+| `tools/resource_handler.py`       | External CPUQuota supervisor (hunger/disgust/extinction) |
 | `state/requests.json`             | Self-surfaced, human-reviewed-only requests |
 
 ## Status
 
-2026-09-24: real, verified end-to-end run against a synthetic test
-clip (fitness 0.0 -> 3.56 over 60 generations, habituation state
-tracking correctly, full log output) -- the whole pipeline (video ->
-fovea -> retina -> genome -> reflexes/conspec -> fitness -> mutation
--> logging) works, not a stub. Deploying to Tanzania next for a real
-run against real curated footage. No observation UI yet; that's being
-scoped as its own follow-on so it isn't designed in a rush alongside
-the sandbox itself.
+2026-09-24: deployed and running 24/7 on Tanzania (systemd, see
+`deploy/`) against real live video, with a LAN-facing viewer at
+`tools/viewer.py`. An independent external audit the same day found
+the ~18k-generation fitness plateau up to that point was NOT a
+mutation-strategy problem — it traced to structural bugs (stale
+fitness comparisons across restarts, a memoryless response tree graded
+against frame-difference signals, a mutation operator that could
+collapse an entire tree in one step, and a self-stimulation loophole
+in how reflexes were graded). All four are fixed as of this commit;
+see `run_vision.py`'s module docstring and `fishbowl/genome.py`'s
+`_reroll_subtree` for the specifics. The temporal-input fix changes
+`n_vars`, so this redeploy starts evolution over from a fresh genome —
+expected, not a bug (old genomes couldn't reference the new inputs
+anyway). Known, not-yet-fixed gaps from the same audit: the
+observability viewer has no auth, `evolution_log.json` is rewritten in
+full every generation (real disk-write volume concern for a years-long
+run), and a failed live-stream resolve retries with no backoff.

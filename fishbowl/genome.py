@@ -197,8 +197,26 @@ class Genome:
         return True
 
     def _reroll_subtree(self, rng: random.Random, channel: str) -> bool:
+        """
+        Real bug fix (external audit, 2026-09-24): candidates used to
+        include the tree's own ROOT, so this could replace an ENTIRE
+        tree -- however large it had grown -- with a fresh depth<=2
+        stub in one single mutation. Verified empirically (20,000-
+        iteration neutral-drift test, uniform operator weights): mean
+        accepted tree size settled around ~11 nodes regardless of the
+        size ceiling (60, 300, or 1000 -- raising it never helped,
+        because it was never the constraint). This was the actual
+        reason: whatever `_grow` accumulated a few nodes at a time,
+        this could erase in one step, just as often. Excluding the
+        root keeps this operator doing what its name says -- rerolling
+        A subtree, not potentially the whole tree -- while still
+        falling back to the root on a single-node tree (there's
+        nothing else to target then).
+        """
         nodes = self._all_nodes(channel)
-        target = rng.choice(nodes)
+        root = self.trees[channel]
+        candidates = [n for n in nodes if n is not root] or nodes
+        target = rng.choice(candidates)
         replacement = _random_small_tree(rng, self.n_vars, max_depth=2)
         if target is self.trees[channel]:
             self.trees[channel] = replacement

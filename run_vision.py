@@ -9,6 +9,31 @@ memory once per run (never written to disk -- see video_source.py),
 and every generation replays the SAME in-memory clip from the SAME
 starting fovea position, so accept/reject comparisons are fair.
 
+Rewritten 2026-09-24 after an independent external audit found the
+~18k-generation plateau wasn't a mutation-strategy problem at all --
+three structural bugs made real progress nearly impossible regardless
+of how mutation was tuned:
+  - `best_fitness` used to be carried across restarts (different
+    clips) and across habituation-discount drift within a run, so
+    candidates were compared against a STALE, incomparable number.
+    Fixed: the parent is re-evaluated fresh, on the SAME frames and
+    SAME habituation_discount as the candidate, every single
+    generation -- see the main loop below.
+  - The response tree only ever saw the CURRENT frame, but is graded
+    against frame-DIFFERENCE reflex signals -- structurally incapable
+    of representing what it's scored on. Fixed: it now also gets the
+    PREVIOUS frame's fovea vector as input (n_vars doubled), giving it
+    the raw material to compute a difference itself if that helps.
+  - Reflex/conspec signals used to be computed on the fovea's OWN
+    cropped view, which means simply PANNING the fovea across a static
+    scene manufactured apparent luminance-change/motion/loom (the same
+    way a real eye's saccades look like the world moved without
+    corollary-discharge correction) -- a self-stimulation loophole,
+    confirmed empirically (a static scene with the fovea held still
+    scored fitness -0.91). Fixed: all grading signals are now computed
+    ONCE per run on the FULL, un-foveated frame -- independent of
+    whatever the organism's own pan/tilt choices were.
+
 Meant to run for YEARS (the user's own framing), not one sitting -- so this
 is intentionally still a BOUNDED process (sandbox.Limits, checked
 before each generation, same "never trust an unbounded loop"
@@ -44,7 +69,7 @@ from pathlib import Path
 import numpy as np
 
 from fishbowl import conspec, fovea, genome as G, reflexes, sandbox, video_source
-from fishbowl.retina import GRID, N_CELLS
+from fishbowl.retina import GRID, N_CELLS, frame_to_vector
 
 # How much each reflex/drive contributes to total fitness -- loom
 # weighted heaviest, matching the real threat/food asymmetry discussed
@@ -59,10 +84,16 @@ CONSPEC_WEIGHT = 1.5
 # drifting into the freezing water behind it. loom is the "scalding"
 # side (big, sudden, real threat -- weighted heaviest above,
 # deliberately never fully avoidable by just sitting still). This is
-# the "freezing" side: a real penalty for the fovea settling somewhere
-# nothing happens for a sustained stretch ("dead field... dead cold"),
-# pushing the pan/tilt channels to actively seek information-rich
-# regions rather than just passively dodge loom by staring at a wall.
+# the "freezing" side: a real penalty for a sustained stretch with
+# nothing happening ("dead field... dead cold"). NOTE this now grades
+# WORLD activity (see evaluate_genome's world_signals), not "is my own
+# current view dead" -- the audit fix that closed the self-stimulation
+# loophole (panning the fovea used to manufacture fake activity) also
+# means this term can no longer be dodged by just moving the eye. It's
+# a slightly blunter pressure now (organism can't fix a genuinely dead
+# WORLD by looking elsewhere), but curiosity below still rewards real
+# fovea coverage, so exploration pressure isn't lost, just no longer
+# exploitable.
 DEAD_FIELD_ACTIVITY_THRESHOLD = 0.01
 DEAD_FIELD_WINDOW = 10
 DEAD_FIELD_PENALTY_WEIGHT = 1.0
@@ -219,32 +250,64 @@ def _list_clips(source: str) -> list[str]:
     return [source]
 
 
-def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount: float) -> tuple[float, dict, np.ndarray, np.ndarray, dict]:
+def _world_vectors(frames: list[np.ndarray]) -> np.ndarray:
     """
-    Returns (fitness, breakdown, conspec_signal, loom_signal,
-    live_info) -- live_info is the fovea's own final box position/size
-    and final response value, for sandbox.save_live_status() (see
-    run()); everything else the caller needs again after an accept, to
-    actually advance habituation state over the trajectory the
-    organism just really took (see run()'s own comment on why that has
-    to happen AFTER the accept/reject decision, not before it).
-    habituation_discount is read-only here (this generation's current
-    discount, applied to the reward), never mutated by this function.
+    The FULL, un-foveated frame at every timestep, reduced to the same
+    12x12 grid shape retina.py already uses -- computed ONCE per run,
+    the same for every genome/generation, since it depends only on the
+    real clip, never on any genome's pan/tilt choices. This is what
+    closes the self-stimulation loophole an external audit found: when
+    grading used to run on the fovea's OWN cropped/panned view, moving
+    the fovea across a perfectly static scene manufactured apparent
+    luminance-change/motion/loom out of nothing (confirmed empirically:
+    fovea held still on a static scene scored fitness -0.91, almost
+    all of it curiosity/dead-field pressure to just move the eye).
+    Grading against the world's own real signal means the only way to
+    earn reward is to produce a response that actually tracks what's
+    really happening, not to manufacture apparent motion by panning.
+    """
+    return np.array([frame_to_vector(f) for f in frames])
+
+
+def evaluate_genome(
+    g: G.Genome,
+    frames: list[np.ndarray],
+    world_signals: dict[str, np.ndarray],
+    world_conspec: np.ndarray,
+    habituation_discount: float,
+) -> tuple[float, dict, dict]:
+    """
+    Returns (fitness, breakdown, live_info). world_signals/world_conspec
+    are precomputed ONCE per run by the caller (see run()) -- see
+    _world_vectors's own docstring for why grading is independent of
+    this genome's own fovea path. habituation_discount is read-only
+    here, never mutated by this function (habituation itself is now
+    observed once per run, from the real world signal, not from any
+    genome's path -- see run()).
     """
     state = fovea.FoveaState()
-    retina_vectors = []
     responses = []
     positions = []
+    last_grid = None
+    prev_v = np.zeros(N_CELLS)  # no "previous frame" before the first one
 
     for frame in frames:
         v = fovea.extract(frame, state)
-        retina_vectors.append(v)
         positions.append((state.cx, state.cy))
-        vb = v[None, :]
+        # Real fix (external audit): the tree used to see only the
+        # CURRENT frame, but is graded against frame-DIFFERENCE
+        # signals -- a memoryless function of one frame can't compute
+        # a derivative. Concatenating the PREVIOUS fovea vector gives
+        # it the raw material to compute one itself via the DSL's own
+        # sub op, if that's what actually evolves to help (n_vars is
+        # doubled accordingly -- see run()).
+        vb = np.concatenate([v, prev_v])[None, :]
         response = float(g.evaluate("response", vb)[0])
         pan = float(g.evaluate("pan", vb)[0])
         tilt = float(g.evaluate("tilt", vb)[0])
         responses.append(response)
+        last_grid = v
+        prev_v = v
         state = fovea.step(state, pan, tilt)
 
     live_info = {
@@ -256,18 +319,17 @@ def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount:
         # reduced far past anything reconstructable into real footage
         # (a blocky 12x12 luminance grid, not an image), so including
         # it here doesn't touch the no-raw-frames rule at all.
-        "grid": retina_vectors[-1].tolist() if retina_vectors else [],
+        "grid": last_grid.tolist() if last_grid is not None else [],
         "grid_shape": list(GRID),
     }
 
-    vectors = np.array(retina_vectors)
     responses = np.array(responses)
 
-    if not np.all(np.isfinite(vectors)) or not np.all(np.isfinite(responses)):
-        return float("-inf"), {}, np.zeros(len(frames)), np.zeros(len(frames)), live_info
+    if not np.all(np.isfinite(responses)):
+        return float("-inf"), {}, live_info
 
-    signals = reflexes.all_signals(vectors)
-    cs = conspec.conspec_signal(vectors)
+    signals = world_signals
+    cs = world_conspec
 
     fitness = 0.0
     breakdown = {}
@@ -290,10 +352,21 @@ def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount:
     fitness -= DEAD_FIELD_PENALTY_WEIGHT * dead_field
     breakdown["dead_field_penalty"] = dead_field
 
-    return fitness, breakdown, cs, signals["loom"], live_info
+    return fitness, breakdown, live_info
 
 
-def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
+# Small, fixed tolerance/probability for accepting a roughly-tied
+# candidate (never a worse one) -- real neutral drift, not forced
+# exploration: the fitness landscape is what decides whether a neutral
+# move is even available at a given moment, this only decides whether
+# one gets taken when it IS available. External audit's recommended
+# fix for a pure greedy (1+1) hill-climb never being able to cross a
+# flat plateau (equal-fitness moves were always rejected before).
+NEUTRAL_EPSILON = 0.001
+NEUTRAL_ACCEPT_PROB = 0.1
+
+
+def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2) -> None:
     clips = _list_clips(source)
 
     checkpoint = sandbox.load_checkpoint()
@@ -323,6 +396,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
         print("Not enough real frames to evolve against -- aborting.")
         return
 
+    # Computed ONCE per run, independent of any genome (see
+    # _world_vectors's docstring for the self-stimulation loophole this
+    # closes). Every generation's fitness grades against these SAME
+    # arrays -- only the organism's own response changes generation to
+    # generation, never what it's being compared against.
+    world_vectors = _world_vectors(frames)
+    world_signals = reflexes.all_signals(world_vectors)
+    world_conspec = conspec.conspec_signal(world_vectors)
+
     box = sandbox.Sandbox(limits)
     habituation = conspec.Habituation()
     margin = 0.05
@@ -330,22 +412,42 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
     if checkpoint is not None and checkpoint.get("n_vars") == n_vars:
         print(f"Resuming from checkpoint (previous best_fitness={checkpoint['best_fitness']:.4f}).")
         genome = G.Genome.from_dict(checkpoint["genome"])
-        best_fitness = float(checkpoint["best_fitness"])
         margin = float(checkpoint.get("margin", margin))
         habituation.exposure = float(checkpoint.get("habituation_exposure", 0.0))
     else:
         if checkpoint is not None:
             print("Checkpoint found but n_vars mismatch (retina/fovea shape changed) -- starting fresh.")
         genome = G.random_genome(rng, n_vars=n_vars)
-        best_fitness, _, best_conspec, best_loom, _ = evaluate_genome(genome, frames, habituation.discount)
-        print(f"Initial fitness: {best_fitness:.4f}")
-        for c, l in zip(best_conspec, best_loom):
-            habituation.observe(conspec_present=c > 0.05, loom_value=l)
+
+    # Habituation is now observed ONCE per run, straight from the
+    # real world signal -- it no longer depends on any genome's path
+    # (see module docstring). This also fixes a real related bug: it
+    # used to only advance on an ACCEPTED generation's real trajectory,
+    # so a long dry spell (exactly what B1 was causing) meant
+    # habituation silently stopped updating for thousands of
+    # generations even while real exposure was happening on screen.
+    for c, l in zip(world_conspec, world_signals["loom"]):
+        habituation.observe(conspec_present=c > 0.05, loom_value=l)
+
+    # NEVER trust a best_fitness carried over from a different clip or
+    # a different habituation state (external audit finding: this was
+    # the actual root cause of the plateau, not mutation strategy) --
+    # always re-derive it fresh, on THIS run's real frames, before
+    # anything is compared against it. peak_fitness_seen is a separate,
+    # purely informational running max (never used for accept/reject),
+    # so the "how good has this lineage ever been" number isn't lost
+    # now that best_fitness itself is an honest, re-scored-every-
+    # generation live value rather than a one-way ratchet.
+    best_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount)
+    peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
+    peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
+    print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
 
     def _save():
         sandbox.save_checkpoint({
             "genome": genome.to_dict(),
             "best_fitness": best_fitness,
+            "peak_fitness_seen": peak_fitness_seen,
             "margin": margin,
             "habituation_exposure": habituation.exposure,
             "n_vars": n_vars,
@@ -377,22 +479,39 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
         ceiling_reason = "tree_size_or_depth" if applied == "noop_ceiling" else None
         box.note_ceiling(ceiling_reason)
 
-        candidate_fitness, breakdown, candidate_conspec, candidate_loom, live_info = evaluate_genome(
-            candidate, frames, habituation.discount,
+        # Re-evaluate the PARENT fresh, right here, right now -- never
+        # compare against a stored best_fitness that might be stale
+        # (external audit finding B1, the actual root cause of the
+        # plateau). The only thing that can legitimately drift between
+        # generations is habituation.discount; re-scoring both parent
+        # and candidate under the SAME current discount on the SAME
+        # frames keeps every single accept/reject decision honest.
+        parent_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount)
+        candidate_fitness, breakdown, live_info = evaluate_genome(
+            candidate, frames, world_signals, world_conspec, habituation.discount,
         )
 
-        accepted = math.isfinite(candidate_fitness) and candidate_fitness > best_fitness + margin
+        both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
+        accepted = both_finite and candidate_fitness > parent_fitness + margin
+        if not accepted and both_finite and candidate_fitness >= parent_fitness - NEUTRAL_EPSILON:
+            # Real neutral drift (external audit's recommended fix for
+            # a pure greedy hill-climb that can never cross a flat
+            # plateau -- equal-fitness moves used to always be
+            # rejected). A small, fixed chance to take a roughly-tied
+            # step sideways; never a worse one.
+            accepted = rng.random() < NEUTRAL_ACCEPT_PROB
+
         if accepted:
             genome = candidate
             best_fitness = candidate_fitness
             margin = max(0.005, margin * 0.995)
-            # Habituation only ever advances from the trajectory the
-            # organism actually, really took (the ACCEPTED genome's
-            # own real path through the clip) -- not from every
-            # rejected candidate's hypothetical path, which never
-            # happened and shouldn't count as real exposure.
-            for c, l in zip(candidate_conspec, candidate_loom):
-                habituation.observe(conspec_present=c > 0.05, loom_value=l)
+        elif both_finite:
+            # Keep best_fitness in sync with reality even on a reject
+            # -- it's the PARENT's own freshly-scored real fitness now,
+            # never a stale ratchet (see B1 fix above).
+            best_fitness = parent_fitness
+        if math.isfinite(best_fitness):
+            peak_fitness_seen = max(peak_fitness_seen, best_fitness)
 
         # The real, continuous meta-mutation step (see
         # Genome.update_mutation_weights) -- applied to whichever
@@ -414,7 +533,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
         box.log_generation({
             "accepted": accepted,
             "fitness": candidate_fitness if math.isfinite(candidate_fitness) else None,
+            "parent_fitness": parent_fitness if math.isfinite(parent_fitness) else None,
+            # best_fitness is now the CURRENT genome's real, freshly-
+            # scored fitness every generation -- not a one-way ratchet
+            # (see the B1 fix above). peak_fitness_seen is the
+            # separate, purely informational running max.
             "best_fitness": best_fitness,
+            "peak_fitness_seen": peak_fitness_seen,
             "breakdown": breakdown,
             "mutation_weights": dict(genome.mutation_weights),
             "meta_mutation_rate": genome.meta_mutation_rate,
@@ -430,7 +555,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
         # is small and cheap, unlike the full checkpoint.
         sandbox.save_live_status({
             "generation": box.generation,
+            # No longer a ratchet -- see the B1 fix above. This is the
+            # current genome's real fitness, re-scored fresh every
+            # generation; peak_fitness_seen is the separate, purely
+            # informational running max.
             "best_fitness": round(best_fitness, 4),
+            "peak_fitness_seen": round(peak_fitness_seen, 4),
             "fovea_cx": round(live_info["fovea_cx"], 4),
             "fovea_cy": round(live_info["fovea_cy"], 4),
             "fovea_fraction": live_info["fovea_fraction"],
