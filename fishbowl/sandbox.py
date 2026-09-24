@@ -16,6 +16,27 @@ from pathlib import Path
 STATE_DIR = Path(__file__).resolve().parents[1] / "state"
 EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.json"
 REQUESTS_PATH = STATE_DIR / "requests.json"
+CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
+
+
+def save_checkpoint(data: dict) -> None:
+    """
+    Real long-term memory, leveraging disk (cheap and abundant on
+    Tanzania -- 224GB free, checked live) to make up for what RAM and
+    CPU can't hold across restarts. Without this, every process start
+    threw away all accumulated evolution and began again from a fresh
+    random genome -- the wrong default for a machine meant to run this
+    for a long time. Only ever contains derived state (genome, fitness
+    history, habituation) -- never raw frames, same boundary as
+    everything else this module writes.
+    """
+    _write_json_atomic(CHECKPOINT_PATH, data)
+
+
+def load_checkpoint() -> dict | None:
+    if not CHECKPOINT_PATH.exists():
+        return None
+    return _read_json(CHECKPOINT_PATH, None)
 
 
 @dataclass
