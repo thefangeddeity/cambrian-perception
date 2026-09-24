@@ -51,6 +51,18 @@ PAGE = """<!doctype html>
      than the viewport, so only that one panel needs a swipe, not the
      whole page. */
   .tree-panel { max-width: 100%; overflow-x: auto; }
+  /* User: "video can play to the right of fovea position box. Fovea
+     position box should... have the actual image it's cropping out of
+     underneath it." Two copies of the SAME live YouTube embed -- one
+     plain (general viewing), one with the fovea box drawn on top of
+     it. Both are the VIEWER'S OWN BROWSER connecting straight to
+     YouTube -- cambrian-perception's own backend/state never touches,
+     stores, or transmits a real frame either way, same no-raw-frames
+     boundary as everywhere else, just satisfied by a completely
+     different, browser-side mechanism this time. */
+  .video-wrap { position: relative; width: 320px; height: 180px; }
+  .video-wrap iframe { display: block; width: 100%; height: 100%; border: 1px solid #234; }
+  .fovea-overlay { position: absolute; top: 0; left: 0; pointer-events: none; border: none !important; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
   .stale { color: #f66; }
@@ -78,8 +90,11 @@ PAGE = """<!doctype html>
       <canvas id="grid" width="240" height="240"></canvas>
     </div>
     <div>
-      <div class="sub">fovea position (field of view within the frame)</div>
-      <canvas id="fovea" width="240" height="180"></canvas>
+      <div class="sub" id="fovea-label">fovea position -- box shows where it's looking, drawn over the same real video it's cropping. Position reflects the LAST analyzed ~40s window, not this instant.</div>
+      <div class="video-wrap" id="fovea-video-wrap">
+        <iframe id="fovea-embed" src="" frameborder="0" allow="autoplay" title="fovea position source feed"></iframe>
+        <canvas id="fovea" class="fovea-overlay"></canvas>
+      </div>
     </div>
     <div class="stats" id="stats"></div>
   </div>
@@ -199,6 +214,16 @@ PAGE = """<!doctype html>
       }
     }
 
+    // Tracks the currently-loaded embed so tick() (runs every 1s)
+    // only touches iframe.src when the video actually changes -- not
+    // on every poll, which would restart playback constantly.
+    let currentEmbedId = null;
+
+    function youtubeId(url) {
+      const m = url && url.match(/[?&]v=([^&]+)/);
+      return m ? m[1] : null;
+    }
+
     async function tick() {
       let el = document.getElementById('stats');
       try {
@@ -237,29 +262,51 @@ PAGE = """<!doctype html>
           }
         }
 
-        const fc = document.getElementById('fovea');
-        // Honest shape, not a hardcoded 4:3 -- User: "make foveal
-        // rectangle honest." Size the canvas to the REAL source
-        // frame's own aspect ratio (frame_w/frame_h, sent once per
-        // run) so the box drawn on it is actually shaped like what
-        // fovea.py really crops, not an arbitrary panel shape. Falls
-        // back to the old 240x180 only if an older live_status.json
-        // (pre this field) is still being served.
-        if (d.frame_w && d.frame_h) {
-          const maxDim = 240;
-          if (d.frame_w >= d.frame_h) {
-            fc.width = maxDim;
-            fc.height = Math.round(maxDim * d.frame_h / d.frame_w);
-          } else {
-            fc.height = maxDim;
-            fc.width = Math.round(maxDim * d.frame_w / d.frame_h);
-          }
+        // Real video underneath the fovea box -- User: "fovea position
+        // box should... have the actual image it's cropping out of
+        // underneath it." Both embeds are the BROWSER's own direct
+        // connection to YouTube (never routed through this server's
+        // own state/backend -- see the CSS comment on .video-wrap for
+        // why that keeps the no-raw-frames boundary intact). Src is
+        // only touched when the video actually changes, not every
+        // poll tick, so playback doesn't restart every second.
+        const vid = youtubeId(d.clip);
+        if (vid && vid !== currentEmbedId) {
+          currentEmbedId = vid;
+          document.getElementById('fovea-embed').src = `https://www.youtube.com/embed/${vid}?autoplay=1&mute=1`;
         }
+
+        const fc = document.getElementById('fovea');
+        const foveaWrap = document.getElementById('fovea-video-wrap');
+        // Honest shape, not a hardcoded 4:3 -- User: "make foveal
+        // rectangle honest." Size BOTH the video container and the
+        // overlay canvas to the REAL source frame's own aspect ratio
+        // (frame_w/frame_h, sent once per run) so the embed and the
+        // box drawn on top of it stay pixel-aligned, and the box is
+        // actually shaped like what fovea.py really crops. Falls back
+        // to a plain 320x180 16:9-ish box only if frame_w/h are missing
+        // (an older live_status.json) or no YouTube id was found (a
+        // local file/device source, not a live embed).
+        const maxDim = 320;
+        let vw = maxDim, vh = Math.round(maxDim * 9 / 16);
+        if (d.frame_w && d.frame_h) {
+          vh = d.frame_w >= d.frame_h ? Math.round(maxDim * d.frame_h / d.frame_w) : maxDim;
+          vw = d.frame_w >= d.frame_h ? maxDim : Math.round(maxDim * d.frame_w / d.frame_h);
+        }
+        foveaWrap.style.width = vw + 'px';
+        foveaWrap.style.height = vh + 'px';
+        fc.width = vw; fc.height = vh;
+
         const fctx = fc.getContext('2d');
-        fctx.fillStyle = '#111';
-        fctx.fillRect(0, 0, fc.width, fc.height);
-        fctx.strokeStyle = '#345';
-        fctx.strokeRect(0, 0, fc.width, fc.height);
+        fctx.clearRect(0, 0, fc.width, fc.height);
+        if (!vid) {
+          // No real video to show underneath (local file/device
+          // source) -- fall back to the old blank spatial-context box.
+          fctx.fillStyle = '#111';
+          fctx.fillRect(0, 0, fc.width, fc.height);
+          fctx.strokeStyle = '#345';
+          fctx.strokeRect(0, 0, fc.width, fc.height);
+        }
         if (d.fovea_cx !== undefined) {
           const frac = d.fovea_fraction || 0.35;
           const bw = fc.width * frac, bh = fc.height * frac;
