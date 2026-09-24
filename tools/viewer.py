@@ -177,12 +177,16 @@ PAGE = """<!doctype html>
           setTimeout(tick, 2000);
           return;
         }
+        const watchingName = d.clip_name || d.clip || '';
+        const watchingLive = d.is_live
+          ? ` <a href="${d.clip}" target="_blank" rel="noopener" style="color:#4fa">(live &#8599;)</a>`
+          : '';
         el.innerHTML = `
           <div><span class="label">generation:</span> ${d.generation}</div>
           <div><span class="label">best_fitness:</span> ${d.best_fitness}</div>
           <div><span class="label">response:</span> ${d.response}</div>
           <div><span class="label">habituation:</span> ${d.habituation_exposure}</div>
-          <div><span class="label">clip:</span> ${d.clip || ''}</div>
+          <div><span class="label">watching:</span> ${watchingName}${watchingLive}</div>
         `;
 
         if (d.grid && d.grid_shape) {

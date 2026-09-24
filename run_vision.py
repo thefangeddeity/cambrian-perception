@@ -131,6 +131,22 @@ LIVE_SOURCES = [
 ]
 
 
+def _clip_display_name(source: str, clip_path: str) -> str:
+    """
+    A short, human-readable label for whatever's actually being
+    watched right now -- User: "make sure display page shows what it's
+    watching." For live mode this is the curated name from
+    LIVE_SOURCES (e.g. "cat_livestream"), not the raw URL; for a local
+    file it's the filename without extension.
+    """
+    if source == "live":
+        for name, url in LIVE_SOURCES:
+            if url == clip_path:
+                return name
+        return clip_path
+    return Path(clip_path).stem
+
+
 def _resolve_live_url(watch_url: str) -> str:
     """
     Resolves a live stream's watch page to the real, currently-
@@ -292,6 +308,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
         print(f"Resolving live stream: {clip_path}")
         load_source = _resolve_live_url(clip_path)
 
+    clip_name = _clip_display_name(source, clip_path)
+
     print(f"Loading real frames from {clip_path!r} into memory (never written to disk)...")
     frames = list(video_source.read_frames(load_source, stride=2, max_frames=600))
     print(f"  {len(frames)} frames loaded (clip {clip_index + 1}/{len(clips)}).")
@@ -388,6 +406,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
             "response": round(live_info["last_response"], 4),
             "habituation_exposure": round(habituation.exposure, 4),
             "clip": clip_path,
+            # Human-readable label + whether it's a real live stream
+            # right now, for the viewer -- User: "make sure display
+            # page shows what it's watching."
+            "clip_name": clip_name,
+            "is_live": source == "live",
             "grid": [round(x, 4) for x in live_info["grid"]],
             "grid_shape": live_info["grid_shape"],
             # The CURRENT ACCEPTED genome's own tree structure (not
