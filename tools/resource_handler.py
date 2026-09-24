@@ -97,6 +97,9 @@ def _write_json_atomic(path: Path, data) -> None:
     temp.replace(path)
 
 
+_DURATION_SUFFIXES = {"us": 1e-6, "ms": 1e-3, "s": 1.0, "min": 60.0}
+
+
 def _current_quota_pct() -> int:
     result = subprocess.run(
         ["systemctl", "show", SERVICE_NAME, "-p", "CPUQuotaPerSecUSec", "--value"],
@@ -105,9 +108,18 @@ def _current_quota_pct() -> int:
     value = result.stdout.strip()
     if value in ("", "infinity"):
         return MAX_QUOTA_PCT  # unset means unlimited -- treat as already at ceiling
-    # Format is like "150ms" per 1s accounting period == 150%.
-    if value.endswith("ms"):
-        return int(round(float(value[:-2]) / 10.0))
+
+    # Real format, checked live (not assumed): "1.500000s" for a 150%
+    # quota, not "150ms" -- the accounting period is 1 real second, so
+    # the value IN SECONDS is directly the fractional quota (1.5s of
+    # CPU time per 1s wall-clock = 150%). Suffix varies by magnitude
+    # (systemd picks the largest convenient unit), so this converts
+    # whatever real suffix comes back to seconds first rather than
+    # assuming one specific format.
+    for suffix, seconds_per_unit in sorted(_DURATION_SUFFIXES.items(), key=lambda kv: -len(kv[0])):
+        if value.endswith(suffix):
+            number = float(value[: -len(suffix)])
+            return int(round(number * seconds_per_unit * 100.0))
     return MAX_QUOTA_PCT
 
 
