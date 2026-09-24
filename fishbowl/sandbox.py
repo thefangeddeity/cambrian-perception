@@ -17,6 +17,21 @@ STATE_DIR = Path(__file__).resolve().parents[1] / "state"
 EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.json"
 REQUESTS_PATH = STATE_DIR / "requests.json"
 CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
+LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
+
+
+def save_live_status(data: dict) -> None:
+    """
+    A small, frequently-updated snapshot for anything polling this
+    project's real-time state from outside (e.g. HLSLS's broadcast-
+    api, see its own /api/cv-state precedent -- a sibling /api/
+    cambrian-state route reads this file, never reaches into this
+    process). Only ever derived numbers (fovea box, response
+    magnitude, current fitness) -- same no-raw-frames boundary as
+    everything else here, and cambrian-perception itself never opens
+    a socket to serve this; something else reads the file.
+    """
+    _write_json_atomic(LIVE_STATUS_PATH, data)
 
 
 def save_checkpoint(data: dict) -> None:

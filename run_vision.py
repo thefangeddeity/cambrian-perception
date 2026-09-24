@@ -106,15 +106,17 @@ def _list_clips(source: str) -> list[str]:
     return [source]
 
 
-def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount: float) -> tuple[float, dict, np.ndarray, np.ndarray]:
+def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount: float) -> tuple[float, dict, np.ndarray, np.ndarray, dict]:
     """
-    Returns (fitness, breakdown, conspec_signal, loom_signal) -- the
-    caller needs both again after an accept, to actually advance
-    habituation state over the trajectory the organism just really
-    took (see run()'s own comment on why that has to happen AFTER the
-    accept/reject decision, not before it). habituation_discount is
-    read-only here (this generation's current discount, applied to
-    the reward), never mutated by this function.
+    Returns (fitness, breakdown, conspec_signal, loom_signal,
+    live_info) -- live_info is the fovea's own final box position/size
+    and final response value, for sandbox.save_live_status() (see
+    run()); everything else the caller needs again after an accept, to
+    actually advance habituation state over the trajectory the
+    organism just really took (see run()'s own comment on why that has
+    to happen AFTER the accept/reject decision, not before it).
+    habituation_discount is read-only here (this generation's current
+    discount, applied to the reward), never mutated by this function.
     """
     state = fovea.FoveaState()
     retina_vectors = []
@@ -130,11 +132,17 @@ def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount:
         responses.append(response)
         state = fovea.step(state, pan, tilt)
 
+    live_info = {
+        "fovea_cx": state.cx, "fovea_cy": state.cy,
+        "fovea_fraction": fovea.FOVEA_FRACTION,
+        "last_response": responses[-1] if responses else 0.0,
+    }
+
     vectors = np.array(retina_vectors)
     responses = np.array(responses)
 
     if not np.all(np.isfinite(vectors)) or not np.all(np.isfinite(responses)):
-        return float("-inf"), {}, np.zeros(len(frames)), np.zeros(len(frames))
+        return float("-inf"), {}, np.zeros(len(frames)), np.zeros(len(frames)), live_info
 
     signals = reflexes.all_signals(vectors)
     cs = conspec.conspec_signal(vectors)
@@ -156,7 +164,7 @@ def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount:
     fitness -= DEAD_FIELD_PENALTY_WEIGHT * dead_field
     breakdown["dead_field_penalty"] = dead_field
 
-    return fitness, breakdown, cs, signals["loom"]
+    return fitness, breakdown, cs, signals["loom"], live_info
 
 
 def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
@@ -192,7 +200,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
         if checkpoint is not None:
             print("Checkpoint found but n_vars mismatch (retina/fovea shape changed) -- starting fresh.")
         genome = G.random_genome(rng, n_vars=n_vars)
-        best_fitness, _, best_conspec, best_loom = evaluate_genome(genome, frames, habituation.discount)
+        best_fitness, _, best_conspec, best_loom, _ = evaluate_genome(genome, frames, habituation.discount)
         print(f"Initial fitness: {best_fitness:.4f}")
         for c, l in zip(best_conspec, best_loom):
             habituation.observe(conspec_present=c > 0.05, loom_value=l)
@@ -224,7 +232,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
 
         box.note_ceiling(ceiling_reason)
 
-        candidate_fitness, breakdown, candidate_conspec, candidate_loom = evaluate_genome(
+        candidate_fitness, breakdown, candidate_conspec, candidate_loom, live_info = evaluate_genome(
             candidate, frames, habituation.discount,
         )
 
@@ -251,6 +259,21 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
             "margin": margin,
             "habituation_exposure": round(habituation.exposure, 4),
             "habituation_discount": round(habituation.discount, 4),
+            "clip": clip_path,
+        })
+
+        # Real-time-ish snapshot for anything polling from outside
+        # (see HLSLS's own broadcast-api /api/cv-state precedent) --
+        # every generation, not just every 100th checkpoint save; this
+        # is small and cheap, unlike the full checkpoint.
+        sandbox.save_live_status({
+            "generation": box.generation,
+            "best_fitness": round(best_fitness, 4),
+            "fovea_cx": round(live_info["fovea_cx"], 4),
+            "fovea_cy": round(live_info["fovea_cy"], 4),
+            "fovea_fraction": live_info["fovea_fraction"],
+            "response": round(live_info["last_response"], 4),
+            "habituation_exposure": round(habituation.exposure, 4),
             "clip": clip_path,
         })
 
