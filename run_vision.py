@@ -318,6 +318,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
             "clip": clip_path,
             "grid": [round(x, 4) for x in live_info["grid"]],
             "grid_shape": live_info["grid_shape"],
+            # The CURRENT ACCEPTED genome's own tree structure (not
+            # the just-tried candidate's, even on a rejected
+            # generation) -- `genome` only ever changes on an accept,
+            # so this is always "its real brain right now." Small by
+            # construction: each channel is capped at max_tree_nodes
+            # (60), so all three trees together are at most ~180
+            # small nodes -- a few KB, cheap enough to include every
+            # generation rather than gating it.
+            "trees": genome.to_dict()["trees"],
         })
 
         if box.generation % 25 == 0:

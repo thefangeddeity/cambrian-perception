@@ -25,7 +25,25 @@ from .retina import GRID, frame_to_vector
 FOVEA_FRACTION = 0.35  # fovea window is this fraction of the full
 # frame's width/height -- big enough to hold real content, small
 # enough that covering the whole scene actually requires moving.
-MAX_STEP = 0.12  # max fraction-of-frame the center can move per frame
+
+# Real correction, User: "Curiosity and large saccades should evolve,
+# not be forced." MAX_STEP used to be 0.12 -- small enough that NO
+# possible pan/tilt tree output could ever produce a real saccade (a
+# large, fast, ballistic jump, as opposed to smooth pursuit -- both
+# real eye-movement modes, which one gets used is real behavior, not
+# something to hand-pick). Because step() below already squashes the
+# raw tree output through tanh before scaling by MAX_STEP, the OLD
+# small constant meant every possible genome, no matter how it
+# evolved, was structurally capped at the same tiny step -- the
+# genome had no path to ever discover large movements, regardless of
+# whether that would have been fitness-beneficial. Raised to exceed
+# the full reachable range in one step (reachable width is 1 -
+# FOVEA_FRACTION); the REAL constraint that remains is step()'s own
+# final clip to stay inside the frame -- a genuine physical
+# necessity, not a behavioral-style choice. Whether movement ends up
+# smooth-small or saccade-large is now something the pan/tilt trees'
+# OWN evolved output magnitude actually determines.
+MAX_STEP = 1.0
 
 
 @dataclass
