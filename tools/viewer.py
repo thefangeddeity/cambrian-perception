@@ -61,7 +61,77 @@ PAGE = """<!doctype html>
     </div>
     <div class="stats" id="stats"></div>
   </div>
+  <div class="sub" style="margin-top:24px;">its brain -- the current ACCEPTED genome's own trees (response / pan / tilt), not a rejected candidate's</div>
+  <div class="row" id="trees"></div>
   <script>
+    function nodeLabel(n) {
+      if (n.kind === 'var') return 'x' + n.index;
+      if (n.kind === 'const') return n.value.toFixed(2);
+      return n.op;
+    }
+    function layout(n, depth, order) {
+      // order: mutable {next: int} counter, in-order leaf position.
+      if (!n.children || n.children.length === 0) {
+        const x = order.next++;
+        return { node: n, depth, x, children: [] };
+      }
+      const kids = n.children.map(c => layout(c, depth + 1, order));
+      const x = kids.reduce((s, k) => s + k.x, 0) / kids.length;
+      return { node: n, depth, x, children: kids };
+    }
+    function drawTree(ctx, laid, maxDepth, leafCount, w, h) {
+      const xStep = w / Math.max(1, leafCount + 1);
+      const yStep = h / Math.max(1, maxDepth + 1);
+      function pos(l) { return [(l.x + 1) * xStep, (l.depth + 1) * yStep]; }
+      function walk(l) {
+        const [px, py] = pos(l);
+        for (const c of l.children) {
+          const [cx, cy] = pos(c);
+          ctx.strokeStyle = '#345';
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, cy); ctx.stroke();
+          walk(c);
+        }
+      }
+      walk(laid);
+      function drawNodes(l) {
+        const [x, y] = pos(l);
+        ctx.fillStyle = l.node.kind === 'op' ? '#0a2a1a' : '#1a1a2a';
+        ctx.strokeStyle = '#4fa';
+        ctx.beginPath(); ctx.arc(x, y, 16, 0, 7); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#7fd4ff';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(nodeLabel(l.node), x, y);
+        for (const c of l.children) drawNodes(c);
+      }
+      drawNodes(laid);
+    }
+    function maxDepthOf(l) { return l.children.length ? 1 + Math.max(...l.children.map(maxDepthOf)) : 0; }
+
+    function renderTrees(trees) {
+      const container = document.getElementById('trees');
+      container.innerHTML = '';
+      for (const name of ['response', 'pan', 'tilt']) {
+        const tree = trees[name];
+        if (!tree) continue;
+        const wrap = document.createElement('div');
+        const label = document.createElement('div');
+        label.className = 'sub';
+        label.textContent = name;
+        wrap.appendChild(label);
+        const canvas = document.createElement('canvas');
+        canvas.width = 260; canvas.height = 160;
+        wrap.appendChild(canvas);
+        container.appendChild(wrap);
+
+        const order = { next: 0 };
+        const laid = layout(tree, 0, order);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawTree(ctx, laid, maxDepthOf(laid), Math.max(1, order.next), canvas.width, canvas.height);
+      }
+    }
+
     async function tick() {
       let el = document.getElementById('stats');
       try {
@@ -109,6 +179,10 @@ PAGE = """<!doctype html>
           fctx.strokeStyle = '#4fa';
           fctx.lineWidth = 2;
           fctx.strokeRect(bx, by, bw, bh);
+        }
+
+        if (d.trees) {
+          renderTrees(d.trees);
         }
       } catch (e) {
         el.innerHTML = '<div class="stale">error polling /state</div>';
