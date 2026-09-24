@@ -60,6 +60,11 @@ PAGE = """<!doctype html>
      stores, or transmits a real frame either way, same no-raw-frames
      boundary as everywhere else, just satisfied by a completely
      different, browser-side mechanism this time. */
+  /* User: "Allow that long-ass explanation to wrap lol" -- flex items
+     don't wrap text by default unless width-constrained; this label
+     was stretching the whole panel across the page in one line
+     instead of wrapping above its 320px-wide video panel. */
+  #fovea-label { max-width: 320px; }
   .video-wrap { position: relative; width: 320px; height: 180px; }
   .video-wrap iframe { display: block; width: 100%; height: 100%; border: 1px solid #234; }
   .fovea-overlay { position: absolute; top: 0; left: 0; pointer-events: none; border: none !important; }
