@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Downloaded curriculum footage -- large binaries, fetched fresh by
+# tools/fetch_curriculum_videos.py, never something to commit. Raw
+# frames are never persisted at all (see README's fishbowl boundary);
+# these are the short curated source clips themselves, not organism
+# output.
+media/
