@@ -147,18 +147,17 @@ def _dead_field_penalty(signals: dict[str, np.ndarray]) -> float:
 
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi")
 
-# User: "switch it to watch actual live feed, not local cache; I want a
-# stimulus-rich feed." The same real, curated, long-running public
-# streams tools/fetch_curriculum_videos.py already vetted -- but the
-# stage3_loom pair specifically (already the "more action" tier in
-# that curriculum staging), not the calmer stage1 feeder-cam, since
-# "stimulus-rich" is the explicit ask here. Watched LIVE (resolved
-# fresh every run via _resolve_live_url below), never downloaded --
-# genuinely different real content every restart instead of the same
-# cached 90s loop replaying forever.
+# User: "Change training feed to this actual live feed with no people
+# or picture-in-picture" (2026-09-24, replacing the earlier
+# cat_livestream/pixcams_wildlife pair). Confirmed live via yt-dlp
+# metadata before wiring in (title: "Kitten Rescue Cat Cam powered by
+# EXPLORE.org", is_live=True) -- a single real, established source, no
+# on-screen people and no compositing overlay to confuse the world-
+# level reflex signals with something that isn't real scene content.
+# Watched LIVE (resolved fresh every run via _resolve_live_url below),
+# never downloaded -- genuinely different real content every restart.
 LIVE_SOURCES = [
-    ("cat_livestream", "https://www.youtube.com/watch?v=08_mWdxig2A"),
-    ("pixcams_wildlife", "https://www.youtube.com/watch?v=XfNhPa26fP8"),
+    ("kitten_rescue_cat_cam", "https://www.youtube.com/watch?v=-m_nQT62B4Y"),
 ]
 
 
