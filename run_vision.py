@@ -63,6 +63,34 @@ DEAD_FIELD_WINDOW = 10
 DEAD_FIELD_PENALTY_WEIGHT = 1.0
 
 
+# Curiosity -- User: "I don't see it 'looking' sideways, no curiosity
+# yet?" Confirmed by real data (evolution_log.json's own breakdown
+# keys): nothing in the fitness function ever rewarded WHERE the
+# fovea goes, only how well the response correlates with reflex
+# signals wherever it already happened to be sitting. This is
+# deliberately separate from the earlier-discussed resolution-growth
+# "curiosity" (a different, still-queued idea) -- this one is real,
+# simple, count-based exploration: reward for covering distinct
+# regions of the reachable pan/tilt space over a run, not just for
+# reacting well to whatever's already in view. Same general shape as
+# count-based exploration bonuses in real intrinsic-motivation RL
+# literature, kept deliberately simple here (coverage fraction of a
+# coarse grid, not a full novelty model).
+CURIOSITY_GRID = 5
+CURIOSITY_WEIGHT = 0.75
+
+
+def _curiosity_score(positions: list[tuple[float, float]]) -> float:
+    if not positions:
+        return 0.0
+    visited = set()
+    for cx, cy in positions:
+        cell = (min(CURIOSITY_GRID - 1, int(cx * CURIOSITY_GRID)),
+                min(CURIOSITY_GRID - 1, int(cy * CURIOSITY_GRID)))
+        visited.add(cell)
+    return len(visited) / float(CURIOSITY_GRID * CURIOSITY_GRID)
+
+
 def _dead_field_penalty(signals: dict[str, np.ndarray]) -> float:
     activity = signals["optomotor"] + signals["luminance_change"]
     dead = activity < DEAD_FIELD_ACTIVITY_THRESHOLD
@@ -121,10 +149,12 @@ def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount:
     state = fovea.FoveaState()
     retina_vectors = []
     responses = []
+    positions = []
 
     for frame in frames:
         v = fovea.extract(frame, state)
         retina_vectors.append(v)
+        positions.append((state.cx, state.cy))
         vb = v[None, :]
         response = float(g.evaluate("response", vb)[0])
         pan = float(g.evaluate("pan", vb)[0])
@@ -166,6 +196,10 @@ def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount:
     fitness += CONSPEC_WEIGHT * discounted_drive
     breakdown["conspec_drive"] = discounted_drive
     breakdown["loom_max"] = float(signals["loom"].max())
+
+    curiosity = _curiosity_score(positions)
+    fitness += CURIOSITY_WEIGHT * curiosity
+    breakdown["curiosity"] = curiosity
 
     dead_field = _dead_field_penalty(signals)
     fitness -= DEAD_FIELD_PENALTY_WEIGHT * dead_field
