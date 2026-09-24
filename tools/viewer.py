@@ -35,16 +35,21 @@ PAGE = """<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cambrian-perception -- live viewer</title>
 <style>
-  body { background: #0a0e14; color: #7fd4ff; font-family: monospace; padding: 24px; }
+  body { background: #0a0e14; color: #7fd4ff; font-family: monospace; padding: 16px; }
   h1 { font-size: 15px; font-weight: normal; color: #4fa; margin-bottom: 4px; }
   .sub { color: #567; font-size: 12px; margin-bottom: 20px; }
-  .row { display: flex; gap: 32px; align-items: flex-start; }
-  canvas { image-rendering: pixelated; border: 1px solid #234; }
+  .row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  canvas { image-rendering: pixelated; border: 1px solid #234; max-width: 100%; height: auto; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
   .stale { color: #f66; }
+  @media (max-width: 480px) {
+    body { padding: 10px; }
+    .row { gap: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -81,7 +86,14 @@ PAGE = """<!doctype html>
     }
     function drawTree(ctx, laid, maxDepth, leafCount, w, h) {
       const xStep = w / Math.max(1, leafCount + 1);
-      const yStep = h / Math.max(1, maxDepth + 1);
+      // maxDepth+2, not maxDepth+1 -- there are maxDepth+1 distinct
+      // depth values (0..maxDepth), and the +1 slot pads BOTH edges
+      // the same way xStep's own leafCount+1 already does for x.
+      // Real bug, caught from a live screenshot: the old maxDepth+1
+      // put the deepest row's y exactly AT h (the canvas's bottom
+      // edge), so half of every leaf circle and its label rendered
+      // outside the canvas -- padded on top only, clipped on bottom.
+      const yStep = h / Math.max(1, maxDepth + 2);
       function pos(l) { return [(l.x + 1) * xStep, (l.depth + 1) * yStep]; }
       function walk(l) {
         const [px, py] = pos(l);
