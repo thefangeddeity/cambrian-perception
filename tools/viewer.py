@@ -51,6 +51,21 @@ PAGE = """<!doctype html>
      than the viewport, so only that one panel needs a swipe, not the
      whole page. */
   .tree-panel { max-width: 100%; overflow-x: auto; }
+  /* Fovea position used to be its own full-size canvas -- User: "why
+     not draw the fovea position over the retina grid, save space."
+     Direct overlay would be spatially wrong (the grid IS the fovea's
+     own zoomed content, not a bigger scene the box is a region of --
+     see the sub label below), so instead this is a real
+     picture-in-picture inset: same info, a fraction of the footprint,
+     docked in a corner rather than pretending to share one coordinate
+     space with the grid it sits on top of. */
+  .grid-wrap { position: relative; width: 240px; height: 240px; }
+  .fovea-inset {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    background: rgba(10, 14, 20, 0.85);
+  }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
   .stale { color: #f66; }
@@ -65,12 +80,11 @@ PAGE = """<!doctype html>
   <div class="sub">what it's seeing -- a real, live 12x12 luminance grid, not a reconstruction</div>
   <div class="row">
     <div>
-      <div class="sub">retina (grid)</div>
-      <canvas id="grid" width="240" height="240"></canvas>
-    </div>
-    <div>
-      <div class="sub">fovea position (field of view within the frame)</div>
-      <canvas id="fovea" width="240" height="180"></canvas>
+      <div class="sub">retina (grid) and fovea position (field of view within the frame)</div>
+      <div class="grid-wrap">
+        <canvas id="grid" width="240" height="240"></canvas>
+        <canvas id="fovea" class="fovea-inset" width="72" height="72"></canvas>
+      </div>
     </div>
     <div class="stats" id="stats"></div>
   </div>
@@ -226,7 +240,7 @@ PAGE = """<!doctype html>
           const bx = d.fovea_cx * fc.width - bw / 2;
           const by = d.fovea_cy * fc.height - bh / 2;
           fctx.strokeStyle = '#4fa';
-          fctx.lineWidth = 2;
+          fctx.lineWidth = 1.5;  // thinner now that this is a small inset, not a full-size panel
           fctx.strokeRect(bx, by, bw, bh);
         }
 
