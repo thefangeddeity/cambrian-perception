@@ -20,11 +20,15 @@ cambrian-perception.service). Each restart:
     (fishbowl/sandbox.py's save/load_checkpoint -- real long-term
     memory, leveraging Tanzania's disk instead of trying to keep years
     of state in RAM or re-discovering everything each time).
-  - picks the NEXT clip in media/ round-robin (persisted in the
-    checkpoint too) -- one clip per bounded run keeps each run's own
-    accept/reject comparisons fair, while rotating across runs gives
-    real variety over a long lifetime instead of plateauing against
-    one 90-second loop forever.
+  - picks the NEXT source in rotation (persisted in the checkpoint
+    too) -- one clip per bounded run keeps each run's own accept/
+    reject comparisons fair, while rotating across runs gives real
+    variety over a long lifetime instead of plateauing against one
+    90-second loop forever. In "live" mode (source == "live") this
+    rotates across LIVE_SOURCES and RE-RESOLVES the real live stream
+    fresh each run (see _resolve_live_url) -- genuinely new real
+    content every restart, never a cached/downloaded file, matching
+    the user's own "watch actual live feed, not local cache" correction.
 
 Usage:
     python3 run_vision.py <media_dir_or_single_file> [--generations N] [--seconds S]
@@ -33,6 +37,7 @@ Usage:
 import argparse
 import math
 import random
+import subprocess
 import sys
 from pathlib import Path
 
@@ -111,6 +116,59 @@ def _dead_field_penalty(signals: dict[str, np.ndarray]) -> float:
 
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi")
 
+# User: "switch it to watch actual live feed, not local cache; I want a
+# stimulus-rich feed." The same real, curated, long-running public
+# streams tools/fetch_curriculum_videos.py already vetted -- but the
+# stage3_loom pair specifically (already the "more action" tier in
+# that curriculum staging), not the calmer stage1 feeder-cam, since
+# "stimulus-rich" is the explicit ask here. Watched LIVE (resolved
+# fresh every run via _resolve_live_url below), never downloaded --
+# genuinely different real content every restart instead of the same
+# cached 90s loop replaying forever.
+LIVE_SOURCES = [
+    ("cat_livestream", "https://www.youtube.com/watch?v=08_mWdxig2A"),
+    ("pixcams_wildlife", "https://www.youtube.com/watch?v=XfNhPa26fP8"),
+]
+
+
+def _resolve_live_url(watch_url: str) -> str:
+    """
+    Resolves a live stream's watch page to the real, currently-
+    playable direct URL via yt-dlp's `-g` (print URL, never
+    downloads -- no file ever touches disk, unlike
+    fetch_curriculum_videos.py's own use of yt-dlp). Deliberately
+    lives HERE, in run_vision.py, not inside fishbowl/ -- the exact
+    same boundary fetch_curriculum_videos.py already draws for
+    itself: a fixed, human-configured piece of infrastructure (which
+    stream to watch), not the organism's own evolved logic, so the
+    README's "no subprocess" rule (which is scoped to fishbowl/
+    specifically) doesn't apply to this call.
+
+    Re-resolved fresh at the start of every bounded run, never
+    cached -- a resolved CDN URL expires after a while regardless, and
+    the whole point of watching live is a genuinely fresh window every
+    run rather than the same footage replayed.
+
+    Uses the yt-dlp installed in the SAME venv as this process
+    (Path(sys.executable).parent / "yt-dlp") rather than relying on
+    PATH -- systemd's ExecStart invokes the venv's python directly
+    without activating the venv, so plain "yt-dlp" would not resolve
+    under systemd even though it works fine from an interactive shell.
+    """
+    yt_dlp = Path(sys.executable).parent / "yt-dlp"
+    if not yt_dlp.exists():
+        yt_dlp = Path("yt-dlp")  # fall back to PATH (e.g. local dev run)
+    result = subprocess.run(
+        [str(yt_dlp), "-g", "-f", "best[height<=480]/best", watch_url],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Could not resolve live stream {watch_url!r}: {result.stderr.strip()[-500:]}")
+    direct_url = result.stdout.strip().splitlines()[0]
+    if not direct_url:
+        raise RuntimeError(f"yt-dlp returned no stream URL for {watch_url!r}")
+    return direct_url
+
 
 def _correlate(signal: np.ndarray, response: np.ndarray) -> float:
     if signal.std() < 1e-9 or response.std() < 1e-9:
@@ -120,6 +178,11 @@ def _correlate(signal: np.ndarray, response: np.ndarray) -> float:
 
 
 def _list_clips(source: str) -> list[str]:
+    if source == "live":
+        # Watch-page URLs, not yet resolved -- run() resolves whichever
+        # one is up next to its real direct stream URL right before
+        # loading frames (see _resolve_live_url), never here.
+        return [url for _, url in LIVE_SOURCES]
     path = Path(source)
     if path.is_file():
         return [str(path)]
@@ -220,8 +283,17 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
     clip_index = clip_index % len(clips)
     clip_path = clips[clip_index]
 
+    # A "live" source list holds watch-page URLs, not playable ones --
+    # resolve to the real, currently-live direct stream right before
+    # loading, fresh every run (see _resolve_live_url's own docstring
+    # on why this can't be done once and cached).
+    load_source = clip_path
+    if source == "live":
+        print(f"Resolving live stream: {clip_path}")
+        load_source = _resolve_live_url(clip_path)
+
     print(f"Loading real frames from {clip_path!r} into memory (never written to disk)...")
-    frames = list(video_source.read_frames(clip_path, stride=2, max_frames=600))
+    frames = list(video_source.read_frames(load_source, stride=2, max_frames=600))
     print(f"  {len(frames)} frames loaded (clip {clip_index + 1}/{len(clips)}).")
     if len(frames) < 10:
         print("Not enough real frames to evolve against -- aborting.")
@@ -344,7 +416,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("source", help="a media/ directory of clips, a single file, or a live device (e.g. /dev/video0)")
+    parser.add_argument("source", help="'live' for real live streams (see LIVE_SOURCES), a media/ directory of clips, a single file, or a live device (e.g. /dev/video0)")
     parser.add_argument("--generations", type=int, default=200000)
     parser.add_argument("--seconds", type=float, default=3600.0)
     args = parser.parse_args()

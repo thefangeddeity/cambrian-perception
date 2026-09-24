@@ -48,8 +48,12 @@ do it.
   anywhere in this codebase. The block-tree interpreter in `blocks.py`
   is the only thing that ever "runs" an organism-authored program, and
   it only ever does arithmetic on numpy arrays.
-- No network access beyond reading its own configured local video
-  source — no arbitrary host is ever reachable.
+- No network access beyond reading its own configured video source —
+  a fixed, human-curated list of URLs/devices (`run_vision.py`'s
+  `LIVE_SOURCES`, or a local device path), never anything the
+  organism itself chooses or discovers. No arbitrary host is ever
+  reachable, and this is the only network access anywhere in the
+  codebase.
 - No filesystem access beyond `state/`, and only through one
   whitelisted writer (`sandbox.py`'s `_write_json_atomic`).
 - **Raw video frames are never written to disk.** Frames are streamed
@@ -119,11 +123,17 @@ event never habituates the same way.
 
 Real, established, long-running public video sources, staged easiest
 to hardest by how evolutionarily ancient the real reflex is — see
-`tools/fetch_curriculum_videos.py`. Plus Tanzania's own native camera
-feed (facing a low-activity bedroom — lights on/off, a person moving
-through frame) once the curated stages are solid; that source stays
-local to Tanzania and is subject to the strict no-persistence rule
-above without exception.
+`tools/fetch_curriculum_videos.py`. Deployed runs watch these **live**
+(`run_vision.py live` — see its own `LIVE_SOURCES`), resolved fresh
+via `yt-dlp -g` at the start of every bounded run and never downloaded
+or cached to disk — genuinely new real content every restart, not the
+same short loop replaying forever. `fetch_curriculum_videos.py`
+remains for local/offline dev testing against a fixed clip, but is no
+longer what the deployed service watches. Plus Tanzania's own native
+camera feed (facing a low-activity bedroom — lights on/off, a person
+moving through frame) as a future option once the curated stages are
+solid; that source stays local to Tanzania and is subject to the
+strict no-persistence rule above without exception.
 
 ## Repository map
 
@@ -135,7 +145,7 @@ above without exception.
 | `fishbowl/fovea.py`               | Digital pan/tilt |
 | `fishbowl/reflexes.py`            | luminance/optomotor/loom -- fixed, fitness-only |
 | `fishbowl/conspec.py`             | Being-detection drive + habituation |
-| `fishbowl/video_source.py`        | Real frame capture, file or live device |
+| `fishbowl/video_source.py`        | Real frame capture -- file, live device, or resolved live stream URL |
 | `fishbowl/sandbox.py`             | Hard limits, atomic state writes, request log |
 | `fishbowl/task.py`                | The original synthetic sanity-check task |
 | `run_vision.py`                   | Real entry point: evolve against real video |
