@@ -174,8 +174,14 @@ def _resolve_live_url(watch_url: str) -> str:
     yt_dlp = Path(sys.executable).parent / "yt-dlp"
     if not yt_dlp.exists():
         yt_dlp = Path("yt-dlp")  # fall back to PATH (e.g. local dev run)
+    # Video-only, not "best" -- confirmed live via --list-formats: these
+    # streams serve video and audio as SEPARATE adaptive formats, no
+    # muxed format exists at all, so a combined "best[height<=480]"
+    # selector matches nothing and fails outright. We only ever read
+    # frames (see video_source.py), so there's no reason to resolve
+    # audio in the first place.
     result = subprocess.run(
-        [str(yt_dlp), "-g", "-f", "best[height<=480]/best", watch_url],
+        [str(yt_dlp), "-g", "-f", "bestvideo[height<=480][ext=mp4]/bestvideo[height<=480]/bestvideo", watch_url],
         capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:
