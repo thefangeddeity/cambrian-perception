@@ -151,13 +151,22 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi")
 # or picture-in-picture" (2026-09-24, replacing the earlier
 # cat_livestream/pixcams_wildlife pair). Confirmed live via yt-dlp
 # metadata before wiring in (title: "Kitten Rescue Cat Cam powered by
-# EXPLORE.org", is_live=True) -- a single real, established source, no
+# EXPLORE.org", is_live=True) -- a real, established source, no
 # on-screen people and no compositing overlay to confuse the world-
 # level reflex signals with something that isn't real scene content.
 # Watched LIVE (resolved fresh every run via _resolve_live_url below),
 # never downloaded -- genuinely different real content every restart.
+#
+# User: "Add this one to our library, too... in case the other goes
+# down" -- a second entry from the same EXPLORE.org family, also
+# confirmed live via yt-dlp metadata before adding (title: "Kitten
+# Rescue - Baby Kittens Cam powered by EXPLORE.org", is_live=True).
+# Rotates with the first across restarts (see run()'s clip_index);
+# also means a clip going offline for one restart doesn't stall the
+# whole service -- the next restart just tries the other one.
 LIVE_SOURCES = [
     ("kitten_rescue_cat_cam", "https://www.youtube.com/watch?v=-m_nQT62B4Y"),
+    ("kitten_rescue_baby_kittens_cam", "https://www.youtube.com/watch?v=gBdqOuhj2P4"),
 ]
 
 
