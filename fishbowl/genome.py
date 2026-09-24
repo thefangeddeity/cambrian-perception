@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 """
-Two-level genome: a task tree (see blocks.py), and the weights that
-decide how the task tree gets mutated. Mutating the weights themselves
--- changing HOW it changes, not just WHAT it's currently trying -- is
-the recursive part this repo exists to watch. See README's "fishbowl
-boundary" for why this is deliberately bounded to two levels plus one
-scalar meta-mutation rate, not unbounded meta-regress.
+Two-level genome: a set of named output trees (see blocks.py), and the
+weights that decide how those trees get mutated. Mutating the weights
+themselves -- changing HOW it changes, not just WHAT it's currently
+trying -- is the recursive part this repo exists to watch. See
+README's "fishbowl boundary" for why this is deliberately bounded to
+two levels plus one scalar meta-mutation rate, not unbounded meta-
+regress.
+
+Multiple named trees (not one) as of the foveated-vision design: the
+organism needs more than one output per frame -- a response magnitude
+(scored against the reflex/conspec signals) AND where to move its
+fovea next (pan, tilt) -- see fovea.py. the user's own framing: "we take a
+small frame of Tanzania's feed, a fovea, and replicate pan/tilt
+digitally, so the reflexes can train." All channels share the exact
+same safe block-tree language and mutation machinery; there's no
+separate, less-safe code path for "the action-producing tree" versus
+"the perception tree."
 """
 
 import copy
@@ -17,6 +28,8 @@ import numpy as np
 from . import blocks
 
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree")
+
+DEFAULT_CHANNELS = ("response", "pan", "tilt")
 
 # Arity groups -- mutate_op only ever swaps an op for one of the SAME
 # arity, so a mutation can never change how many children a node needs
@@ -43,35 +56,39 @@ def _random_small_tree(rng: random.Random, n_vars: int, max_depth: int = 2) -> b
     return blocks.Node(kind="op", op=op, children=children)
 
 
-def random_genome(rng: random.Random, n_vars: int = 3) -> "Genome":
+def random_genome(rng: random.Random, n_vars: int = 3, channels: tuple[str, ...] = DEFAULT_CHANNELS) -> "Genome":
     # n_vars: how many named input slots a leaf can reference -- 3 for
-    # the original synthetic task, far larger (one per "retina" cell)
-    # for the vision task. Stored on the genome itself so mutation
-    # later knows the valid range without needing it passed around
-    # separately -- a genome built for a 144-cell retina should never
-    # accidentally grow a var reference that only makes sense for a
-    # 3-variable task, or vice versa.
-    tree = _random_small_tree(rng, n_vars, max_depth=3)
+    # the original synthetic task, one per retina/fovea cell for the
+    # vision task. Stored on the genome itself so mutation later knows
+    # the valid range without needing it passed around separately.
+    trees = {name: _random_small_tree(rng, n_vars, max_depth=3) for name in channels}
     weights = {name: 1.0 / len(TASK_OPS) for name in TASK_OPS}
-    return Genome(task_tree=tree, mutation_weights=weights, meta_mutation_rate=0.15, n_vars=n_vars)
+    return Genome(trees=trees, mutation_weights=weights, meta_mutation_rate=0.15, n_vars=n_vars)
 
 
 class Genome:
-    def __init__(self, task_tree: blocks.Node, mutation_weights: dict[str, float], meta_mutation_rate: float, n_vars: int = 3):
-        self.task_tree = task_tree
+    def __init__(self, trees: dict[str, blocks.Node], mutation_weights: dict[str, float], meta_mutation_rate: float, n_vars: int = 3):
+        self.trees = trees
         self.mutation_weights = mutation_weights
         self.meta_mutation_rate = meta_mutation_rate
         self.n_vars = n_vars
 
+    @property
+    def channels(self) -> tuple[str, ...]:
+        return tuple(self.trees.keys())
+
     def clone(self) -> "Genome":
         return Genome(
-            copy.deepcopy(self.task_tree),
+            {name: copy.deepcopy(tree) for name, tree in self.trees.items()},
             dict(self.mutation_weights),
             self.meta_mutation_rate,
             self.n_vars,
         )
 
-    def _all_nodes(self) -> list[blocks.Node]:
+    def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
+        return self.trees[name].evaluate(inputs)
+
+    def _all_nodes(self, channel: str) -> list[blocks.Node]:
         out = []
 
         def walk(node):
@@ -79,24 +96,24 @@ class Genome:
             for child in node.children:
                 walk(child)
 
-        walk(self.task_tree)
+        walk(self.trees[channel])
         return out
 
-    def _op_nodes(self) -> list[blocks.Node]:
-        return [n for n in self._all_nodes() if n.kind == "op"]
+    def _op_nodes(self, channel: str) -> list[blocks.Node]:
+        return [n for n in self._all_nodes(channel) if n.kind == "op"]
 
-    # -- task-tree mutation operators --------------------------------
+    # -- per-channel tree-mutation operators ---------------------------
 
-    def _mutate_const(self, rng: random.Random) -> bool:
-        consts = [n for n in self._all_nodes() if n.kind == "const"]
+    def _mutate_const(self, rng: random.Random, channel: str) -> bool:
+        consts = [n for n in self._all_nodes(channel) if n.kind == "const"]
         if not consts:
             return False
         node = rng.choice(consts)
         node.value = float(np.clip(node.value + rng.gauss(0.0, 0.5), -blocks.MAX_CONST, blocks.MAX_CONST))
         return True
 
-    def _mutate_op(self, rng: random.Random) -> bool:
-        ops = self._op_nodes()
+    def _mutate_op(self, rng: random.Random, channel: str) -> bool:
+        ops = self._op_nodes(channel)
         if not ops:
             return False
         node = rng.choice(ops)
@@ -107,10 +124,11 @@ class Genome:
         node.op = rng.choice(candidates)
         return True
 
-    def _grow(self, rng: random.Random, max_nodes: int, max_depth: int) -> bool:
-        if self.task_tree.node_count() >= max_nodes or self.task_tree.depth() >= max_depth:
+    def _grow(self, rng: random.Random, channel: str, max_nodes: int, max_depth: int) -> bool:
+        tree = self.trees[channel]
+        if tree.node_count() >= max_nodes or tree.depth() >= max_depth:
             return False
-        leaves = [n for n in self._all_nodes() if n.kind != "op"]
+        leaves = [n for n in self._all_nodes(channel) if n.kind != "op"]
         if not leaves:
             return False
         target = rng.choice(leaves)
@@ -119,9 +137,10 @@ class Genome:
         target.index, target.value = replacement.index, replacement.value
         return True
 
-    def _shrink(self, rng: random.Random) -> bool:
-        ops = self._op_nodes()
-        if not ops or self.task_tree.kind != "op":
+    def _shrink(self, rng: random.Random, channel: str) -> bool:
+        ops = self._op_nodes(channel)
+        tree = self.trees[channel]
+        if not ops or tree.kind != "op":
             return False
         # Only ever shrinks a node whose parent can safely take its
         # place -- picking the whole tree's root out of ops (if it's
@@ -132,42 +151,53 @@ class Genome:
         if not node.children:
             return False
         replacement = rng.choice(node.children)
-        if node is self.task_tree:
-            self.task_tree = copy.deepcopy(replacement)
+        if node is tree:
+            self.trees[channel] = copy.deepcopy(replacement)
         else:
             node.kind, node.op = replacement.kind, replacement.op
             node.index, node.value = replacement.index, replacement.value
             node.children = replacement.children
         return True
 
-    def _reroll_subtree(self, rng: random.Random) -> bool:
-        nodes = self._all_nodes()
+    def _reroll_subtree(self, rng: random.Random, channel: str) -> bool:
+        nodes = self._all_nodes(channel)
         target = rng.choice(nodes)
         replacement = _random_small_tree(rng, self.n_vars, max_depth=2)
-        if target is self.task_tree:
-            self.task_tree = replacement
+        if target is self.trees[channel]:
+            self.trees[channel] = replacement
         else:
             target.kind, target.op = replacement.kind, replacement.op
             target.index, target.value = replacement.index, replacement.value
             target.children = replacement.children
         return True
 
-    def mutate_task(self, rng: random.Random, max_nodes: int, max_depth: int) -> str:
-        """Picks ONE task-mutation operator, weighted by self.mutation_weights, and applies it in place. Returns the operator name actually applied (or "noop" if the chosen one couldn't apply, e.g. grow at the size ceiling)."""
+    def mutate_task(self, rng: random.Random, max_nodes: int, max_depth: int, channel: str | None = None) -> tuple[str, str]:
+        """
+        Picks a channel (random, if not given) and ONE task-mutation
+        operator for it, weighted by self.mutation_weights -- the same
+        weights govern every channel, not one set per channel, since
+        the interesting thing to watch is whether the genome converges
+        on a mutation STYLE at all, not per-channel bookkeeping.
+        Returns (channel, operator_applied) -- operator is "noop" if
+        the chosen one couldn't apply (e.g. grow at the size ceiling).
+        """
+        if channel is None:
+            channel = rng.choice(self.channels)
+
         names = list(self.mutation_weights.keys())
         probs = np.array([self.mutation_weights[n] for n in names], dtype=float)
         probs = probs / probs.sum()
         choice = rng.choices(names, weights=probs, k=1)[0]
 
         applied = {
-            "mutate_const": lambda: self._mutate_const(rng),
-            "mutate_op": lambda: self._mutate_op(rng),
-            "grow": lambda: self._grow(rng, max_nodes, max_depth),
-            "shrink": lambda: self._shrink(rng),
-            "reroll_subtree": lambda: self._reroll_subtree(rng),
+            "mutate_const": lambda: self._mutate_const(rng, channel),
+            "mutate_op": lambda: self._mutate_op(rng, channel),
+            "grow": lambda: self._grow(rng, channel, max_nodes, max_depth),
+            "shrink": lambda: self._shrink(rng, channel),
+            "reroll_subtree": lambda: self._reroll_subtree(rng, channel),
         }[choice]()
 
-        return choice if applied else "noop"
+        return channel, (choice if applied else "noop")
 
     def mutate_weights(self, rng: random.Random) -> None:
         """
@@ -191,15 +221,17 @@ class Genome:
 
     def to_dict(self) -> dict:
         return {
-            "task_tree": self.task_tree.to_dict(),
+            "trees": {name: tree.to_dict() for name, tree in self.trees.items()},
             "mutation_weights": self.mutation_weights,
             "meta_mutation_rate": self.meta_mutation_rate,
+            "n_vars": self.n_vars,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "Genome":
         return Genome(
-            task_tree=blocks.Node.from_dict(data["task_tree"]),
+            trees={name: blocks.Node.from_dict(t) for name, t in data["trees"].items()},
             mutation_weights=dict(data["mutation_weights"]),
             meta_mutation_rate=float(data["meta_mutation_rate"]),
+            n_vars=int(data.get("n_vars", 3)),
         )
