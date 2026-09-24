@@ -42,7 +42,15 @@ PAGE = """<!doctype html>
   h1 { font-size: 15px; font-weight: normal; color: #4fa; margin-bottom: 4px; }
   .sub { color: #567; font-size: 12px; margin-bottom: 20px; }
   .row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-  canvas { image-rendering: pixelated; border: 1px solid #234; max-width: 100%; height: auto; }
+  canvas { image-rendering: pixelated; border: 1px solid #234; }
+  /* Trees render at their real, honest size (User: "since trees grow
+     downward, page can just show its honest growth and scroll as far
+     down as it grew" -- no shrinking the canvas to fake-fit). This
+     wrapper is what actually adapts to a narrow/mobile screen: it
+     scrolls horizontally WITHIN itself if the real canvas is wider
+     than the viewport, so only that one panel needs a swipe, not the
+     whole page. */
+  .tree-panel { max-width: 100%; overflow-x: auto; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
   .stale { color: #f66; }
@@ -127,6 +135,7 @@ PAGE = """<!doctype html>
         const tree = trees[name];
         if (!tree) continue;
         const wrap = document.createElement('div');
+        wrap.className = 'tree-panel';
         const label = document.createElement('div');
         label.className = 'sub';
         label.textContent = name;
