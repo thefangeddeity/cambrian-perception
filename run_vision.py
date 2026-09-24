@@ -106,6 +106,25 @@ PURSUIT_WEIGHT = 1.0
 SEEK_WEIGHT = 1.0
 SEEK_STRENGTH_THRESHOLD = 0.05  # only scored when something's actually there -- never penalizes absence
 
+# Real movement-cost PENALTY, added 2026-09-24 after the user watched a
+# real deployed genome corner-pin the fovea (land on one saturated
+# jump, then stay there for the rest of the run) instead of gliding.
+# Real animals pay genuine metabolic cost for large/fast eye or head
+# movements -- nothing here cost anything before, so a big, mostly-
+# unjustified jump was exactly as "free" as a small graded one, no
+# counterweight to the tanh/MAX_STEP saturation bias measured
+# empirically in fovea.py's own docstring (39% of random genomes
+# produce a near-maximal step vs. 7% a small one). This does NOT cap
+# or forbid large jumps -- PURSUIT_WEIGHT/SEEK_WEIGHT above can still
+# justify a big move when it's genuinely worth it; it just means an
+# UNJUSTIFIED one no longer costs nothing. Costed on INTENT (the
+# pre-clamp tanh output, see fovea.step's own docstring), not net
+# realized displacement -- a tree that keeps outputting a maximal
+# pan/tilt while already pinned against a wall is still "trying" every
+# frame, real motor effort even though the wall zeroes out its net
+# movement.
+MOVEMENT_COST_WEIGHT = 0.5
+
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
 # drifting into the freezing water behind it. loom is the "scalding"
@@ -350,6 +369,7 @@ def evaluate_genome(
     responses = []
     positions = []
     dxs, dys = [], []  # real fovea movement per frame, for the pursuit reward
+    movement_costs = []  # real motor effort per frame (pre-clamp intent), for the movement-cost penalty
     last_grid = None
     prev_v = np.zeros(N_CELLS)  # no "previous frame" before the first one
     # Real motor-efference-style feedback, User: "Of course feed the
@@ -388,7 +408,7 @@ def evaluate_genome(
         last_grid = v
         prev_v = v
         prev_cx, prev_cy = state.cx, state.cy
-        state = fovea.step(state, pan, tilt)
+        state, intended_dx, intended_dy = fovea.step(state, pan, tilt)
         # The REAL movement that happened (post-clamp), not the raw
         # tree output -- what the pursuit reward below is graded
         # against, since that's what actually reached the world, and
@@ -397,6 +417,14 @@ def evaluate_genome(
         prev_dy = state.cy - prev_cy
         dxs.append(prev_dx)
         dys.append(prev_dy)
+        # The INTENDED (pre-clamp) step, for the movement-cost penalty
+        # below -- deliberately NOT the same value as prev_dx/dy above.
+        # A tree that keeps outputting a maximal pan/tilt while already
+        # pinned against a wall is still "trying" every frame (real
+        # motor effort, even though clamping zeroes out its net
+        # displacement) -- costing intent, not net movement, is what
+        # actually counterbalances the saturated-output bias.
+        movement_costs.append(math.hypot(intended_dx, intended_dy))
 
     live_info = {
         "fovea_cx": state.cx, "fovea_cy": state.cy,
@@ -450,6 +478,10 @@ def evaluate_genome(
     seek = _seek_reward(positions, conspec_peak_cx, conspec_peak_cy, cs)
     fitness += SEEK_WEIGHT * seek
     breakdown["seek_reward"] = seek
+
+    movement_cost = float(np.mean(movement_costs)) if movement_costs else 0.0
+    fitness -= MOVEMENT_COST_WEIGHT * movement_cost
+    breakdown["movement_cost"] = movement_cost
 
     return fitness, breakdown, live_info
 

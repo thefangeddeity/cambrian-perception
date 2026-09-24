@@ -66,7 +66,7 @@ def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
     return frame_to_vector(window)
 
 
-def step(state: FoveaState, pan_output: float, tilt_output: float) -> FoveaState:
+def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[FoveaState, float, float]:
     """
     Applies the genome's own raw pan/tilt tree output as a bounded
     move. tanh squashes an unbounded tree output (blocks.py's Node.
@@ -75,10 +75,20 @@ def step(state: FoveaState, pan_output: float, tilt_output: float) -> FoveaState
     output saturates to "move as far as allowed this frame," never
     further, rather than being clamped in a way that makes large and
     huge outputs indistinguishable in some other, less predictable way.
+
+    Returns (new_state, intended_dx, intended_dy) -- intended_dx/dy are
+    the PRE-CLAMP step (what the tree actually tried to do), for
+    run_vision.py's movement-cost penalty. Real motor effort isn't
+    zero just because a wall stopped the actual displacement -- an
+    isometric push against a stop still costs something -- so cost is
+    measured on INTENT, computed once here (the one place this math
+    already lives), not re-derived from the realized post-clamp
+    position change tracked separately for the pursuit reward and
+    motor-efference feedback.
     """
     dx = float(np.tanh(pan_output)) * MAX_STEP
     dy = float(np.tanh(tilt_output)) * MAX_STEP
     half = FOVEA_FRACTION / 2.0
     new_cx = float(np.clip(state.cx + dx, half, 1.0 - half))
     new_cy = float(np.clip(state.cy + dy, half, 1.0 - half))
-    return FoveaState(cx=new_cx, cy=new_cy)
+    return FoveaState(cx=new_cx, cy=new_cy), dx, dy
