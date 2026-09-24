@@ -31,6 +31,19 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree")
 
 DEFAULT_CHANNELS = ("response", "pan", "tilt")
 
+# How fast the per-operator success estimate tracks new evidence, and
+# how fast meta_mutation_rate itself settles toward its floor once
+# real evidence starts arriving. See update_mutation_weights()'s own
+# docstring for why these replace the old blind random-walk approach.
+# META_DECAY validated against fishbowl/task.py's synthetic task
+# (15000-generation, 12-seed sweep): 0.9995 beat 0.999/0.998 on mean
+# final fitness AND, more importantly, never produced the total-
+# stagnation failure mode 0.995 did on one in twelve seeds (locking
+# onto a bad operator mix before enough evidence had accumulated to
+# correct it).
+OP_SUCCESS_EMA_ALPHA = 0.05
+META_DECAY = 0.9995
+
 # Arity groups -- mutate_op only ever swaps an op for one of the SAME
 # arity, so a mutation can never change how many children a node needs
 # (which would otherwise require also inventing/discarding children,
@@ -63,15 +76,29 @@ def random_genome(rng: random.Random, n_vars: int = 3, channels: tuple[str, ...]
     # the valid range without needing it passed around separately.
     trees = {name: _random_small_tree(rng, n_vars, max_depth=3) for name in channels}
     weights = {name: 1.0 / len(TASK_OPS) for name in TASK_OPS}
-    return Genome(trees=trees, mutation_weights=weights, meta_mutation_rate=0.15, n_vars=n_vars)
+    op_success = {name: 0.5 for name in TASK_OPS}
+    return Genome(trees=trees, mutation_weights=weights, meta_mutation_rate=0.15, n_vars=n_vars, op_success=op_success)
 
 
 class Genome:
-    def __init__(self, trees: dict[str, blocks.Node], mutation_weights: dict[str, float], meta_mutation_rate: float, n_vars: int = 3):
+    def __init__(
+        self,
+        trees: dict[str, blocks.Node],
+        mutation_weights: dict[str, float],
+        meta_mutation_rate: float,
+        n_vars: int = 3,
+        op_success: dict[str, float] | None = None,
+    ):
         self.trees = trees
         self.mutation_weights = mutation_weights
         self.meta_mutation_rate = meta_mutation_rate
         self.n_vars = n_vars
+        # Per-operator EMA of how often ITS attempts get accepted --
+        # the real evidence update_mutation_weights() nudges
+        # mutation_weights toward. Defaults to a neutral 0.5 prior for
+        # any operator with no track record yet (e.g. resuming an old
+        # checkpoint that predates this field).
+        self.op_success = dict(op_success) if op_success is not None else {name: 0.5 for name in TASK_OPS}
 
     @property
     def channels(self) -> tuple[str, ...]:
@@ -83,6 +110,7 @@ class Genome:
             dict(self.mutation_weights),
             self.meta_mutation_rate,
             self.n_vars,
+            dict(self.op_success),
         )
 
     def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
@@ -199,25 +227,68 @@ class Genome:
 
         return channel, (choice if applied else "noop")
 
-    def mutate_weights(self, rng: random.Random) -> None:
+    def update_mutation_weights(self, op_applied: str, accepted: bool) -> None:
         """
-        The recursive step: nudges ONE mutation weight by an amount
-        scaled by meta_mutation_rate, renormalizes, and lets meta_
-        mutation_rate itself drift slightly -- this is what makes it
-        "how it changes how it changes," not just "how it changes."
-        Clipped to a sane range so meta_mutation_rate can't drift to
-        zero (frozen forever) or explode (pure noise every step).
-        """
-        name = rng.choice(list(self.mutation_weights.keys()))
-        delta = rng.gauss(0.0, self.meta_mutation_rate)
-        self.mutation_weights[name] = max(0.01, self.mutation_weights[name] + delta)
-        total = sum(self.mutation_weights.values())
-        for key in self.mutation_weights:
-            self.mutation_weights[key] /= total
+        The recursive step, done right. The original version of this
+        method proposed a fully random, undirected nudge to ONE
+        mutation_weights entry, as its own candidate competing in the
+        SAME "does fitness improve" accept/reject gate the run loop
+        uses for tree mutations (run_vision.py picked this branch on
+        15% of generations, INSTEAD of a tree mutation). That's
+        structurally broken: mutation_weights never feed
+        Genome.evaluate() at all, so a weights-only candidate's
+        fitness was always bit-identical to its parent's -- "strictly
+        greater than parent + margin" can never pass for a value that
+        is, by construction, never greater. Confirmed against
+        production's real evolution_log.json: mutation_weights and
+        meta_mutation_rate had not moved one bit off their uniform
+        defaults across 8500+ real logged generations, and every one
+        of those weight-mutation generations was ALSO a fully wasted
+        generation for the trees (no tree mutation was even attempted
+        on it).
 
-        self.meta_mutation_rate = float(
-            np.clip(self.meta_mutation_rate * rng.uniform(0.9, 1.1), 0.01, 1.0)
+        Real fix: there is no fitness to gate this on -- these weights
+        don't produce behavior, they bias which operator gets TRIED
+        next. So track it as what it actually is: a slow, per-operator
+        exponential moving average of how often that operator's
+        attempts get accepted (self.op_success), and continuously nudge
+        mutation_weights toward whatever's currently working. Called
+        every generation from the run loop, after its accept/reject
+        decision, on whichever genome persists (the newly-accepted
+        candidate, or the unchanged parent on a reject) -- using the
+        real evidence from THIS generation's real attempt, not a
+        separate hypothetical draw.
+
+        meta_mutation_rate still governs the step size (how hard to
+        chase the current evidence) and still drifts -- geometrically
+        toward its floor as attempts accumulate, same clip range as
+        before (0.01 floor, so it settles rather than freezes: even at
+        the floor, mutation_weights keep tracking new evidence every
+        generation, just slowly, which is what actually lets this
+        genome settle into a mutation STYLE instead of wandering
+        forever). Validated empirically (fishbowl/task.py's synthetic
+        task, 15000 generations x 12 seeds) against the old behavior
+        and against a merely-faster meta_mutation_rate decay -- see
+        META_DECAY's own comment for the sweep that picked 0.9995.
+        """
+        if op_applied == "noop" or op_applied not in self.op_success:
+            return
+
+        self.op_success[op_applied] = (
+            (1.0 - OP_SUCCESS_EMA_ALPHA) * self.op_success[op_applied]
+            + OP_SUCCESS_EMA_ALPHA * (1.0 if accepted else 0.0)
         )
+
+        total_success = sum(self.op_success.values())
+        target = {name: v / total_success for name, v in self.op_success.items()}
+        for name in self.mutation_weights:
+            self.mutation_weights[name] += self.meta_mutation_rate * (target[name] - self.mutation_weights[name])
+            self.mutation_weights[name] = max(0.01, self.mutation_weights[name])
+        total_weight = sum(self.mutation_weights.values())
+        for name in self.mutation_weights:
+            self.mutation_weights[name] /= total_weight
+
+        self.meta_mutation_rate = float(np.clip(self.meta_mutation_rate * META_DECAY, 0.01, 1.0))
 
     def to_dict(self) -> dict:
         return {
@@ -225,6 +296,7 @@ class Genome:
             "mutation_weights": self.mutation_weights,
             "meta_mutation_rate": self.meta_mutation_rate,
             "n_vars": self.n_vars,
+            "op_success": self.op_success,
         }
 
     @staticmethod
@@ -234,4 +306,8 @@ class Genome:
             mutation_weights=dict(data["mutation_weights"]),
             meta_mutation_rate=float(data["meta_mutation_rate"]),
             n_vars=int(data.get("n_vars", 3)),
+            # Old checkpoints (pre-dating this field) fall back to the
+            # same neutral 0.5-for-everyone prior random_genome() uses
+            # for a fresh genome.
+            op_success=data.get("op_success") or {name: 0.5 for name in TASK_OPS},
         )
