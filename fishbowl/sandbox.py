@@ -58,8 +58,20 @@ def load_checkpoint() -> dict | None:
 class Limits:
     max_generations: int = 5000
     max_wallclock_seconds: float = 1800.0
-    max_tree_nodes: int = 60
-    max_tree_depth: int = 10
+    # Raised from 60/10 -- User: "with 5GB we can be generous with its
+    # nodes and depth." Worth being precise about what this actually
+    # trades off, though: a Node is a small Python object, so even a
+    # tree of several hundred nodes is a few hundred KB at most --
+    # memory was never really the constraint on tree SIZE (it was the
+    # constraint on the earlier video-frame-storage bug, a completely
+    # different part of the system, already fixed). The real cost of
+    # a bigger ceiling is CPU time (more nodes evaluated per frame,
+    # per channel, per generation) -- already governed separately by
+    # resource_handler.py's own hunger/disgust CPUQuota adjustment, so
+    # raising this is safe to do generously; the resource handler is
+    # what actually keeps real runtime cost in check, not this number.
+    max_tree_nodes: int = 300
+    max_tree_depth: int = 20
 
 
 class Sandbox:
