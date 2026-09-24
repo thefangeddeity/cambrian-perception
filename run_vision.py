@@ -356,25 +356,25 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
     while box.should_continue():
         box.generation += 1
         candidate = genome.clone()
-        ceiling_reason = None
 
-        if rng.random() < 0.15:
-            candidate.mutate_weights(rng)
-        else:
-            channel, applied = candidate.mutate_task(
-                rng, max_nodes=limits.max_tree_nodes, max_depth=limits.max_tree_depth,
-            )
-            # Only a REAL ceiling hit is worth surfacing as a request
-            # -- "noop_inapplicable" (e.g. mutate_const picked on a
-            # tree with no consts yet) is normal and expected on a
-            # small tree, not something a bigger ceiling would fix at
-            # all (see genome.py's mutate_task docstring for the real
-            # bug this used to be: every noop got blamed on the size
-            # ceiling, which made a healthy small tree look artificially
-            # stuck).
-            if applied == "noop_ceiling":
-                ceiling_reason = "tree_size_or_depth"
-
+        # Every generation now really tries a tree mutation -- the
+        # previous 15%-of-generations branch that mutated weights
+        # INSTEAD of a tree was a wasted generation twice over (see
+        # Genome.update_mutation_weights's own docstring): weight-only
+        # candidates can never pass the tree accept/reject gate, so
+        # that branch's change was always discarded, and no tree
+        # mutation was even attempted on that generation either.
+        channel, applied = candidate.mutate_task(
+            rng, max_nodes=limits.max_tree_nodes, max_depth=limits.max_tree_depth,
+        )
+        # Only a REAL ceiling hit is worth surfacing as a request --
+        # "noop_inapplicable" (e.g. mutate_const picked on a tree with
+        # no consts yet) is normal and expected on a small tree, not
+        # something a bigger ceiling would fix at all (see genome.py's
+        # mutate_task docstring for the real bug this used to be:
+        # every noop got blamed on the size ceiling, which made a
+        # healthy small tree look artificially stuck).
+        ceiling_reason = "tree_size_or_depth" if applied == "noop_ceiling" else None
         box.note_ceiling(ceiling_reason)
 
         candidate_fitness, breakdown, candidate_conspec, candidate_loom, live_info = evaluate_genome(
@@ -393,6 +393,23 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
             # happened and shouldn't count as real exposure.
             for c, l in zip(candidate_conspec, candidate_loom):
                 habituation.observe(conspec_present=c > 0.05, loom_value=l)
+
+        # The real, continuous meta-mutation step (see
+        # Genome.update_mutation_weights) -- applied to whichever
+        # genome persists (the just-accepted candidate, or the
+        # unchanged parent on a reject), using the real evidence from
+        # THIS generation's real attempt. Never gated on fitness --
+        # there's no fitness for a weights-only change to be gated on.
+        genome.update_mutation_weights(applied, accepted)
+
+        # Margin eases a little every generation, not only on accept,
+        # so a long dry spell can't permanently freeze the acceptance
+        # threshold above what real single-mutation deltas can clear
+        # once the genome's converged past its early easy wins (the
+        # deadlock the plateau was actually stuck in: margin can only
+        # shrink on an accept, but accepts stopped clearing it well
+        # before margin had shrunk much past its 0.05 starting point).
+        margin = max(0.005, margin * 0.9995)
 
         box.log_generation({
             "accepted": accepted,
