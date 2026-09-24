@@ -352,6 +352,23 @@ def evaluate_genome(
     dxs, dys = [], []  # real fovea movement per frame, for the pursuit reward
     last_grid = None
     prev_v = np.zeros(N_CELLS)  # no "previous frame" before the first one
+    # Real motor-efference-style feedback, User: "Of course feed the
+    # tree its own previous pan/tilt output!" Confirmed empirically
+    # first (2000-genome sample): tanh(pan)/MAX_STEP's geometry alone
+    # makes a saturated/near-maximal step ~5x more likely than a small
+    # graded one (39% vs 7%) for a random tree, independent of fitness
+    # -- the search landscape itself structurally favors hopping.
+    # Without this, the tree decides pan/tilt completely FRESH every
+    # frame from visual input alone -- no way to "continue" a motion it
+    # has no memory of starting, which is a real, separate reason
+    # smooth pursuit couldn't emerge even if it were the better
+    # strategy. Feeding back the REAL applied delta (post-clamp, what
+    # actually happened, not the raw pre-clip intent) gives it that
+    # memory -- still pure information, not a forced behavior; nothing
+    # requires the tree to use it, or to prefer continuity over
+    # hopping if hopping genuinely works better (n_vars grows by 2
+    # accordingly -- see run()).
+    prev_dx, prev_dy = 0.0, 0.0
 
     for frame in frames:
         v = fovea.extract(frame, state)
@@ -363,7 +380,7 @@ def evaluate_genome(
         # it the raw material to compute one itself via the DSL's own
         # sub op, if that's what actually evolves to help (n_vars is
         # doubled accordingly -- see run()).
-        vb = np.concatenate([v, prev_v])[None, :]
+        vb = np.concatenate([v, prev_v, [prev_dx, prev_dy]])[None, :]
         response = float(g.evaluate("response", vb)[0])
         pan = float(g.evaluate("pan", vb)[0])
         tilt = float(g.evaluate("tilt", vb)[0])
@@ -374,9 +391,12 @@ def evaluate_genome(
         state = fovea.step(state, pan, tilt)
         # The REAL movement that happened (post-clamp), not the raw
         # tree output -- what the pursuit reward below is graded
-        # against, since that's what actually reached the world.
-        dxs.append(state.cx - prev_cx)
-        dys.append(state.cy - prev_cy)
+        # against, since that's what actually reached the world, and
+        # what gets fed back as next frame's motor-efference input.
+        prev_dx = state.cx - prev_cx
+        prev_dy = state.cy - prev_cy
+        dxs.append(prev_dx)
+        dys.append(prev_dy)
 
     live_info = {
         "fovea_cx": state.cx, "fovea_cy": state.cy,
@@ -445,7 +465,7 @@ NEUTRAL_EPSILON = 0.001
 NEUTRAL_ACCEPT_PROB = 0.1
 
 
-def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2) -> None:
+def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> None:
     clips = _list_clips(source)
 
     checkpoint = sandbox.load_checkpoint()
