@@ -124,18 +124,27 @@ class Genome:
         node.op = rng.choice(candidates)
         return True
 
-    def _grow(self, rng: random.Random, channel: str, max_nodes: int, max_depth: int) -> bool:
+    def _grow(self, rng: random.Random, channel: str, max_nodes: int, max_depth: int) -> tuple[bool, bool]:
+        """
+        Returns (applied, hit_ceiling) -- hit_ceiling is True ONLY when
+        this failed because the tree is genuinely at the real size/
+        depth ceiling. Kept separate from the plain bool because
+        mutate_task (below) needs to tell a REAL ceiling-hit apart from
+        an ordinary structural noop, for sandbox.note_ceiling -- see
+        its own comment for why conflating the two produced a real,
+        confusing false signal.
+        """
         tree = self.trees[channel]
         if tree.node_count() >= max_nodes or tree.depth() >= max_depth:
-            return False
+            return False, True
         leaves = [n for n in self._all_nodes(channel) if n.kind != "op"]
         if not leaves:
-            return False
+            return False, False
         target = rng.choice(leaves)
         replacement = _random_small_tree(rng, self.n_vars, max_depth=2)
         target.kind, target.op, target.children = replacement.kind, replacement.op, replacement.children
         target.index, target.value = replacement.index, replacement.value
-        return True
+        return True, False
 
     def _shrink(self, rng: random.Random, channel: str) -> bool:
         ops = self._op_nodes(channel)
@@ -178,8 +187,23 @@ class Genome:
         weights govern every channel, not one set per channel, since
         the interesting thing to watch is whether the genome converges
         on a mutation STYLE at all, not per-channel bookkeeping.
-        Returns (channel, operator_applied) -- operator is "noop" if
-        the chosen one couldn't apply (e.g. grow at the size ceiling).
+
+        Returns (channel, operator_applied) -- operator_applied is the
+        real chosen op name on success. On failure it's one of two
+        DIFFERENT strings, not one generic "noop":
+        - "noop_ceiling": grow genuinely couldn't apply because the
+          tree is already at the real max_nodes/max_depth ceiling.
+        - "noop_inapplicable": the chosen operator just doesn't apply
+          to this tree's current SHAPE, regardless of ceilings -- e.g.
+          mutate_const picked on a tree with no const leaves, or
+          shrink/mutate_op picked on a single-leaf tree with no op
+          nodes at all. This is a normal, frequent, and harmless
+          outcome for a small tree (most of a tiny tree's 5 possible
+          operators simply don't apply to it yet) -- real bug, caught
+          live: the caller used to log EVERY noop as "hit
+          tree_size_or_depth," which made a perfectly healthy small
+          tree look like it was slamming into a 300-node ceiling when
+          it was nowhere close -- see run_vision.py's own use of this.
         """
         if channel is None:
             channel = rng.choice(self.channels)
@@ -189,15 +213,20 @@ class Genome:
         probs = probs / probs.sum()
         choice = rng.choices(names, weights=probs, k=1)[0]
 
-        applied = {
-            "mutate_const": lambda: self._mutate_const(rng, channel),
-            "mutate_op": lambda: self._mutate_op(rng, channel),
-            "grow": lambda: self._grow(rng, channel, max_nodes, max_depth),
-            "shrink": lambda: self._shrink(rng, channel),
-            "reroll_subtree": lambda: self._reroll_subtree(rng, channel),
-        }[choice]()
+        if choice == "grow":
+            applied, hit_ceiling = self._grow(rng, channel, max_nodes, max_depth)
+        else:
+            applied = {
+                "mutate_const": lambda: self._mutate_const(rng, channel),
+                "mutate_op": lambda: self._mutate_op(rng, channel),
+                "shrink": lambda: self._shrink(rng, channel),
+                "reroll_subtree": lambda: self._reroll_subtree(rng, channel),
+            }[choice]()
+            hit_ceiling = False
 
-        return channel, (choice if applied else "noop")
+        if applied:
+            return channel, choice
+        return channel, ("noop_ceiling" if hit_ceiling else "noop_inapplicable")
 
     def mutate_weights(self, rng: random.Random) -> None:
         """

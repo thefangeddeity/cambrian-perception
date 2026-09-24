@@ -70,8 +70,20 @@ class Limits:
     # resource_handler.py's own hunger/disgust CPUQuota adjustment, so
     # raising this is safe to do generously; the resource handler is
     # what actually keeps real runtime cost in check, not this number.
-    max_tree_nodes: int = 300
-    max_tree_depth: int = 20
+    #
+    # Raised again 300/20 -> 1000/30, User: "please raise the tree
+    # ceiling" (prompted by a real accepted genome still being tiny --
+    # response was a single leaf node -- after ~18k generations). Worth
+    # being honest here too: checked live (evolution_log.json), the
+    # actual accepted trees were nowhere near 300 nodes when this was
+    # raised -- the real bottleneck was a mislabeling bug (see
+    # genome.py's mutate_task), not this ceiling. Raising it further
+    # doesn't fix that, but it removes any doubt that a real ceiling
+    # is what's limiting growth, and costs nothing extra (same
+    # reasoning as above -- a Node is tiny, CPU is the real governed
+    # cost, not node count).
+    max_tree_nodes: int = 1000
+    max_tree_depth: int = 30
 
 
 class Sandbox:

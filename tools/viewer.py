@@ -128,7 +128,7 @@ PAGE = """<!doctype html>
     }
     function maxDepthOf(l) { return l.children.length ? 1 + Math.max(...l.children.map(maxDepthOf)) : 0; }
 
-    function renderTrees(trees) {
+    function renderTrees(trees, stats, treeLimits) {
       const container = document.getElementById('trees');
       container.innerHTML = '';
       for (const name of ['response', 'pan', 'tilt']) {
@@ -138,7 +138,16 @@ PAGE = """<!doctype html>
         wrap.className = 'tree-panel';
         const label = document.createElement('div');
         label.className = 'sub';
-        label.textContent = name;
+        // Real node_count/depth next to the real ceiling -- honest
+        // context for why a tree looks small: it's small because
+        // growth hasn't been ACCEPTED yet (fitness-gated, same as
+        // everywhere else in this project), not because it hit a
+        // ceiling that isn't visible here.
+        const s = (stats && stats[name]) || null;
+        const budget = s && treeLimits
+          ? ` -- ${s.nodes} / ${treeLimits.max_nodes} nodes, depth ${s.depth} / ${treeLimits.max_depth}`
+          : '';
+        label.textContent = name + budget;
         wrap.appendChild(label);
         const canvas = document.createElement('canvas');
         wrap.appendChild(canvas);
@@ -221,7 +230,7 @@ PAGE = """<!doctype html>
         }
 
         if (d.trees) {
-          renderTrees(d.trees);
+          renderTrees(d.trees, d.tree_stats, d.tree_limits);
         }
       } catch (e) {
         el.innerHTML = '<div class="stale">error polling /state</div>';

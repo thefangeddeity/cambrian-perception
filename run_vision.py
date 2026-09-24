@@ -364,7 +364,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
             channel, applied = candidate.mutate_task(
                 rng, max_nodes=limits.max_tree_nodes, max_depth=limits.max_tree_depth,
             )
-            if applied == "noop":
+            # Only a REAL ceiling hit is worth surfacing as a request
+            # -- "noop_inapplicable" (e.g. mutate_const picked on a
+            # tree with no consts yet) is normal and expected on a
+            # small tree, not something a bigger ceiling would fix at
+            # all (see genome.py's mutate_task docstring for the real
+            # bug this used to be: every noop got blamed on the size
+            # ceiling, which made a healthy small tree look artificially
+            # stuck).
+            if applied == "noop_ceiling":
                 ceiling_reason = "tree_size_or_depth"
 
         box.note_ceiling(ceiling_reason)
@@ -422,12 +430,22 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
             # The CURRENT ACCEPTED genome's own tree structure (not
             # the just-tried candidate's, even on a rejected
             # generation) -- `genome` only ever changes on an accept,
-            # so this is always "its real brain right now." Small by
-            # construction: each channel is capped at max_tree_nodes
-            # (60), so all three trees together are at most ~180
-            # small nodes -- a few KB, cheap enough to include every
-            # generation rather than gating it.
+            # so this is always "its real brain right now." Each
+            # channel is capped at max_tree_nodes (limits.max_tree_nodes,
+            # currently 1000), cheap enough to include every generation
+            # rather than gating it.
             "trees": genome.to_dict()["trees"],
+            # Real node_count()/depth() per channel plus the real
+            # ceiling, alongside the tree itself -- User: "make display
+            # an accurate representation of growth." A small tree
+            # drawn next to its real budget (e.g. "12 / 1000 nodes")
+            # is honest about how much headroom is actually left,
+            # instead of just looking small with no context for why.
+            "tree_stats": {
+                name: {"nodes": tree.node_count(), "depth": tree.depth()}
+                for name, tree in genome.trees.items()
+            },
+            "tree_limits": {"max_nodes": limits.max_tree_nodes, "max_depth": limits.max_tree_depth},
         })
 
         if box.generation % 25 == 0:
