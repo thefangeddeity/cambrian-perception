@@ -215,6 +215,23 @@ PAGE = """<!doctype html>
         }
 
         const fc = document.getElementById('fovea');
+        // Honest shape, not a hardcoded 4:3 -- User: "make foveal
+        // rectangle honest." Size the canvas to the REAL source
+        // frame's own aspect ratio (frame_w/frame_h, sent once per
+        // run) so the box drawn on it is actually shaped like what
+        // fovea.py really crops, not an arbitrary panel shape. Falls
+        // back to the old 240x180 only if an older live_status.json
+        // (pre this field) is still being served.
+        if (d.frame_w && d.frame_h) {
+          const maxDim = 240;
+          if (d.frame_w >= d.frame_h) {
+            fc.width = maxDim;
+            fc.height = Math.round(maxDim * d.frame_h / d.frame_w);
+          } else {
+            fc.height = maxDim;
+            fc.width = Math.round(maxDim * d.frame_w / d.frame_h);
+          }
+        }
         const fctx = fc.getContext('2d');
         fctx.fillStyle = '#111';
         fctx.fillRect(0, 0, fc.width, fc.height);

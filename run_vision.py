@@ -395,6 +395,16 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2) -> None:
         print("Not enough real frames to evolve against -- aborting.")
         return
 
+    # The real source frame's own shape -- User: "make foveal rectangle
+    # honest." The viewer's fovea-position box used to be drawn on a
+    # hardcoded 4:3 canvas regardless of the real video's actual aspect
+    # ratio (typically 16:9 after video_source.py's aspect-preserving
+    # resize), so its shape was arbitrary, not a real representation of
+    # what fovea.py actually crops (which IS shaped like the real
+    # frame -- FOVEA_FRACTION applies equally to real width and real
+    # height). Same for every frame in this run, so captured once here.
+    frame_h, frame_w = frames[0].shape[:2]
+
     # Computed ONCE per run, independent of any genome (see
     # _world_vectors's docstring for the self-stimulation loophole this
     # closes). Every generation's fitness grades against these SAME
@@ -563,6 +573,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2) -> None:
             "fovea_cx": round(live_info["fovea_cx"], 4),
             "fovea_cy": round(live_info["fovea_cy"], 4),
             "fovea_fraction": live_info["fovea_fraction"],
+            # Real source frame shape -- User: "make foveal rectangle
+            # honest." Lets the viewer draw the box at the REAL aspect
+            # ratio instead of a hardcoded one.
+            "frame_w": frame_w,
+            "frame_h": frame_h,
             "response": round(live_info["last_response"], 4),
             "habituation_exposure": round(habituation.exposure, 4),
             "clip": clip_path,
