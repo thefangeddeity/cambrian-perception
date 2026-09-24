@@ -54,6 +54,15 @@ PAGE = """<!doctype html>
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
   .stale { color: #f66; }
+  /* User: "Itemize tensions, instincts, 'feelings', rewards, and
+     punishments, so we know our organism." A static caption, not
+     live data -- these are the FIXED fitness terms (fishbowl/
+     reflexes.py, conspec.py, run_vision.py), not something that
+     changes per generation, so it doesn't need to poll /state. */
+  .drives { font-size: 12px; margin-top: 8px; max-width: 900px; }
+  .drives div { margin-bottom: 4px; }
+  .plus { color: #4fa; }
+  .minus { color: #f66; }
   @media (max-width: 480px) {
     body { padding: 10px; }
     .row { gap: 14px; }
@@ -76,6 +85,20 @@ PAGE = """<!doctype html>
   </div>
   <div class="sub" style="margin-top:24px;">its brain -- the current ACCEPTED genome's own trees (response / pan / tilt), not a rejected candidate's</div>
   <div class="row" id="trees"></div>
+
+  <div class="sub" style="margin-top:24px;">what drives it -- FIXED, never-evolved pressures (fishbowl/reflexes.py, conspec.py, run_vision.py). Every one below is a REWARD or PUNISHMENT graded against real signals; none forces a specific behavior -- the organism evolves its own way to satisfy or avoid them.</div>
+  <div class="drives">
+    <div><span class="plus">+ luminance_change</span> -- notice global brightness change. The most primitive orienting response that exists.</div>
+    <div><span class="plus">+ motion_energy</span> -- notice ANY change in the world, direction-blind.</div>
+    <div><span class="plus">+ directional_motion</span> -- notice WHICH WAY something moved (a real Hassenstein-Reichardt correlator, the classic model of insect motion detection).</div>
+    <div><span class="plus">+ loom</span> (heaviest weight) -- startle at something expanding/approaching. A real threat/food asymmetry: missing a threat costs more than missing an opportunity.</div>
+    <div><span class="plus">+ conspec_drive</span> -- stay engaged with a being-like pattern. Dampened by habituation for familiar, harmless presence ("cats and humans are harmless noise"); a real threat paired with a being resensitizes it instead.</div>
+    <div><span class="plus">+ curiosity</span> -- cover more of the reachable field of view over a run, instead of fixating by default.</div>
+    <div><span class="plus">+ optokinetic_pursuit</span> -- move the eye in the SAME direction real motion is going. A real reflex found across nearly all motile visual animals.</div>
+    <div><span class="plus">+ seek</span> -- get physically closer to a detected being, not just correlate with noticing it. Literal orienting, not a proxy.</div>
+    <div><span class="minus">- dead_field_penalty</span> -- the only real punishment here: a SUSTAINED stretch with nothing happening in the world. Can't be dodged by moving the eye (that loophole's closed); curiosity above is the honest way to earn out of it.</div>
+  </div>
+  <div class="sub" style="margin-top:10px;">real tensions it has to balance, not resolve for it: loom's urgency to startle vs. curiosity's pull to keep exploring (a real predator/prey visual-field tradeoff, "scalding vs. freezing" -- a threat on one side, going numb on the other); habituation's dampening of familiar beings vs. resensitizing to any real threat paired with one; dead_field's "don't go numb" vs. seek's "stay locked on what you found." No fixed right answer to any of these is built in -- only the pressure to find its own.</div>
   <script>
     function nodeLabel(n) {
       if (n.kind === 'var') return 'x' + n.index;

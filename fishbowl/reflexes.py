@@ -9,16 +9,36 @@ low-level reflex circuits are largely hardwired rather than learned.
 The genome never sees these numbers as input; it only ever gets
 scored against them.
 
-Three signals, staged easiest-to-hardest by how evolutionarily ancient
+Four signals, staged easiest-to-hardest by how evolutionarily ancient
 the real reflex is:
 
   luminance_change -- global brightness change. The most primitive
     orienting response that exists; organisms with no image-forming
     eye at all still have this.
 
-  optomotor -- coherent whole-field motion (a real, well-established
-    reflex present in almost every visual animal, from insects to
-    scallops).
+  motion_energy -- coherent whole-field CHANGE, direction-blind (mean
+    |change|, frame to frame) -- a real, primitive precursor signal,
+    but NOT what it was called until 2026-09-24 ("optomotor"): a real
+    optomotor/optokinetic response is direction-SELECTIVE (it drives a
+    compensating turn, which requires knowing which way something
+    moved), and this can't tell "moving right" from "moving left", or
+    from "flickering in place." Renamed after an external audit caught
+    the overclaim. See directional_motion below for the real thing.
+
+  directional_motion -- a real, simplified Hassenstein-Reichardt
+    correlator: the classic, decades-studied model of how insect
+    (and more broadly, motion-sensitive retinal) circuits compute
+    WHICH WAY something moved, not just that something changed. Two
+    signed components (motion_x, motion_y): multiply a cell's CURRENT
+    value against its neighbor's value one frame ago, subtract the
+    mirrored (opposite-direction) product -- the antisymmetric
+    subtraction is what cancels ordinary flicker and leaves only real,
+    signed, directional motion. This is what run_vision.py's new
+    optokinetic-pursuit reward is graded against -- added specifically
+    because nothing previously rewarded the pan/tilt actuator for
+    actually tracking real motion (the user, watching a real deployed kitten
+    cam: "this cat's been there the whole time, but the fovea's too
+    primitive to evolve to lock on it").
 
   loom -- local expansion of a change-region, a real approximation of
     tau (time-to-contact from expansion rate) -- the reflex behind
@@ -42,16 +62,51 @@ def luminance_change(vectors: np.ndarray) -> np.ndarray:
     return change
 
 
-def optomotor_score(vectors: np.ndarray) -> np.ndarray:
+def motion_energy_score(vectors: np.ndarray) -> np.ndarray:
     """
-    Whole-field coherent motion -- mean absolute per-cell change,
+    Whole-field coherent CHANGE -- mean absolute per-cell change,
     frame to frame. Doesn't distinguish "everything changed a little"
-    from "one thing changed a lot" (that's what loom_score is for);
-    this is deliberately the cruder, more primitive signal.
+    from "one thing changed a lot" (that's what loom_score is for),
+    and doesn't know WHICH WAY anything moved (see directional_motion
+    for that) -- deliberately the crudest, most primitive signal here.
     """
     diffs = np.zeros(len(vectors))
     diffs[1:] = np.abs(np.diff(vectors, axis=0)).mean(axis=1)
     return diffs
+
+
+def directional_motion(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    A real, simplified Hassenstein-Reichardt correlator -- see the
+    module docstring for why this exists and what it fixes. For each
+    pair of horizontally (then vertically) adjacent grid cells: the
+    "rightward" term is the LEFT cell's value one frame ago times the
+    RIGHT cell's value now (a feature seen at left, then at right,
+    shortly after = it moved right); the mirrored "leftward" term is
+    the opposite pairing. Their difference is a real signed motion
+    estimate that cancels out uniform flicker (which contributes
+    equally to both terms) and responds only to genuine directional
+    movement. Averaged over all adjacent-cell pairs in the grid for
+    one global (motion_x, motion_y) estimate per frame -- coarse (this
+    is a 12x12 grid, not a dense retina), but real: it is the actual
+    correlator model, not a metaphor for it.
+
+    Returns (motion_x, motion_y), each (T,) -- positive x = rightward,
+    positive y = downward, 0 for the first frame (no prior frame to
+    correlate against yet).
+    """
+    n = len(vectors)
+    rows, cols = GRID
+    grids = vectors.reshape(n, rows, cols)
+    motion_x = np.zeros(n)
+    motion_y = np.zeros(n)
+    for t in range(1, n):
+        cur, prev = grids[t], grids[t - 1]
+        rightward = cur[:, 1:] * prev[:, :-1] - cur[:, :-1] * prev[:, 1:]
+        motion_x[t] = rightward.mean()
+        downward = cur[1:, :] * prev[:-1, :] - cur[:-1, :] * prev[1:, :]
+        motion_y[t] = downward.mean()
+    return motion_x, motion_y
 
 
 def loom_score(vectors: np.ndarray) -> np.ndarray:
@@ -99,8 +154,17 @@ def loom_score(vectors: np.ndarray) -> np.ndarray:
 
 
 def all_signals(vectors: np.ndarray) -> dict[str, np.ndarray]:
+    motion_x, motion_y = directional_motion(vectors)
     return {
         "luminance_change": luminance_change(vectors),
-        "optomotor": optomotor_score(vectors),
+        "motion_energy": motion_energy_score(vectors),
+        "motion_x": motion_x,
+        "motion_y": motion_y,
+        # Magnitude of the signed (motion_x, motion_y) pair -- the
+        # combined signal SIGNAL_WEIGHTS correlates response against
+        # (direction-aware, unlike motion_energy); motion_x/motion_y
+        # stay available separately for the optokinetic pursuit reward,
+        # which needs the actual SIGNED direction, not just magnitude.
+        "directional_motion": np.hypot(motion_x, motion_y),
         "loom": loom_score(vectors),
     }

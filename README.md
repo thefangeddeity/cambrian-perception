@@ -146,13 +146,19 @@ that function's own docstring.
 
 ## Reflexes and drives (fitness, never input)
 
-Three FIXED, never-evolved signals (`fishbowl/reflexes.py`) grade
-fitness — the organism never sees these as input, only gets scored
-against them:
+FIXED, never-evolved signals (`fishbowl/reflexes.py`) grade fitness —
+the organism never sees these as input, only gets scored against them:
 
 - **luminance_change** — global brightness change. The most primitive
   orienting response that exists.
-- **optomotor** — coherent whole-field motion.
+- **motion_energy** — coherent whole-field CHANGE, direction-blind.
+  Renamed from "optomotor" 2026-09-24 after an external audit caught
+  the overclaim -- a real optomotor response is direction-selective;
+  this can't tell rightward from leftward, only "something changed."
+- **directional_motion** — a real, simplified Hassenstein-Reichardt
+  correlator (the classic model of insect motion detection): computes
+  WHICH WAY something moved, not just that it moved. See
+  `reflexes.py`'s module docstring for the actual math.
 - **loom** — a real, simplified approximation of tau (time-to-contact
   from expansion rate) — the reflex behind flinch/startle responses to
   an approaching object, studied down to the single-neuron level in
@@ -160,7 +166,7 @@ against them:
   weighted in `run_vision.py`: missing a loom event costs more than
   missing ordinary motion, mirroring the real evolutionary stakes.
 
-A fourth module, `fishbowl/conspec.py`, is a DRIVE rather than a
+A fifth module, `fishbowl/conspec.py`, is a DRIVE rather than a
 reflex — named directly after Morton & Johnson's (1991) CONSPEC/
 CONLERN theory of newborn face perception. CONSPEC is the crude,
 innate template that biases orientation toward face-like
@@ -173,6 +179,25 @@ no accompanying threat costs progressively less to keep reacting to
 ("humans and cats are harmless noise... commensal beings," in the user's
 own framing), while a being detected alongside a real threat-level
 event never habituates the same way.
+
+**Real orienting pressure**, added 2026-09-24 (the user, watching a real
+deployed feed: "this cat's been there the whole time, but the fovea's
+too primitive to evolve to lock on it"). Until this point, nothing
+rewarded pan/tilt for actually moving TOWARD anything:
+- **optokinetic pursuit** — does the fovea's real movement direction
+  correlate with real detected motion direction? A real reflex,
+  found across nearly all motile visual animals, that stabilizes gaze
+  on moving things.
+- **seek** — when CONSPEC detects a being strongly enough, is the
+  fovea actually near it? Makes CONSPEC's own "seek" drive literal
+  (its docstring used to call this an "honest limitation" — there IS a
+  real pan/tilt actuator now) and matches the real CONSPEC/CONLERN
+  literature more closely: real newborns orient head/eyes toward
+  face-like stimuli, not just look longer at them.
+
+Both are still purely REWARDS — same discipline as everything else
+here: neither forces a specific movement or a specific tracking style
+(smooth vs. saccadic is left for evolution to discover, not dictated).
 
 ## Curriculum
 

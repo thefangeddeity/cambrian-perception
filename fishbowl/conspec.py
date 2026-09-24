@@ -52,17 +52,24 @@ _MOUTH_ROW = 3  # row within the window for the "mouth"
 _MOUTH_COL = 2
 
 
-def _template_match(cells: np.ndarray) -> float:
+def _template_match(cells: np.ndarray) -> tuple[float, float, float]:
     """
     cells: (GRID[0], GRID[1]) frame, already reshaped from retina.py's
-    flat vector. Returns a single scalar: how strongly the strongest
-    head-sized window in this frame matches the crude eyes+mouth
-    contrast pattern (darker at the three feature points than the
-    window's own local surround). 0 if the grid is too small for even
-    one window.
+    flat vector. Returns (strength, peak_cx, peak_cy) -- strength is
+    how strongly the strongest head-sized window in this frame matches
+    the crude eyes+mouth contrast pattern (darker at the three feature
+    points than the window's own local surround); peak_cx/peak_cy are
+    that window's own CENTER, normalized to [0, 1] using fovea.py's
+    own cx/cy convention (cx = horizontal fraction, cy = vertical
+    fraction). The location used to be thrown away (only the max
+    strength was kept) -- added 2026-09-24 so the "seek" drive below
+    can reward the fovea for moving TOWARD a detected being, not just
+    correlating its response with detection. 0/(0.5, 0.5) if the grid
+    is too small for even one window.
     """
     h, w = cells.shape
     best = 0.0
+    best_row, best_col = h / 2.0, w / 2.0
     for top in range(0, h - _HEAD_SIZE + 1):
         for left in range(0, w - _HEAD_SIZE + 1):
             window = cells[top:top + _HEAD_SIZE, left:left + _HEAD_SIZE]
@@ -76,14 +83,26 @@ def _template_match(cells: np.ndarray) -> float:
             # doesn't just fire on "anything dark").
             contrast = surround_mean - np.array([eye_l, eye_r, mouth])
             score = float(np.clip(contrast, 0.0, None).mean())
-            best = max(best, score)
-    return best
+            if score > best:
+                best = score
+                best_row = top + _HEAD_SIZE / 2.0
+                best_col = left + _HEAD_SIZE / 2.0
+    return best, best_col / w, best_row / h
 
 
-def conspec_signal(vectors: np.ndarray) -> np.ndarray:
-    """vectors: (T, N_CELLS). Returns (T,) -- per-frame template-match strength, NOT yet a fitness score (see drive_fitness)."""
+def conspec_signal(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    vectors: (T, N_CELLS). Returns (strength, peak_cx, peak_cy), each
+    (T,) -- strength is NOT yet a fitness score (see drive_fitness);
+    peak_cx/peak_cy are where the detection is, for the real seek
+    reward (see run_vision.py's _seek_reward).
+    """
     rows, cols = GRID
-    return np.array([_template_match(v.reshape(rows, cols)) for v in vectors])
+    results = [_template_match(v.reshape(rows, cols)) for v in vectors]
+    strength = np.array([r[0] for r in results])
+    peak_cx = np.array([r[1] for r in results])
+    peak_cy = np.array([r[2] for r in results])
+    return strength, peak_cx, peak_cy
 
 
 def drive_fitness(conspec: np.ndarray, organism_output: np.ndarray, window: int = 8) -> float:

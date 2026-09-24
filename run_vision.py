@@ -75,9 +75,36 @@ from fishbowl.retina import GRID, N_CELLS, frame_to_vector
 # weighted heaviest, matching the real threat/food asymmetry discussed
 # while designing this (missing a threat costs more than missing an
 # opportunity). Not tuned against real data yet; a real, named,
-# starting guess, not a claim of correctness.
-SIGNAL_WEIGHTS = {"luminance_change": 0.5, "optomotor": 0.75, "loom": 2.0}
+# starting guess, not a claim of correctness. "optomotor" renamed to
+# "motion_energy" (honest -- it's direction-blind, see reflexes.py's
+# module docstring); "directional_motion" is the real thing, added the
+# same day, correlated against response the same way as the others.
+SIGNAL_WEIGHTS = {"luminance_change": 0.5, "motion_energy": 0.75, "directional_motion": 0.75, "loom": 2.0}
 CONSPEC_WEIGHT = 1.5
+
+# Real orienting pressure, added 2026-09-24 -- the user, watching a real
+# deployed kitten cam: "this cat's been there the whole time, but the
+# fovea's too primitive to evolve to lock on it." Confirmed by design
+# review: nothing previously rewarded pan/tilt for actually moving
+# TOWARD anything -- curiosity rewards coverage, dead_field penalizes
+# staying put, but neither one cares whether the fovea is near a real
+# subject. Two real, named reflexes close this gap, both still purely
+# REWARDS (never force a specific movement, same discipline as every
+# other drive here):
+#   optokinetic pursuit -- does pan/tilt's own movement direction
+#   correlate with real detected motion direction (reflexes.py's
+#   directional_motion)? This is what a real optokinetic/smooth-
+#   pursuit reflex does: track whole-field or object motion to
+#   stabilize gaze, found across nearly all motile visual animals.
+#   seek -- when CONSPEC detects a being-like pattern strongly enough,
+#   is the fovea actually near where it is? Makes conspec.py's own
+#   "seek" drive literal instead of a documented "honest limitation"
+#   (there IS a real pan/tilt actuator now) -- and matches the real
+#   CONSPEC/CONLERN literature more closely too: real newborns
+#   orient head/eyes toward face-like stimuli, not just look longer.
+PURSUIT_WEIGHT = 1.0
+SEEK_WEIGHT = 1.0
+SEEK_STRENGTH_THRESHOLD = 0.05  # only scored when something's actually there -- never penalizes absence
 
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
@@ -128,7 +155,7 @@ def _curiosity_score(positions: list[tuple[float, float]]) -> float:
 
 
 def _dead_field_penalty(signals: dict[str, np.ndarray]) -> float:
-    activity = signals["optomotor"] + signals["luminance_change"]
+    activity = signals["motion_energy"] + signals["luminance_change"]
     dead = activity < DEAD_FIELD_ACTIVITY_THRESHOLD
     if len(dead) < DEAD_FIELD_WINDOW:
         return 0.0
@@ -144,6 +171,31 @@ def _dead_field_penalty(signals: dict[str, np.ndarray]) -> float:
     if worst_run < DEAD_FIELD_WINDOW:
         return 0.0
     return float(worst_run - DEAD_FIELD_WINDOW + 1) / len(dead)
+
+
+def _seek_reward(
+    positions: list[tuple[float, float]],
+    peak_cx: np.ndarray,
+    peak_cy: np.ndarray,
+    strength: np.ndarray,
+) -> float:
+    """
+    Real orienting reward -- see PURSUIT_WEIGHT/SEEK_WEIGHT's own
+    comment for why this exists. Only scored on frames where CONSPEC
+    actually detected something (strength > threshold) -- this can
+    only ever reward genuine proximity to a real detection, never
+    penalize the fovea for where it is when nothing's there, same
+    reward-not-force discipline as every other drive here.
+    """
+    scores = []
+    for (cx, cy), pcx, pcy, s in zip(positions, peak_cx, peak_cy, strength):
+        if s <= SEEK_STRENGTH_THRESHOLD:
+            continue
+        dist = math.hypot(cx - pcx, cy - pcy)
+        # Normalized: 1.0 = fovea centered exactly on the detection,
+        # 0.0 = as far as possible (opposite corners of the frame).
+        scores.append(max(0.0, 1.0 - dist / math.sqrt(2.0)))
+    return float(np.mean(scores)) if scores else 0.0
 
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi")
 
@@ -281,21 +333,23 @@ def evaluate_genome(
     g: G.Genome,
     frames: list[np.ndarray],
     world_signals: dict[str, np.ndarray],
-    world_conspec: np.ndarray,
+    world_conspec: tuple[np.ndarray, np.ndarray, np.ndarray],
     habituation_discount: float,
 ) -> tuple[float, dict, dict]:
     """
     Returns (fitness, breakdown, live_info). world_signals/world_conspec
     are precomputed ONCE per run by the caller (see run()) -- see
     _world_vectors's own docstring for why grading is independent of
-    this genome's own fovea path. habituation_discount is read-only
-    here, never mutated by this function (habituation itself is now
-    observed once per run, from the real world signal, not from any
-    genome's path -- see run()).
+    this genome's own fovea path. world_conspec is (strength, peak_cx,
+    peak_cy) -- see conspec.conspec_signal. habituation_discount is
+    read-only here, never mutated by this function (habituation itself
+    is now observed once per run, from the real world signal, not from
+    any genome's path -- see run()).
     """
     state = fovea.FoveaState()
     responses = []
     positions = []
+    dxs, dys = [], []  # real fovea movement per frame, for the pursuit reward
     last_grid = None
     prev_v = np.zeros(N_CELLS)  # no "previous frame" before the first one
 
@@ -316,7 +370,13 @@ def evaluate_genome(
         responses.append(response)
         last_grid = v
         prev_v = v
+        prev_cx, prev_cy = state.cx, state.cy
         state = fovea.step(state, pan, tilt)
+        # The REAL movement that happened (post-clamp), not the raw
+        # tree output -- what the pursuit reward below is graded
+        # against, since that's what actually reached the world.
+        dxs.append(state.cx - prev_cx)
+        dys.append(state.cy - prev_cy)
 
     live_info = {
         "fovea_cx": state.cx, "fovea_cy": state.cy,
@@ -337,7 +397,7 @@ def evaluate_genome(
         return float("-inf"), {}, live_info
 
     signals = world_signals
-    cs = world_conspec
+    cs, conspec_peak_cx, conspec_peak_cy = world_conspec
 
     fitness = 0.0
     breakdown = {}
@@ -359,6 +419,17 @@ def evaluate_genome(
     dead_field = _dead_field_penalty(signals)
     fitness -= DEAD_FIELD_PENALTY_WEIGHT * dead_field
     breakdown["dead_field_penalty"] = dead_field
+
+    # Real orienting pressure (see PURSUIT_WEIGHT/SEEK_WEIGHT's own
+    # comment) -- does pan/tilt's real movement track real motion
+    # direction, and does the fovea end up near a real detection?
+    pursuit = (_correlate(signals["motion_x"], np.array(dxs)) + _correlate(signals["motion_y"], np.array(dys))) / 2.0
+    fitness += PURSUIT_WEIGHT * pursuit
+    breakdown["optokinetic_pursuit"] = pursuit
+
+    seek = _seek_reward(positions, conspec_peak_cx, conspec_peak_cy, cs)
+    fitness += SEEK_WEIGHT * seek
+    breakdown["seek_reward"] = seek
 
     return fitness, breakdown, live_info
 
@@ -421,7 +492,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2) -> None:
     # generation, never what it's being compared against.
     world_vectors = _world_vectors(frames)
     world_signals = reflexes.all_signals(world_vectors)
+    # (strength, peak_cx, peak_cy) -- see conspec.conspec_signal and
+    # evaluate_genome's own docstring for what the peak location is for.
     world_conspec = conspec.conspec_signal(world_vectors)
+    world_conspec_strength = world_conspec[0]
 
     box = sandbox.Sandbox(limits)
     habituation = conspec.Habituation()
@@ -444,7 +518,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2) -> None:
     # so a long dry spell (exactly what B1 was causing) meant
     # habituation silently stopped updating for thousands of
     # generations even while real exposure was happening on screen.
-    for c, l in zip(world_conspec, world_signals["loom"]):
+    for c, l in zip(world_conspec_strength, world_signals["loom"]):
         habituation.observe(conspec_present=c > 0.05, loom_value=l)
 
     # NEVER trust a best_fitness carried over from a different clip or
