@@ -26,14 +26,18 @@ from pathlib import Path
 
 MEDIA_DIR = Path(__file__).resolve().parent.parent / "media"
 
-# stage -> [(name, url), ...]
+# stage -> [(name, url), ...]. YouTube-hosted only -- explore.org's
+# own site pages embed a player yt-dlp can't resolve generically
+# (confirmed live: fails with "Unsupported URL"), so despite being a
+# real, established source, only its YouTube-mirrored streams are used
+# here rather than the explore.org page URLs directly.
 CURRICULUM = {
     "stage1_luminance_and_motion": [
         ("cornell_feederwatch", "https://www.youtube.com/watch?v=x10vL6_47Dw"),
-        ("explore_african_lookout", "https://explore.org/livecams/currently-live/african-animal-lookout-camera"),
+        ("cornell_feederwatch_alt", "https://www.youtube.com/watch?v=5x01AdCuLnk"),
     ],
     "stage3_loom": [
-        ("explore_kitten_rescue", "https://explore.org/livecams/kitten-rescue/kitten-rescue-cam"),
+        ("cat_livestream", "https://www.youtube.com/watch?v=08_mWdxig2A"),
         ("pixcams_wildlife", "https://www.youtube.com/watch?v=XfNhPa26fP8"),
     ],
 }
