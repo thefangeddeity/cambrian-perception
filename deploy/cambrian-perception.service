@@ -1,0 +1,29 @@
+[Unit]
+Description=cambrian-perception -- evolutionary vision organism
+After=network.target
+
+[Service]
+Type=simple
+User=ron
+WorkingDirectory=/home/ron/cambrian-perception
+ExecStart=/home/ron/cambrian-perception/.venv/bin/python run_vision.py /home/ron/cambrian-perception/media --generations 200000 --seconds 3600
+
+# Real, hard resource caps -- the user's own constraint: this must not
+# interfere with orbital-organism's own use of Tanzania. Conservative
+# on purpose (8 real cores, ~7.6GB RAM total, other real workloads
+# share this box) -- loosen only after watching real headroom over
+# time, not upfront.
+CPUQuota=150%
+MemoryMax=1536M
+MemoryHigh=1024M
+
+# Restart=always is the actual point: run_vision.py is deliberately a
+# BOUNDED process per invocation (--seconds above), never an unbounded
+# loop -- systemd is what turns a bounded process into something that
+# can genuinely run for years, resuming from state/checkpoint.json
+# every time it restarts.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

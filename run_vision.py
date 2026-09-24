@@ -39,7 +39,7 @@ from pathlib import Path
 import numpy as np
 
 from fishbowl import conspec, fovea, genome as G, reflexes, sandbox, video_source
-from fishbowl.retina import N_CELLS
+from fishbowl.retina import GRID, N_CELLS
 
 # How much each reflex/drive contributes to total fitness -- loom
 # weighted heaviest, matching the real threat/food asymmetry discussed
@@ -136,6 +136,13 @@ def evaluate_genome(g: G.Genome, frames: list[np.ndarray], habituation_discount:
         "fovea_cx": state.cx, "fovea_cy": state.cy,
         "fovea_fraction": fovea.FOVEA_FRACTION,
         "last_response": responses[-1] if responses else 0.0,
+        # The actual 144-value grid the organism just processed, for
+        # the viewer -- this is genuinely "what it's seeing", already
+        # reduced far past anything reconstructable into real footage
+        # (a blocky 12x12 luminance grid, not an image), so including
+        # it here doesn't touch the no-raw-frames rule at all.
+        "grid": retina_vectors[-1].tolist() if retina_vectors else [],
+        "grid_shape": list(GRID),
     }
 
     vectors = np.array(retina_vectors)
@@ -275,6 +282,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS) -> None:
             "response": round(live_info["last_response"], 4),
             "habituation_exposure": round(habituation.exposure, 4),
             "clip": clip_path,
+            "grid": [round(x, 4) for x in live_info["grid"]],
+            "grid_shape": live_info["grid_shape"],
         })
 
         if box.generation % 25 == 0:
