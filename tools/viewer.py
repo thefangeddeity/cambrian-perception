@@ -132,15 +132,29 @@ PAGE = """<!doctype html>
         label.textContent = name;
         wrap.appendChild(label);
         const canvas = document.createElement('canvas');
-        canvas.width = 260; canvas.height = 160;
         wrap.appendChild(canvas);
         container.appendChild(wrap);
 
+        // Layout FIRST, size the canvas to what was actually laid out
+        // SECOND -- User: "Borders should adapt as they grow." A fixed
+        // canvas size meant a genuinely grown tree (more nodes than
+        // today's small ones) would just get cramped/overlapping
+        // instead of the canvas expanding to fit it. Real per-node
+        // spacing floor (45px horizontal, 55px vertical -- enough for
+        // the 16px-radius circles and their labels not to collide),
+        // with a minimum so a tiny tree still gets a readable panel.
+        // The existing CSS max-width:100% still scales this back down
+        // to fit narrow/mobile screens regardless of the real size.
         const order = { next: 0 };
         const laid = layout(tree, 0, order);
+        const leafCount = Math.max(1, order.next);
+        const maxDepth = maxDepthOf(laid);
+        canvas.width = Math.max(260, (leafCount + 1) * 45);
+        canvas.height = Math.max(160, (maxDepth + 2) * 55);
+
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        drawTree(ctx, laid, maxDepthOf(laid), Math.max(1, order.next), canvas.width, canvas.height);
+        drawTree(ctx, laid, maxDepth, leafCount, canvas.width, canvas.height);
       }
     }
 
