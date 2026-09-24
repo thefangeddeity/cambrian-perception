@@ -45,11 +45,29 @@ from .retina import GRID
 # preference studies) shows this level of crudeness is what a newborn
 # visual system actually works with, not a stand-in for something more
 # sophisticated that was too much effort to build.
-_HEAD_SIZE = 4  # window height/width, in retina cells (of a 12x12 grid)
-_EYE_ROW = 1    # row within the window where "eyes" sit
-_EYE_COLS = (1, 3)  # columns within the window for the two "eyes"
-_MOUTH_ROW = 3  # row within the window for the "mouth"
-_MOUTH_COL = 2
+#
+# Derived from GRID as a fixed PROPORTION (roughly a third of the
+# grid's own width), not a hardcoded cell count -- User: "change it so
+# it can remain valid as [the retina] evolves." If GRID ever grows
+# (manually, or via a future evolvable-resolution trait), "head-sized"
+# stays calibrated to the same real fraction of the field of view
+# instead of silently shrinking. This is a MECHANICAL fix only, not an
+# evolvable one: _HEAD_SIZE stays entirely outside the genome's reach,
+# same as every other fixed reflex/grading constant in this module --
+# see conspec_signal's own module docstring, and the real reason this
+# matters: letting the organism tune its own detection criteria (even
+# with a fitness penalty attached) would just price a reward-hacking
+# exploit, not remove it. Recomputed once at import time against
+# whatever GRID currently is; if resolution ever becomes genuinely
+# per-instance (not a single shared global, which it isn't today),
+# this would need to become a function taking grid size as an
+# argument instead of a module-level constant -- noted, not built,
+# since that's the separate evolvable-resolution project, not this fix.
+_HEAD_SIZE = max(2, GRID[0] // 3)  # window height/width, in retina cells
+_EYE_ROW = max(0, _HEAD_SIZE // 4)              # ~1/4 down the window
+_EYE_COLS = (max(0, _HEAD_SIZE // 4), min(_HEAD_SIZE - 1, 3 * _HEAD_SIZE // 4))  # ~1/4 and ~3/4 across
+_MOUTH_ROW = min(_HEAD_SIZE - 1, 3 * _HEAD_SIZE // 4)  # ~3/4 down the window
+_MOUTH_COL = _HEAD_SIZE // 2                     # centered
 
 
 def _template_match(cells: np.ndarray) -> tuple[float, float, float]:
