@@ -1,0 +1,17 @@
+[Unit]
+Description=cambrian-perception -- small live viewer
+After=network.target
+
+[Service]
+Type=simple
+User=ron
+WorkingDirectory=/home/ron/cambrian-perception
+ExecStart=/home/ron/cambrian-perception/.venv/bin/python tools/viewer.py --port 8090
+Restart=always
+RestartSec=5
+
+# Negligible resource use (stdlib http.server, polls a small JSON
+# file) -- no quota needed, unlike the evolution service itself.
+
+[Install]
+WantedBy=multi-user.target
