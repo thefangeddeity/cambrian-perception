@@ -370,7 +370,21 @@ PAGE = """<!doctype html>
           const bw = fc.width * frac, bh = fc.height * frac;
           const bx = d.fovea_cx * fc.width - bw / 2;
           const by = d.fovea_cy * fc.height - bh / 2;
-          fctx.strokeStyle = '#4fa';
+          // Same "cornerness" measure as run_vision.py's real
+          // corner_penalty (product of how off-center each axis is),
+          // applied to THIS exact displayed position -- User: "fovea
+          // edge color had a color scale to reflect penalty
+          // application, red for hard, orange for medium, yellow for
+          // soft." Green (no color change) below the soft threshold.
+          const halfRange = 0.5 - frac / 2;
+          const normX = halfRange > 1e-9 ? (d.fovea_cx - 0.5) / halfRange : 0;
+          const normY = halfRange > 1e-9 ? (d.fovea_cy - 0.5) / halfRange : 0;
+          const cornerness = Math.abs(normX * normY);
+          let boxColor = '#4fa';
+          if (cornerness >= 0.75) boxColor = '#f44';
+          else if (cornerness >= 0.5) boxColor = '#f90';
+          else if (cornerness >= 0.25) boxColor = '#fd4';
+          fctx.strokeStyle = boxColor;
           fctx.lineWidth = 2;
           fctx.strokeRect(bx, by, bw, bh);
         }
