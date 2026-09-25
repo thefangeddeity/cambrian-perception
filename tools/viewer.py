@@ -413,7 +413,18 @@ PAGE = """<!doctype html>
     let currentEmbedId = null;
 
     function youtubeId(url) {
-      const m = url && url.match(/[?&]v=([^&]+)/);
+      // Real bug, found live: the user submitted a youtube.com/live/ID URL
+      // -- the training service resolved and watched it fine
+      // (yt-dlp's own real URL handling is robust to this), but this
+      // only recognized watch?v=ID, so the viewer's fovea panel never
+      // got a video id and stayed black. Also handles youtu.be/ID
+      // short links, same class of gap.
+      if (!url) return null;
+      let m = url.match(/[?&]v=([^&]+)/);
+      if (m) return m[1];
+      m = url.match(/youtu\\.be\/([^?&]+)/);
+      if (m) return m[1];
+      m = url.match(/\/(?:live|embed)\/([^?&]+)/);
       return m ? m[1] : null;
     }
 
