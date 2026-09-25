@@ -691,6 +691,21 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "habituation_exposure": round(habituation.exposure, 4),
             "habituation_discount": round(habituation.discount, 4),
             "clip": clip_path,
+            # Structural growth telemetry, added 2026-09-24 -- User:
+            # "plot fitness, total nodes, nodes per channel, tree
+            # depth, accepted mutation type, fitness delta... show
+            # exactly when complexity increases and whether it earns
+            # its structural cost." channel/applied were already
+            # computed above for this generation's real mutation
+            # attempt; tree_stats reflects the CURRENT (persisting)
+            # genome, same as live_status.json's own tree_stats.
+            "channel": channel,
+            "mutation_type": applied,
+            "fitness_delta": (candidate_fitness - parent_fitness) if both_finite else None,
+            "tree_stats": {
+                name: {"nodes": tree.node_count(), "depth": tree.depth()}
+                for name, tree in genome.trees.items()
+            },
         })
 
         # Real-time-ish snapshot for anything polling from outside

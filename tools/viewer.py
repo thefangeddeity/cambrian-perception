@@ -30,6 +30,31 @@ from pathlib import Path
 
 STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
+# Path defined independently here, not imported from fishbowl.sandbox
+# -- same deliberate independence as everything else in this module
+# (see its own module docstring: this has to work standalone).
+EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
+HISTORY_MAX_LINES = 500
+HISTORY_MAX_BYTES = 800_000  # real tail, not a full-file read -- the
+# log can grow to ~20000 lines/rotation; this stays cheap regardless.
+
+
+def _tail_jsonl(path: Path, max_lines: int = HISTORY_MAX_LINES, max_bytes: int = HISTORY_MAX_BYTES) -> list[dict]:
+    if not path.exists():
+        return []
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        if size > max_bytes:
+            f.seek(size - max_bytes)
+            f.readline()  # drop the partial first line from the seek
+        data = f.read()
+    records = []
+    for line in data.decode("utf-8", errors="ignore").splitlines()[-max_lines:]:
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return records
 
 PAGE = """<!doctype html>
 <html>
@@ -68,6 +93,7 @@ PAGE = """<!doctype html>
   .video-wrap { position: relative; width: 320px; height: 180px; }
   .video-wrap iframe { display: block; width: 100%; height: 100%; border: 1px solid #234; }
   .fovea-overlay { position: absolute; top: 0; left: 0; pointer-events: none; border: none !important; }
+  .chart-panel { max-width: 100%; overflow-x: auto; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
   .stale { color: #f66; }
@@ -120,6 +146,31 @@ PAGE = """<!doctype html>
     <div><span class="minus">- movement_cost</span> -- real motor effort, every frame, whether or not it actually moved (a push against a wall still costs something). Doesn't cap or forbid a big jump -- pursuit/seek above can still justify one -- it just means an UNJUSTIFIED one is no longer free.</div>
   </div>
   <div class="sub" style="margin-top:10px;">real tensions it has to balance, not resolve for it: loom's urgency to startle vs. curiosity's pull to keep exploring (a real predator/prey visual-field tradeoff, "scalding vs. freezing" -- a threat on one side, going numb on the other); habituation's dampening of familiar beings vs. resensitizing to any real threat paired with one; dead_field's "don't go numb" vs. seek's "stay locked on what you found." No fixed right answer to any of these is built in -- only the pressure to find its own.</div>
+
+  <div class="sub" style="margin-top:24px;">growth over time -- real history from evolution_log.jsonl (last ~500 generations), refreshed every 20s, not live-polled every second like the panels above. User: "show exactly when complexity increases and whether it earns its structural cost."</div>
+  <div class="row">
+    <div class="chart-panel">
+      <div class="sub"><span style="color:#4fa">fitness (live)</span> / <span style="color:#567">peak ever</span></div>
+      <canvas id="chart-fitness" width="420" height="160"></canvas>
+    </div>
+    <div class="chart-panel">
+      <div class="sub">tree size -- <span style="color:#7fd4ff">total</span> / <span style="color:#f90">response</span> / <span style="color:#0af">pan</span> / <span style="color:#f6f">tilt</span> (nodes)</div>
+      <canvas id="chart-nodes" width="420" height="160"></canvas>
+    </div>
+    <div class="chart-panel">
+      <div class="sub">tree depth -- <span style="color:#f90">response</span> / <span style="color:#0af">pan</span> / <span style="color:#f6f">tilt</span></div>
+      <canvas id="chart-depth" width="420" height="160"></canvas>
+    </div>
+    <div class="chart-panel">
+      <div class="sub">fitness delta, accepted generations only (how much each accepted structural change actually earned)</div>
+      <canvas id="chart-delta" width="420" height="160"></canvas>
+    </div>
+    <div class="chart-panel">
+      <div class="sub">accepted mutation type over time (which real change won each accepted generation)</div>
+      <canvas id="chart-mutation" width="420" height="160"></canvas>
+    </div>
+  </div>
+
   <script>
     function nodeLabel(n) {
       if (n.kind === 'var') return 'x' + n.index;
@@ -332,6 +383,127 @@ PAGE = """<!doctype html>
       setTimeout(tick, 1000);
     }
     tick();
+
+    // -- Growth-over-time charts (real history, /history) -----------
+    function drawLineChart(canvasId, xs, series) {
+      const c = document.getElementById(canvasId);
+      const ctx = c.getContext('2d');
+      const w = c.width, h = c.height;
+      ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, w, h);
+      if (!xs.length) {
+        ctx.fillStyle = '#567'; ctx.font = '11px monospace';
+        ctx.fillText('not enough history yet', 8, h / 2);
+        return;
+      }
+      const pad = { l: 40, r: 8, t: 8, b: 16 };
+      const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+      const xMin = xs[0], xMax = xs[xs.length - 1];
+      let yMin = Infinity, yMax = -Infinity;
+      for (const s of series) {
+        for (const v of s.values) {
+          if (v === null || v === undefined || !isFinite(v)) continue;
+          yMin = Math.min(yMin, v); yMax = Math.max(yMax, v);
+        }
+      }
+      if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
+      if (yMin === yMax) { yMin -= 1; yMax += 1; }
+      const yPad = (yMax - yMin) * 0.08;
+      yMin -= yPad; yMax += yPad;
+      const px = x => pad.l + (xMax === xMin ? 0 : (x - xMin) / (xMax - xMin)) * plotW;
+      const py = y => pad.t + (1 - (y - yMin) / (yMax - yMin)) * plotH;
+
+      ctx.strokeStyle = '#234'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + plotH); ctx.lineTo(pad.l + plotW, pad.t + plotH);
+      ctx.stroke();
+      ctx.fillStyle = '#567'; ctx.font = '9px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(yMax.toFixed(2), pad.l - 4, pad.t + 8);
+      ctx.fillText(yMin.toFixed(2), pad.l - 4, pad.t + plotH);
+      ctx.textAlign = 'left';
+      ctx.fillText('gen ' + xMin, pad.l, h - 4);
+      ctx.textAlign = 'right';
+      ctx.fillText('gen ' + xMax, pad.l + plotW, h - 4);
+
+      for (const s of series) {
+        ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i < xs.length; i++) {
+          const v = s.values[i];
+          if (v === null || v === undefined || !isFinite(v)) { started = false; continue; }
+          const x = px(xs[i]), y = py(v);
+          if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+        }
+        ctx.stroke();
+      }
+    }
+
+    const MUTATION_TYPES = ['mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+    const MUTATION_COLORS = { mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+
+    function drawMutationChart(records) {
+      const c = document.getElementById('chart-mutation');
+      const ctx = c.getContext('2d');
+      const w = c.width, h = c.height;
+      ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, w, h);
+      const accepted = records.filter(r => r.accepted && MUTATION_TYPES.includes(r.mutation_type));
+      const pad = { l: 78, r: 8, t: 8, b: 16 };
+      const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+      const rowH = plotH / MUTATION_TYPES.length;
+      ctx.font = '9px monospace'; ctx.fillStyle = '#567'; ctx.textAlign = 'left';
+      MUTATION_TYPES.forEach((t, i) => ctx.fillText(t, 2, pad.t + i * rowH + rowH / 2 + 3));
+      if (!accepted.length) {
+        ctx.fillStyle = '#567'; ctx.fillText('no accepted mutations in this window yet', pad.l, h / 2);
+        return;
+      }
+      const gens = records.map(r => r.generation);
+      const xMin = gens[0], xMax = gens[gens.length - 1];
+      const px = x => pad.l + (xMax === xMin ? 0 : (x - xMin) / (xMax - xMin)) * plotW;
+      for (const r of accepted) {
+        const row = MUTATION_TYPES.indexOf(r.mutation_type);
+        const x = px(r.generation), y = pad.t + row * rowH + rowH / 2;
+        ctx.fillStyle = MUTATION_COLORS[r.mutation_type];
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill();
+      }
+    }
+
+    function treeNodes(r, ch) { return r.tree_stats && r.tree_stats[ch] ? r.tree_stats[ch].nodes : null; }
+    function treeDepth(r, ch) { return r.tree_stats && r.tree_stats[ch] ? r.tree_stats[ch].depth : null; }
+
+    async function fetchHistory() {
+      try {
+        const res = await fetch('/history');
+        const records = await res.json();
+        if (records && records.length) {
+          const xs = records.map(r => r.generation);
+          drawLineChart('chart-fitness', xs, [
+            { values: records.map(r => r.best_fitness), color: '#4fa' },
+            { values: records.map(r => r.peak_fitness_seen), color: '#567' },
+          ]);
+          drawLineChart('chart-nodes', xs, [
+            { values: records.map(r => {
+                const total = ['response', 'pan', 'tilt'].reduce((s, ch) => s + (treeNodes(r, ch) || 0), 0);
+                return r.tree_stats ? total : null;
+              }), color: '#7fd4ff' },
+            { values: records.map(r => treeNodes(r, 'response')), color: '#f90' },
+            { values: records.map(r => treeNodes(r, 'pan')), color: '#0af' },
+            { values: records.map(r => treeNodes(r, 'tilt')), color: '#f6f' },
+          ]);
+          drawLineChart('chart-depth', xs, [
+            { values: records.map(r => treeDepth(r, 'response')), color: '#f90' },
+            { values: records.map(r => treeDepth(r, 'pan')), color: '#0af' },
+            { values: records.map(r => treeDepth(r, 'tilt')), color: '#f6f' },
+          ]);
+          drawLineChart('chart-delta', xs, [
+            { values: records.map(r => r.accepted ? r.fitness_delta : null), color: '#4fa' },
+          ]);
+          drawMutationChart(records);
+        }
+      } catch (e) { /* history is a nice-to-have; a failed fetch shouldn't break the live panels above */ }
+      setTimeout(fetchHistory, 20000);
+    }
+    fetchHistory();
   </script>
 </body>
 </html>
@@ -355,6 +527,19 @@ class Handler(BaseHTTPRequestHandler):
                 body = LIVE_STATUS_PATH.read_bytes()
             else:
                 body = b"{}"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/history":
+            # Real structural-growth telemetry -- User: "plot fitness,
+            # total nodes, nodes per channel, tree depth, accepted
+            # mutation type, fitness delta... show exactly when
+            # complexity increases and whether it earns its structural
+            # cost." A real tail of evolution_log.jsonl, not the whole
+            # (potentially ~20000-line) file.
+            body = json.dumps(_tail_jsonl(EVOLUTION_LOG_PATH)).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
