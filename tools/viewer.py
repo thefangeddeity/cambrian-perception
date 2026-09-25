@@ -600,6 +600,9 @@ PAGE = """<!doctype html>
         sel.innerHTML = '<option value="auto">auto (rotate)</option>' +
           d.options.map(n => `<option value="${n}">${n}</option>`).join('');
         sel.value = d.selected || 'auto';
+        if (d.selected_url) {
+          document.getElementById('source-status').textContent = 'custom: ' + d.selected_url;
+        }
       } catch (e) { /* picker is a nice-to-have */ }
     }
     document.getElementById('source-picker').addEventListener('change', async (e) => {
@@ -667,13 +670,23 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path.startswith("/sources"):
-            selected = None
+            # Reports BOTH a name-based selection (for the dropdown,
+            # which can only show pre-defined options) and a raw-url
+            # one (for an honest status line) -- a real gap found live:
+            # the dropdown was falling back to "auto" for a custom URL
+            # selection, which is actually active, just not nameable.
+            selected_name, selected_url = None, None
             if SELECTED_SOURCE_PATH.exists():
                 try:
-                    selected = json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8")).get("name")
+                    data = json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8"))
+                    selected_name, selected_url = data.get("name"), data.get("url")
                 except (OSError, json.JSONDecodeError):
                     pass
-            body = json.dumps({"options": [n for n, _ in LIVE_SOURCES], "selected": selected}).encode("utf-8")
+            body = json.dumps({
+                "options": [n for n, _ in LIVE_SOURCES],
+                "selected": selected_name,
+                "selected_url": selected_url,
+            }).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
