@@ -176,26 +176,24 @@ PAGE = """<!doctype html>
         <canvas id="fovea" class="fovea-overlay"></canvas>
       </div>
     </div>
-    <div class="stats" id="stats"></div>
     <div>
-      <!-- Real bug, found live: this used to be nested INSIDE #stats,
-           which tick() overwrites wholesale every 1s (el.innerHTML =
-           ...) -- wiped this out within a second of page load, every
-           load, so it was never actually visible. User: "I can't see
-           it." Moved to its own sibling container tick() never
-           touches. -->
-      <div style="margin-top:10px;">
-        <span class="label">train on:</span>
-        <span id="source-status" style="color:#567; font-size:11px;"></span>
-      </div>
+      <div class="stats" id="stats"></div>
+      <!-- Kept as a SIBLING of #stats, not a child -- #stats gets
+           wholesale-overwritten every 1s by tick() (real bug, found
+           live, fixed once already: nesting this inside #stats wiped
+           it out within a second of every load). Sitting in the same
+           shared column puts it right below "watching:" without
+           re-triggering that bug -- User: "that paste-in line should
+           go below 'watching:' line." No separate "train on:" status
+           line -- User: "Page already tells me what it's watching...
+           your 'train on' line is redundant." No dropdown either --
+           User: "I don't want hardcoded anything for now; I'll pick
+           the training videos for now." -->
       <div style="margin-top:6px;">
-        <!-- User: "I don't need the 'train on' dropdown, I don't want
-             hardcoded anything for now; I'll pick the training videos
-             for now." Dropdown removed -- free-text URL only, no
-             pre-baked list shown. -->
         <input type="text" id="custom-url" placeholder="paste a live YouTube URL..."
           style="width:220px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; font-family:monospace; font-size:11px; padding:3px;">
         <button id="custom-url-submit" style="font-family:monospace; font-size:11px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; cursor:pointer;">Submit</button>
+        <span id="submit-status" style="color:#567; font-size:11px;"></span>
       </div>
     </div>
   </div>
@@ -599,29 +597,26 @@ PAGE = """<!doctype html>
     }
     fetchHistory();
 
-    // -- Training source picker -- User: "put a list of training
-    // videos I can pick from the viewer." Sticky: takes effect on the
-    // NEXT restart, not mid-run (a run's frames are already loaded).
-    async function loadSources() {
-      try {
-        const res = await fetch('/sources');
-        const d = await res.json();
-        const status = document.getElementById('source-status');
-        status.textContent = d.selected_url ? ('custom: ' + d.selected_url)
-          : d.selected ? d.selected : 'auto (rotate)';
-      } catch (e) { /* status is a nice-to-have */ }
-    }
+    // User: "'Submit' should trigger a restart of
+    // cambrian-perception.service" -- /select now does that itself
+    // (real sudo systemctl restart, confirmed passwordless) once the
+    // URL's confirmed live, so this really does take effect right
+    // away, not on some future restart. "watching:" in the stats
+    // panel above (already polled every 1s) is the honest way to
+    // confirm it actually applied -- User: "How do I know if it's
+    // watching?" -- once the restart completes and the new process
+    // writes its own live_status.json, that line updates on its own.
     document.getElementById('custom-url-submit').addEventListener('click', async () => {
       const input = document.getElementById('custom-url');
-      const status = document.getElementById('source-status');
+      const status = document.getElementById('submit-status');
       const url = input.value.trim();
       if (!url) return;
       status.textContent = 'checking it\\'s really live...';
       try {
         const res = await fetch('/select?url=' + encodeURIComponent(url));
         const d = await res.json();
-        status.textContent = d.ok ? 'takes effect next restart' : ('failed: ' + (d.error || 'unknown'));
-        if (d.ok) { input.value = ''; loadSources(); }
+        status.textContent = d.ok ? 'restarting -- watch "watching:" above' : ('failed: ' + (d.error || 'unknown'));
+        if (d.ok) { input.value = ''; }
       } catch (err) { status.textContent = 'failed'; }
     });
     loadSources();
@@ -713,6 +708,21 @@ class Handler(BaseHTTPRequestHandler):
                 ok, error = _check_live_url(url)
                 if ok:
                     _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url})
+            if ok:
+                # User: "'Submit' should trigger a restart of
+                # cambrian-perception.service" -- without this the
+                # selection only took effect on whatever restart
+                # happened to come next (up to an hour away), which is
+                # exactly what caused the real "still watching the
+                # kittens" confusion. Confirmed passwordless sudo for
+                # this exact command before wiring it in.
+                try:
+                    subprocess.run(
+                        ["sudo", "systemctl", "restart", "cambrian-perception.service"],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass  # selection is still saved even if the restart trigger itself failed
             body = json.dumps({"ok": ok, "error": error}).encode("utf-8")
             self.send_response(200 if ok else 400)
             self.send_header("Content-Type", "application/json")
