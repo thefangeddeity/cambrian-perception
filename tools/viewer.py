@@ -145,6 +145,7 @@ PAGE = """<!doctype html>
     <div><span class="minus">- dead_field_penalty</span> -- a SUSTAINED stretch with nothing happening in the world. Can't be dodged by moving the eye (that loophole's closed); curiosity above is the honest way to earn out of it.</div>
     <div><span class="minus">- movement_cost</span> -- real motor effort, every frame, whether or not it actually moved (a push against a wall still costs something). Doesn't cap or forbid a big jump -- pursuit/seek above can still justify one -- it just means an UNJUSTIFIED one is no longer free.</div>
     <div><span class="minus">- corner_penalty</span> -- sitting in a corner specifically (both axes maxed out at once, not just one edge). Soft, not a hard constraint -- real reward can still outweigh it.</div>
+    <div><span class="minus">- edge_penalty</span> -- hard against just one edge. Real but smaller than corner_penalty -- a single edge is less wasteful than a true corner, so it costs less, not nothing.</div>
   </div>
   <div class="sub" style="margin-top:10px;">real tensions it has to balance, not resolve for it: loom's urgency to startle vs. curiosity's pull to keep exploring (a real predator/prey visual-field tradeoff, "scalding vs. freezing" -- a threat on one side, going numb on the other); habituation's dampening of familiar beings vs. resensitizing to any real threat paired with one; dead_field's "don't go numb" vs. seek's "stay locked on what you found." No fixed right answer to any of these is built in -- only the pressure to find its own.</div>
 
@@ -370,20 +371,22 @@ PAGE = """<!doctype html>
           const bw = fc.width * frac, bh = fc.height * frac;
           const bx = d.fovea_cx * fc.width - bw / 2;
           const by = d.fovea_cy * fc.height - bh / 2;
-          // Same "cornerness" measure as run_vision.py's real
-          // corner_penalty (product of how off-center each axis is),
-          // applied to THIS exact displayed position -- User: "fovea
-          // edge color had a color scale to reflect penalty
-          // application, red for hard, orange for medium, yellow for
-          // soft." Green (no color change) below the soft threshold.
+          // Same two real penalties run_vision.py actually grades
+          // fitness on (corner_penalty, edge_penalty), applied to
+          // THIS exact displayed position -- User: "touching one edge
+          // also give an orange-level penalty... shun edges unless
+          // they're worth it." Red = a true corner (both axes off);
+          // orange = hard against just one edge; yellow = approaching
+          // either; green = centered.
           const halfRange = 0.5 - frac / 2;
           const normX = halfRange > 1e-9 ? (d.fovea_cx - 0.5) / halfRange : 0;
           const normY = halfRange > 1e-9 ? (d.fovea_cy - 0.5) / halfRange : 0;
           const cornerness = Math.abs(normX * normY);
+          const edgeCloseness = Math.max(Math.abs(normX), Math.abs(normY));
           let boxColor = '#4fa';
-          if (cornerness >= 0.75) boxColor = '#f44';
-          else if (cornerness >= 0.5) boxColor = '#f90';
-          else if (cornerness >= 0.25) boxColor = '#fd4';
+          if (cornerness >= 0.5) boxColor = '#f44';
+          else if (edgeCloseness >= 0.75) boxColor = '#f90';
+          else if (edgeCloseness >= 0.4) boxColor = '#fd4';
           fctx.strokeStyle = boxColor;
           fctx.lineWidth = 2;
           fctx.strokeRect(bx, by, bw, bh);

@@ -149,6 +149,25 @@ def _corner_penalty(positions: list[tuple[float, float]]) -> float:
     scores = [abs((cx - 0.5) / half_range * (cy - 0.5) / half_range) for cx, cy in positions]
     return float(np.mean(scores))
 
+
+# User: "I want it to shun edges unless they're worth it." Real,
+# separate, LESSER cost than corner_penalty -- a single edge (one axis
+# extreme, the other centered) is genuinely less wasteful than a true
+# corner, so it costs less, not nothing. Still soft: seek/pursuit can
+# outweigh it when an edge really is where the subject is.
+EDGE_PENALTY_WEIGHT = 0.25
+
+
+def _edge_penalty(positions: list[tuple[float, float]]) -> float:
+    """Max (not product) of how off-center each axis is -- unlike cornerness, this alone is already high for EITHER a corner or a single edge; corner_penalty's own weight is what makes a true corner cost more overall."""
+    if not positions:
+        return 0.0
+    half_range = 0.5 - fovea.FOVEA_FRACTION / 2.0
+    if half_range <= 1e-9:
+        return 0.0
+    scores = [max(abs((cx - 0.5) / half_range), abs((cy - 0.5) / half_range)) for cx, cy in positions]
+    return float(np.mean(scores))
+
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
 # drifting into the freezing water behind it. loom is the "scalding"
@@ -510,6 +529,10 @@ def evaluate_genome(
     corner = _corner_penalty(positions)
     fitness -= CORNER_PENALTY_WEIGHT * corner
     breakdown["corner_penalty"] = corner
+
+    edge = _edge_penalty(positions)
+    fitness -= EDGE_PENALTY_WEIGHT * edge
+    breakdown["edge_penalty"] = edge
 
     return fitness, breakdown, live_info
 
