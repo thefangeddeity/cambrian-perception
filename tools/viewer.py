@@ -170,7 +170,7 @@ PAGE = """<!doctype html>
       <canvas id="grid" width="240" height="240"></canvas>
     </div>
     <div>
-      <div class="sub" id="fovea-label">fovea position -- box shows where it's looking, drawn over the same real video it's cropping. Position reflects the LAST analyzed ~40s window, not this instant.</div>
+      <div class="sub" id="fovea-label">fovea position -- box shows where it's looking, drawn over the same real video it's cropping. Position reflects the LAST analyzed ~40s window, not this instant. On iOS, tap the video if it doesn't autoplay -- a real platform restriction, not a bug here.</div>
       <div class="video-wrap" id="fovea-video-wrap">
         <iframe id="fovea-embed" src="" frameborder="0" allow="autoplay" title="fovea position source feed"></iframe>
         <canvas id="fovea" class="fovea-overlay"></canvas>
@@ -400,7 +400,16 @@ PAGE = """<!doctype html>
         const vid = youtubeId(d.clip);
         if (vid && vid !== currentEmbedId) {
           currentEmbedId = vid;
-          document.getElementById('fovea-embed').src = `https://www.youtube.com/embed/${vid}?autoplay=1&mute=1`;
+          // the user (Firefox iOS): "I can't tell if it's playing or not;
+          // it doesn't autoplay." Real iOS/WebKit constraint --
+          // playsinline=1 is required or iOS blocks inline autoplay
+          // outright (forces fullscreen-or-nothing, which looks
+          // identical to frozen). Even with this + mute=1, iOS
+          // sometimes still needs a real tap before the first video
+          // on a page plays at all -- not something a URL param can
+          // fully guarantee, so the panel label says so honestly
+          // rather than claiming this is a complete fix.
+          document.getElementById('fovea-embed').src = `https://www.youtube.com/embed/${vid}?autoplay=1&mute=1&playsinline=1`;
         }
 
         const fc = document.getElementById('fovea');
