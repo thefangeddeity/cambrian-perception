@@ -556,20 +556,27 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
     clip_path = clips[clip_index]
 
     # Human-only override, User: "put a list of training videos I can
-    # pick from the viewer." Written by tools/viewer.py, never by the
-    # organism -- only takes effect for live-mode sources, and only if
-    # it names a real entry in LIVE_SOURCES (never an arbitrary URL --
-    # the viewer only ever offers this same fixed list). Sticky: stays
-    # selected across restarts until cleared back to "auto" in the
-    # viewer, which resumes normal round-robin rotation.
+    # pick from the viewer" / "add a field I can input the video to be
+    # watched." Written by tools/viewer.py, never by the organism --
+    # only takes effect for live-mode sources. A "name" must match
+    # LIVE_SOURCES; a free-text "url" is only ever accepted by the
+    # viewer after it's already confirmed live via a real yt-dlp
+    # metadata check (see viewer.py's _check_live_url) -- this side
+    # just trusts that already happened, same as it already trusts
+    # LIVE_SOURCES itself was vetted before being written into the
+    # code. Sticky: stays selected across restarts until cleared back
+    # to "auto" in the viewer, which resumes normal round-robin.
     if source == "live":
         selection = sandbox.load_selected_source()
         selected_name = selection.get("name") if selection else None
+        selected_url = selection.get("url") if selection else None
         if selected_name:
             for i, (name, url) in enumerate(LIVE_SOURCES):
                 if name == selected_name:
                     clip_index, clip_path = i, url
                     break
+        elif selected_url:
+            clip_index, clip_path = 0, selected_url
 
     # A "live" source list holds watch-page URLs, not playable ones --
     # resolve to the real, currently-live direct stream right before

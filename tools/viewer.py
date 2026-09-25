@@ -24,6 +24,7 @@ Usage:
 
 import argparse
 import json
+import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -61,6 +62,30 @@ def _write_json_atomic(path: Path, data) -> None:
     temp = path.with_suffix(".tmp")
     temp.write_text(json.dumps(data), encoding="utf-8")
     temp.replace(path)
+
+
+def _check_live_url(url: str) -> tuple[bool, str | None]:
+    """
+    Real yt-dlp metadata check, not a URL-shape guess -- same
+    discipline as every curated source added this session ("confirmed
+    live via yt-dlp metadata before wiring in"). Free-text input has
+    no whitelist to fall back on, so this IS the validation.
+    """
+    yt_dlp = Path(sys.executable).parent / "yt-dlp"
+    if not yt_dlp.exists():
+        yt_dlp = Path("yt-dlp")
+    try:
+        result = subprocess.run(
+            [str(yt_dlp), "--skip-download", "--print", "is_live", url],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "yt-dlp check failed or timed out"
+    if result.returncode != 0:
+        return False, "not a resolvable video"
+    if result.stdout.strip() != "True":
+        return False, "not currently live"
+    return True, None
 
 
 def _tail_jsonl(path: Path, max_lines: int = HISTORY_MAX_LINES, max_bytes: int = HISTORY_MAX_BYTES) -> list[dict]:
@@ -156,6 +181,11 @@ PAGE = """<!doctype html>
         <span class="label">train on:</span>
         <select id="source-picker"></select>
         <span id="source-status" style="color:#567; font-size:11px;"></span>
+      </div>
+      <div style="margin-top:6px;">
+        <input type="text" id="custom-url" placeholder="or paste a live YouTube URL..."
+          style="width:220px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; font-family:monospace; font-size:11px; padding:3px;">
+        <button id="custom-url-submit" style="font-family:monospace; font-size:11px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; cursor:pointer;">Submit</button>
       </div>
     </div>
   </div>
@@ -469,9 +499,9 @@ PAGE = """<!doctype html>
       ctx.fillText(yMax.toFixed(2), pad.l - 4, pad.t + 8);
       ctx.fillText(yMin.toFixed(2), pad.l - 4, pad.t + plotH);
       ctx.textAlign = 'left';
-      ctx.fillText('gen ' + xMin, pad.l, h - 4);
+      ctx.fillText('oldest', pad.l, h - 4);
       ctx.textAlign = 'right';
-      ctx.fillText('gen ' + xMax, pad.l + plotW, h - 4);
+      ctx.fillText('newest', pad.l + plotW, h - 4);
 
       for (const s of series) {
         ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
@@ -505,15 +535,21 @@ PAGE = """<!doctype html>
         ctx.fillStyle = '#567'; ctx.fillText('no accepted mutations in this window yet', pad.l, h / 2);
         return;
       }
-      const gens = records.map(r => r.generation);
-      const xMin = gens[0], xMax = gens[gens.length - 1];
-      const px = x => pad.l + (xMax === xMin ? 0 : (x - xMin) / (xMax - xMin)) * plotW;
-      for (const r of accepted) {
+      // Real bug fix, User: "What's happening to the charts?" --
+      // box.generation resets to 1 every hourly restart, but this
+      // window can span multiple restarts, so raw generation numbers
+      // aren't monotonic across it. Positioned by RECORD INDEX
+      // instead (the tail is already in real chronological/file
+      // order), which is always correct regardless of restarts.
+      const n = records.length;
+      const px = i => pad.l + (n <= 1 ? 0 : i / (n - 1)) * plotW;
+      records.forEach((r, i) => {
+        if (!r.accepted || !MUTATION_TYPES.includes(r.mutation_type)) return;
         const row = MUTATION_TYPES.indexOf(r.mutation_type);
-        const x = px(r.generation), y = pad.t + row * rowH + rowH / 2;
+        const x = px(i), y = pad.t + row * rowH + rowH / 2;
         ctx.fillStyle = MUTATION_COLORS[r.mutation_type];
         ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill();
-      }
+      });
     }
 
     function treeNodes(r, ch) { return r.tree_stats && r.tree_stats[ch] ? r.tree_stats[ch].nodes : null; }
@@ -524,7 +560,7 @@ PAGE = """<!doctype html>
         const res = await fetch('/history');
         const records = await res.json();
         if (records && records.length) {
-          const xs = records.map(r => r.generation);
+          const xs = records.map((r, i) => i);
           drawLineChart('chart-fitness', xs, [
             { values: records.map(r => r.best_fitness), color: '#4fa' },
             { values: records.map(r => r.peak_fitness_seen), color: '#567' },
@@ -573,6 +609,19 @@ PAGE = """<!doctype html>
         const res = await fetch('/select?name=' + encodeURIComponent(e.target.value));
         const d = await res.json();
         status.textContent = d.ok ? 'takes effect next restart' : 'failed';
+      } catch (err) { status.textContent = 'failed'; }
+    });
+    document.getElementById('custom-url-submit').addEventListener('click', async () => {
+      const input = document.getElementById('custom-url');
+      const status = document.getElementById('source-status');
+      const url = input.value.trim();
+      if (!url) return;
+      status.textContent = 'checking it\\'s really live...';
+      try {
+        const res = await fetch('/select?url=' + encodeURIComponent(url));
+        const d = await res.json();
+        status.textContent = d.ok ? 'takes effect next restart' : ('failed: ' + (d.error || 'unknown'));
+        if (d.ok) { input.value = ''; loadSources(); }
       } catch (err) { status.textContent = 'failed'; }
     });
     loadSources();
@@ -631,12 +680,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path.startswith("/select"):
-            # Human-only, fixed whitelist -- see SELECTED_SOURCE_PATH's
-            # own comment. "auto" clears the override, resuming normal
-            # round-robin rotation.
-            name = (parse_qs(urlparse(self.path).query).get("name") or [""])[0]
+            # "auto" clears the override, resuming normal round-robin.
+            # A whitelisted name is fine as-is. Free-text "url" has no
+            # whitelist to fall back on, so it's validated for real
+            # against yt-dlp (see _check_live_url) before being
+            # accepted -- User: "add a field I can input the video to
+            # be watched." Still human-only; the organism never
+            # reaches this endpoint or picks its own source.
+            qs = parse_qs(urlparse(self.path).query)
+            name = (qs.get("name") or [""])[0]
+            url = (qs.get("url") or [""])[0].strip()
             valid_names = {n for n, _ in LIVE_SOURCES}
-            ok = False
+            ok, error = False, None
             if name == "auto":
                 if SELECTED_SOURCE_PATH.exists():
                     SELECTED_SOURCE_PATH.unlink()
@@ -644,7 +699,11 @@ class Handler(BaseHTTPRequestHandler):
             elif name in valid_names:
                 _write_json_atomic(SELECTED_SOURCE_PATH, {"name": name})
                 ok = True
-            body = json.dumps({"ok": ok}).encode("utf-8")
+            elif url:
+                ok, error = _check_live_url(url)
+                if ok:
+                    _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url})
+            body = json.dumps({"ok": ok, "error": error}).encode("utf-8")
             self.send_response(200 if ok else 400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
