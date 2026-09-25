@@ -27,16 +27,40 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# LIVE_SOURCES imported (not duplicated) from run_vision.py -- a
+# second copy here would drift out of sync with the real list. Safe
+# to import: run_vision.py only runs main() under __main__.
+from run_vision import LIVE_SOURCES  # noqa: E402
 
 STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
-# Path defined independently here, not imported from fishbowl.sandbox
+# Paths defined independently here, not imported from fishbowl.sandbox
 # -- same deliberate independence as everything else in this module
 # (see its own module docstring: this has to work standalone).
 EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
 HISTORY_MAX_LINES = 500
 HISTORY_MAX_BYTES = 800_000  # real tail, not a full-file read -- the
 # log can grow to ~20000 lines/rotation; this stays cheap regardless.
+
+# User: "put a list of training videos I can pick from the viewer."
+# Human-only control -- this is the first thing this viewer ever
+# WRITES (everything else is read-only). Written here, read by
+# sandbox.load_selected_source() in run_vision.py. Only ever a name
+# from LIVE_SOURCES's own fixed whitelist -- never an arbitrary URL,
+# since this viewer has no auth (a known, documented gap) and
+# accepting free-text URLs here would hand anyone on the LAN control
+# over what real content the organism trains against.
+SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
+
+
+def _write_json_atomic(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(data), encoding="utf-8")
+    temp.replace(path)
 
 
 def _tail_jsonl(path: Path, max_lines: int = HISTORY_MAX_LINES, max_bytes: int = HISTORY_MAX_BYTES) -> list[dict]:
@@ -127,7 +151,13 @@ PAGE = """<!doctype html>
         <canvas id="fovea" class="fovea-overlay"></canvas>
       </div>
     </div>
-    <div class="stats" id="stats"></div>
+    <div class="stats" id="stats">
+      <div style="margin-top:10px;">
+        <span class="label">train on:</span>
+        <select id="source-picker"></select>
+        <span id="source-status" style="color:#567; font-size:11px;"></span>
+      </div>
+    </div>
   </div>
   <div class="sub" style="margin-top:24px;">its brain -- the current ACCEPTED genome's own trees (response / pan / tilt), not a rejected candidate's</div>
   <div class="row" id="trees"></div>
@@ -522,6 +552,30 @@ PAGE = """<!doctype html>
       setTimeout(fetchHistory, 20000);
     }
     fetchHistory();
+
+    // -- Training source picker -- User: "put a list of training
+    // videos I can pick from the viewer." Sticky: takes effect on the
+    // NEXT restart, not mid-run (a run's frames are already loaded).
+    async function loadSources() {
+      try {
+        const res = await fetch('/sources');
+        const d = await res.json();
+        const sel = document.getElementById('source-picker');
+        sel.innerHTML = '<option value="auto">auto (rotate)</option>' +
+          d.options.map(n => `<option value="${n}">${n}</option>`).join('');
+        sel.value = d.selected || 'auto';
+      } catch (e) { /* picker is a nice-to-have */ }
+    }
+    document.getElementById('source-picker').addEventListener('change', async (e) => {
+      const status = document.getElementById('source-status');
+      status.textContent = 'applying...';
+      try {
+        const res = await fetch('/select?name=' + encodeURIComponent(e.target.value));
+        const d = await res.json();
+        status.textContent = d.ok ? 'takes effect next restart' : 'failed';
+      } catch (err) { status.textContent = 'failed'; }
+    });
+    loadSources();
   </script>
 </body>
 </html>
@@ -559,6 +613,39 @@ class Handler(BaseHTTPRequestHandler):
             # (potentially ~20000-line) file.
             body = json.dumps(_tail_jsonl(EVOLUTION_LOG_PATH)).encode("utf-8")
             self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/sources"):
+            selected = None
+            if SELECTED_SOURCE_PATH.exists():
+                try:
+                    selected = json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8")).get("name")
+                except (OSError, json.JSONDecodeError):
+                    pass
+            body = json.dumps({"options": [n for n, _ in LIVE_SOURCES], "selected": selected}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/select"):
+            # Human-only, fixed whitelist -- see SELECTED_SOURCE_PATH's
+            # own comment. "auto" clears the override, resuming normal
+            # round-robin rotation.
+            name = (parse_qs(urlparse(self.path).query).get("name") or [""])[0]
+            valid_names = {n for n, _ in LIVE_SOURCES}
+            ok = False
+            if name == "auto":
+                if SELECTED_SOURCE_PATH.exists():
+                    SELECTED_SOURCE_PATH.unlink()
+                ok = True
+            elif name in valid_names:
+                _write_json_atomic(SELECTED_SOURCE_PATH, {"name": name})
+                ok = True
+            body = json.dumps({"ok": ok}).encode("utf-8")
+            self.send_response(200 if ok else 400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

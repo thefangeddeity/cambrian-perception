@@ -24,6 +24,7 @@ _ROTATE_CHECK_INTERVAL = 500
 REQUESTS_PATH = STATE_DIR / "requests.json"
 CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
 LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
+SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
 
 
 def save_live_status(data: dict) -> None:
@@ -58,6 +59,19 @@ def load_checkpoint() -> dict | None:
     if not CHECKPOINT_PATH.exists():
         return None
     return _read_json(CHECKPOINT_PATH, None)
+
+
+def load_selected_source() -> dict | None:
+    """
+    Human-only control, User: "put a list of training videos I can pick
+    from the viewer." Written by tools/viewer.py itself (its own
+    independent writer, not through this module -- same file-is-the-
+    contract pattern as live_status.json), read here. The organism
+    never touches this; the viewer only ever offers a fixed whitelist.
+    """
+    if not SELECTED_SOURCE_PATH.exists():
+        return None
+    return _read_json(SELECTED_SOURCE_PATH, None)
 
 
 @dataclass

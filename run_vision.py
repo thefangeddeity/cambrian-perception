@@ -271,15 +271,10 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi")
 # Watched LIVE (resolved fresh every run via _resolve_live_url below),
 # never downloaded -- genuinely different real content every restart.
 #
-# User: "Add this one to our library, too... in case the other goes
-# down" -- a second entry from the same EXPLORE.org family, also
-# confirmed live via yt-dlp metadata before adding (title: "Kitten
-# Rescue - Baby Kittens Cam powered by EXPLORE.org", is_live=True).
-# Rotates with the first across restarts (see run()'s clip_index);
-# also means a clip going offline for one restart doesn't stall the
-# whole service -- the next restart just tries the other one.
+# User: "Switch to this training feed" -- kitten_rescue_baby_kittens_cam
+# now the sole source (previously the backup entry, added earlier the
+# same day; already confirmed live via yt-dlp metadata then).
 LIVE_SOURCES = [
-    ("kitten_rescue_cat_cam", "https://www.youtube.com/watch?v=-m_nQT62B4Y"),
     ("kitten_rescue_baby_kittens_cam", "https://www.youtube.com/watch?v=gBdqOuhj2P4"),
 ]
 
@@ -559,6 +554,22 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
         clip_index = int(checkpoint.get("clip_index", 0)) % len(clips)
     clip_index = clip_index % len(clips)
     clip_path = clips[clip_index]
+
+    # Human-only override, User: "put a list of training videos I can
+    # pick from the viewer." Written by tools/viewer.py, never by the
+    # organism -- only takes effect for live-mode sources, and only if
+    # it names a real entry in LIVE_SOURCES (never an arbitrary URL --
+    # the viewer only ever offers this same fixed list). Sticky: stays
+    # selected across restarts until cleared back to "auto" in the
+    # viewer, which resumes normal round-robin rotation.
+    if source == "live":
+        selection = sandbox.load_selected_source()
+        selected_name = selection.get("name") if selection else None
+        if selected_name:
+            for i, (name, url) in enumerate(LIVE_SOURCES):
+                if name == selected_name:
+                    clip_index, clip_path = i, url
+                    break
 
     # A "live" source list holds watch-page URLs, not playable ones --
     # resolve to the real, currently-live direct stream right before
