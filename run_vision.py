@@ -202,18 +202,47 @@ DEAD_FIELD_PENALTY_WEIGHT = 1.0
 # literature, kept deliberately simple here (coverage fraction of a
 # coarse grid, not a full novelty model).
 CURIOSITY_GRID = 5
-CURIOSITY_WEIGHT = 0.75
+# Rescaled 2026-09-24 alongside the _curiosity_score fix -- the new
+# per-frame novelty-rate formula's natural max is CELLS/N_FRAMES
+# (~25/600 = 0.042 for a typical run), not 1.0 like the old fraction
+# was. Rescaled so the max possible contribution to fitness stays
+# roughly comparable to before (0.75 * 1.0 -> ~18 * 0.042 = ~0.75).
+CURIOSITY_WEIGHT = 18.0
 
 
 def _curiosity_score(positions: list[tuple[float, float]]) -> float:
+    """
+    Real bug fix, User: "I think definition of curiosity is making
+    fovea hopscotch instead of saccading; check definition." Verified
+    empirically before fixing: the OLD formula (final fraction of
+    distinct cells ever visited) let a genome hop through all 25 cells
+    in the first 25 of 600 frames, then coast idle for the remaining
+    575, and still collect the FULL, PERMANENT reward -- a real timing
+    mismatch against movement_cost, which is averaged over the whole
+    run. A burst-then-coast strategy paid a heavily diluted average
+    cost for a one-time, forever-kept reward.
+
+    Fixed to a per-frame NOVELTY RATE instead -- credits a frame only
+    if it discovered a cell not yet seen this run, averaged over ALL
+    frames. Coasting after exploring now correctly contributes 0, not
+    the max. This is also more faithful to the real count-based
+    exploration bonuses in the RL literature this was already citing
+    as its inspiration, which reward the MOMENT of discovery, not a
+    final tally. Max possible score is now CELLS/N_FRAMES (~0.042 for
+    25 cells over 600 frames), not 1.0 -- CURIOSITY_WEIGHT rescaled to
+    match (see its own comment).
+    """
     if not positions:
         return 0.0
     visited = set()
+    novel_frames = 0
     for cx, cy in positions:
         cell = (min(CURIOSITY_GRID - 1, int(cx * CURIOSITY_GRID)),
                 min(CURIOSITY_GRID - 1, int(cy * CURIOSITY_GRID)))
-        visited.add(cell)
-    return len(visited) / float(CURIOSITY_GRID * CURIOSITY_GRID)
+        if cell not in visited:
+            visited.add(cell)
+            novel_frames += 1
+    return novel_frames / float(len(positions))
 
 
 def _dead_field_penalty(signals: dict[str, np.ndarray]) -> float:

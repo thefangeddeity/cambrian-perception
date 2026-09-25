@@ -190,7 +190,7 @@ PAGE = """<!doctype html>
       <canvas id="grid" width="240" height="240"></canvas>
     </div>
     <div>
-      <div class="sub" id="fovea-label">fovea position -- box shows where it's looking, drawn over the same real video it's cropping. Position reflects the LAST analyzed ~40s window, not this instant. On iOS, tap the video if it doesn't autoplay -- a real platform restriction, not a bug here.</div>
+      <div class="sub" id="fovea-label">fovea position -- a real, zoomed CROP of what it's looking at (not a box drawn on the full frame). Border color reflects corner/edge penalty severity. Position reflects the LAST analyzed ~40s window, not this instant. If frozen, a "tap to play" overlay appears -- a real confirmed play-state, not a guess.</div>
       <div class="video-wrap" id="fovea-video-wrap">
         <!-- Real YouTube Player API target (not a bare iframe) --
              lets JS ask the actual play state instead of hoping
