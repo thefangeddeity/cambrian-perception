@@ -4,14 +4,20 @@ from __future__ import annotations
 """
 A tiny, dependency-free local viewer -- "garbage that over millions of
 iterations becomes vision" (the user's own framing). Serves ONE page that
-polls state/live_status.json and renders the organism's actual 12x12
-grid as a blocky, pixelated canvas -- genuinely what it's seeing, not
-a reconstruction, since a 144-value luminance grid is already reduced
-far past anything resembling real footage (see run_vision.py's own
-comment on why including it there doesn't touch the no-raw-frames
-rule). Also draws the fovea's own box (cx/cy/fraction) on a blank
-frame-proportioned rectangle -- spatial context, no real background,
-since no real frame is ever available at this point in the pipeline.
+polls state/live_status.json and renders two blocky, pixelated
+canvases from real backend-computed retina.py reductions -- genuinely
+what it's seeing, not a reconstruction, since a 144-value luminance
+grid is already reduced far past anything resembling real footage (see
+run_vision.py's own comment on why including it there doesn't touch
+the no-raw-frames rule): the RETINA (the fovea's own cropped view) and
+the WORLD RETINA (the same reduction run on the full frame, i.e. what
+run_vision.py's fitness grading itself sees), with the FOVEA's own box
+(cx/cy/fraction, fovea.py's real pan/tilt window) drawn on top of the
+world retina to show where it's currently pointed. User: "Screw the
+video. What is a pixel dump of what it's seeing?" -- replaced an
+earlier YouTube-embed crop-preview that kept hitting real, unfixable
+constraints (embedding restrictions, cross-origin pixel access, URL
+format parsing). "Don't get retina and fovea confused."
 
 Deliberately NOT built into the HLSLS stack -- this has to work
 whether or not broadcast-api/mediamtx are up (see the coordination
@@ -125,35 +131,21 @@ PAGE = """<!doctype html>
      than the viewport, so only that one panel needs a swipe, not the
      whole page. */
   .tree-panel { max-width: 100%; overflow-x: auto; }
-  /* User: "video can play to the right of fovea position box. Fovea
-     position box should... have the actual image it's cropping out of
-     underneath it." Two copies of the SAME live YouTube embed -- one
-     plain (general viewing), one with the fovea box drawn on top of
-     it. Both are the VIEWER'S OWN BROWSER connecting straight to
-     YouTube -- cambrian-perception's own backend/state never touches,
-     stores, or transmits a real frame either way, same no-raw-frames
-     boundary as everywhere else, just satisfied by a completely
-     different, browser-side mechanism this time. */
+  /* User: "Screw the video. What is a pixel dump of what it's seeing?"
+     -- replaced the YouTube-embed crop-preview entirely. This panel is
+     a WORLD RETINA: the same retina.py 12x12 block-reduction as the
+     #grid panel, just run on the full frame instead of the fovea's own
+     crop (run_vision.py's world_grid, computed once per run for the
+     grading signal itself -- see the self-stimulation-loophole fix).
+     The FOVEA is properly just the box drawn on top of it, showing
+     where fovea.py's pan/tilt window currently sits -- User: "don't get
+     retina and fovea confused." No YouTube embed, no embedding
+     restrictions, no autoplay games, no cross-origin pixel limits. */
   /* User: "Allow that long-ass explanation to wrap lol" -- flex items
      don't wrap text by default unless width-constrained; this label
      was stretching the whole panel across the page in one line
-     instead of wrapping above its 320px-wide video panel. */
-  #fovea-label { max-width: 320px; }
-  .video-wrap { position: relative; width: 320px; height: 180px; overflow: hidden; }
-  .video-wrap iframe { display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
-  .fovea-overlay { position: absolute; top: 0; left: 0; pointer-events: none; border: none !important; }
-  /* User: "if the video is stopped, I'm watching the box move over a
-     stopped play button" -- real problem with hoping autoplay just
-     works. The real YouTube Player API reports actual play state, so
-     this overlay only shows when it's genuinely NOT playing (not a
-     guess), and is itself clickable to start playback -- a real,
-     reliable affordance instead of a caption someone might not read. */
-  .play-overlay {
-    position: absolute; inset: 0; z-index: 2;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(10, 14, 20, 0.55); color: #7fd4ff; font-family: monospace;
-    font-size: 13px; cursor: pointer; text-align: center;
-  }
+     instead of wrapping above its panel. */
+  #world-retina-label { max-width: 320px; }
   .chart-panel { max-width: 100%; overflow-x: auto; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
@@ -181,10 +173,9 @@ PAGE = """<!doctype html>
     /* User: "Just optimize for mobile using Apple-compatible viewer
        and leave it there." Same shrink-to-fit logic extended to the
        retina grid and all chart canvases -- previously only trees got
-       it. The fovea video panel itself isn't handled here (its real
-       pixel size is computed in JS, tied to the crop-position math,
-       not just CSS -- see maxDim below) so it doesn't desync. */
+       it. */
     #grid { max-width: 100%; height: auto; }
+    #world-retina { max-width: 100%; height: auto; }
     .chart-panel canvas { max-width: 100%; height: auto; }
   }
 </style>
@@ -198,15 +189,8 @@ PAGE = """<!doctype html>
       <canvas id="grid" width="240" height="240"></canvas>
     </div>
     <div>
-      <div class="sub" id="fovea-label">fovea position -- a real, zoomed CROP of what it's looking at (not a box drawn on the full frame). Border color reflects corner/edge penalty severity. Position reflects the LAST analyzed ~40s window, not this instant. If frozen, a "tap to play" overlay appears -- a real confirmed play-state, not a guess.</div>
-      <div class="video-wrap" id="fovea-video-wrap">
-        <!-- Real YouTube Player API target (not a bare iframe) --
-             lets JS ask the actual play state instead of hoping
-             autoplay worked. See the script tag + player code below. -->
-        <div id="fovea-embed"></div>
-        <canvas id="fovea" class="fovea-overlay"></canvas>
-        <div id="play-overlay" class="play-overlay" style="display:none;">tap to play</div>
-      </div>
+      <div class="sub" id="world-retina-label">world retina -- the same 12x12 reduction as the grid on the left, run on the full frame instead of just the fovea's own crop, so the fovea's box (fovea.py's pan/tilt window, drawn on top) has real spatial context. Position reflects the LAST analyzed ~40s window, not this instant.</div>
+      <canvas id="world-retina" width="240" height="240"></canvas>
     </div>
     <div>
       <div class="stats" id="stats"></div>
@@ -273,41 +257,7 @@ PAGE = """<!doctype html>
     </div>
   </div>
 
-  <script src="https://www.youtube.com/iframe_api"></script>
   <script>
-    // Real YouTube Player API, not a bare iframe -- lets the page ask
-    // the actual play state instead of hoping autoplay worked. User:
-    // "if the video is stopped, I'm watching the box move over a
-    // stopped play button." ytReady/pendingVideoId handle the real
-    // race: the API script loads async, and a video may need loading
-    // before onYouTubeIframeAPIReady has fired.
-    let ytPlayer = null, ytReady = false, pendingVideoId = null;
-
-    function onYouTubeIframeAPIReady() {
-      ytReady = true;
-      ytPlayer = new YT.Player('fovea-embed', {
-        width: '100%', height: '100%',
-        playerVars: { autoplay: 1, mute: 1, playsinline: 1 },
-        events: {
-          onReady: () => { if (pendingVideoId) { ytPlayer.loadVideoById(pendingVideoId); pendingVideoId = null; } },
-          onStateChange: (e) => {
-            const overlay = document.getElementById('play-overlay');
-            // YT.PlayerState.PLAYING === 1 -- only hide the "tap to
-            // play" prompt on a REAL confirmed-playing state, not an
-            // assumption.
-            overlay.style.display = (e.data === YT.PlayerState.PLAYING) ? 'none' : 'flex';
-          },
-        },
-      });
-    }
-    function loadFoveaVideo(vid) {
-      if (!ytReady || !ytPlayer || !ytPlayer.loadVideoById) { pendingVideoId = vid; return; }
-      ytPlayer.loadVideoById(vid);
-    }
-    document.getElementById('play-overlay').addEventListener('click', () => {
-      if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
-    });
-
     function nodeLabel(n) {
       if (n.kind === 'var') return 'x' + n.index;
       if (n.kind === 'const') return n.value.toFixed(2);
@@ -407,27 +357,6 @@ PAGE = """<!doctype html>
       }
     }
 
-    // Tracks the currently-loaded embed so tick() (runs every 1s)
-    // only touches iframe.src when the video actually changes -- not
-    // on every poll, which would restart playback constantly.
-    let currentEmbedId = null;
-
-    function youtubeId(url) {
-      // Real bug, found live: the user submitted a youtube.com/live/ID URL
-      // -- the training service resolved and watched it fine
-      // (yt-dlp's own real URL handling is robust to this), but this
-      // only recognized watch?v=ID, so the viewer's fovea panel never
-      // got a video id and stayed black. Also handles youtu.be/ID
-      // short links, same class of gap.
-      if (!url) return null;
-      let m = url.match(/[?&]v=([^&]+)/);
-      if (m) return m[1];
-      m = url.match(/youtu\\.be\/([^?&]+)/);
-      if (m) return m[1];
-      m = url.match(/\/(?:live|embed)\/([^?&]+)/);
-      return m ? m[1] : null;
-    }
-
     async function tick() {
       let el = document.getElementById('stats');
       try {
@@ -466,82 +395,49 @@ PAGE = """<!doctype html>
           }
         }
 
-        // Real video underneath the fovea box -- User: "fovea position
-        // box should... have the actual image it's cropping out of
-        // underneath it." Both embeds are the BROWSER's own direct
-        // connection to YouTube (never routed through this server's
-        // own state/backend -- see the CSS comment on .video-wrap for
-        // why that keeps the no-raw-frames boundary intact). Src is
-        // only touched when the video actually changes, not every
-        // poll tick, so playback doesn't restart every second.
-        const vid = youtubeId(d.clip);
-        if (vid && vid !== currentEmbedId) {
-          currentEmbedId = vid;
-          // Real Player API load, not a raw src= assignment -- see
-          // loadFoveaVideo/onYouTubeIframeAPIReady above. autoplay/
-          // mute/playsinline are set once in the player's own
-          // playerVars now, not re-specified per video.
-          loadFoveaVideo(vid);
+        // User: "Screw the video. What is a pixel dump of what it's
+        // seeing?" world_grid is a real backend-computed retina.py
+        // reduction of the full world frame (run_vision.py's
+        // _world_vectors, same grading signal the fitness function
+        // itself uses) -- never a raw frame, same boundary as #grid.
+        // Drawn with the exact same blocky-cell technique as #grid
+        // above, just on this panel's own canvas/data.
+        const wc = document.getElementById('world-retina');
+        const wctx = wc.getContext('2d');
+        if (d.world_grid && d.world_grid_shape) {
+          const [wrows, wcols] = d.world_grid_shape;
+          const wcw = wc.width / wcols, wch = wc.height / wrows;
+          for (let i = 0; i < wrows; i++) {
+            for (let j = 0; j < wcols; j++) {
+              const v = Math.max(0, Math.min(1, d.world_grid[i * wcols + j]));
+              const g = Math.round(v * 255);
+              wctx.fillStyle = `rgb(${g},${g},${g})`;
+              wctx.fillRect(j * wcw, i * wch, wcw, wch);
+            }
+          }
+        } else {
+          wctx.fillStyle = '#111';
+          wctx.fillRect(0, 0, wc.width, wc.height);
         }
 
-        const fc = document.getElementById('fovea');
-        const foveaWrap = document.getElementById('fovea-video-wrap');
-        // Honest shape, not a hardcoded 4:3 -- User: "make foveal
-        // rectangle honest." Size BOTH the video container and the
-        // overlay canvas to the REAL source frame's own aspect ratio
-        // (frame_w/frame_h, sent once per run) so the embed and the
-        // box drawn on top of it stay pixel-aligned, and the box is
-        // actually shaped like what fovea.py really crops. Falls back
-        // to a plain 320x180 16:9-ish box only if frame_w/h are missing
-        // (an older live_status.json) or no YouTube id was found (a
-        // local file/device source, not a live embed).
-        // Real size computed here, not fought with CSS after the fact
-        // -- the crop-position math above depends on vw/vh matching
-        // the ACTUAL displayed size, so shrinking just the display via
-        // CSS would desync it. On a narrow screen this caps the real
-        // size at the viewport width (minus body padding) instead.
-        const maxDim = Math.min(320, window.innerWidth - 36);
-        let vw = maxDim, vh = Math.round(maxDim * 9 / 16);
-        if (d.frame_w && d.frame_h) {
-          vh = d.frame_w >= d.frame_h ? Math.round(maxDim * d.frame_h / d.frame_w) : maxDim;
-          vw = d.frame_w >= d.frame_h ? maxDim : Math.round(maxDim * d.frame_w / d.frame_h);
-        }
-        foveaWrap.style.width = vw + 'px';
-        foveaWrap.style.height = vh + 'px';
-        fc.width = vw; fc.height = vh;
-
-        const fctx = fc.getContext('2d');
-        fctx.clearRect(0, 0, fc.width, fc.height);
-        const embedEl = document.getElementById('fovea-embed');
-        if (!vid) {
-          // No real video to show (local file/device source) --
-          // fall back to the old blank spatial-context box.
-          fctx.fillStyle = '#111';
-          fctx.fillRect(0, 0, fc.width, fc.height);
-          fctx.strokeStyle = '#345';
-          fctx.strokeRect(0, 0, fc.width, fc.height);
-        } else if (d.fovea_cx !== undefined) {
-          // User: "Why can't fovea rectangle show the actual image
-          // it's looking at, not plain video." Can't read pixels out
-          // of a cross-origin YouTube iframe (real browser security
-          // boundary, not a choice here) -- but scaling and shifting
-          // the SAME iframe via CSS shows just its own region filling
-          // the panel, no pixel access needed, same as any photo-crop
-          // tool. frac of the frame becomes 100% of the visible panel.
+        // The FOVEA itself: fovea.py's real pan/tilt window, drawn as
+        // a box on top of the world retina above -- User: "don't get
+        // retina and fovea confused." Position/size are normalized
+        // [0,1] fractions of the full frame, so they map onto this
+        // canvas the same way regardless of the canvas's own pixel
+        // dimensions.
+        if (d.fovea_cx !== undefined) {
           const frac = d.fovea_fraction || 0.35;
-          embedEl.style.width = (100 / frac) + '%';
-          embedEl.style.height = (100 / frac) + '%';
-          embedEl.style.left = ((0.5 - d.fovea_cx / frac) * 100) + '%';
-          embedEl.style.top = ((0.5 - d.fovea_cy / frac) * 100) + '%';
+          const bx = (d.fovea_cx - frac / 2) * wc.width;
+          const by = (d.fovea_cy - frac / 2) * wc.height;
+          const bw = frac * wc.width, bh = frac * wc.height;
 
           // Same two real penalties run_vision.py actually grades
           // fitness on (corner_penalty, edge_penalty), applied to
           // THIS exact position -- User: "touching one edge also give
           // an orange-level penalty... shun edges unless they're
-          // worth it." Now a border around the whole panel (which IS
-          // the crop now) instead of a box drawn on top of it. Red =
-          // a true corner; orange = hard against one edge; yellow =
-          // approaching either; green = centered.
+          // worth it." Red = a true corner; orange = hard against one
+          // edge; yellow = approaching either; green = centered.
           const halfRange = 0.5 - frac / 2;
           const normX = halfRange > 1e-9 ? (d.fovea_cx - 0.5) / halfRange : 0;
           const normY = halfRange > 1e-9 ? (d.fovea_cy - 0.5) / halfRange : 0;
@@ -551,7 +447,9 @@ PAGE = """<!doctype html>
           if (cornerness >= 0.5) boxColor = '#f44';
           else if (edgeCloseness >= 0.75) boxColor = '#f90';
           else if (edgeCloseness >= 0.4) boxColor = '#fd4';
-          foveaWrap.style.border = '2px solid ' + boxColor;
+          wctx.strokeStyle = boxColor;
+          wctx.lineWidth = 2;
+          wctx.strokeRect(bx, by, bw, bh);
         }
 
         if (d.trees) {

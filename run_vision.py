@@ -836,6 +836,19 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "is_live": source == "live",
             "grid": [round(x, 4) for x in live_info["grid"]],
             "grid_shape": live_info["grid_shape"],
+            # User: "Why can't fovea rectangle display what the PROGRAM
+            # is seeing. Screw the video. What is a pixel dump of what
+            # it's seeing?" The WORLD's own 12x12 grid (same reduction
+            # already used for reflex grading, never transmitted
+            # before) -- same no-raw-frames justification the fovea
+            # grid above already has (already reduced far past
+            # anything resembling real footage), just for the FULL
+            # frame instead of the fovea's own crop. Lets the viewer
+            # draw the fovea box on a REAL pixel dump instead of a
+            # third-party video embed -- no YouTube dependency, no
+            # embedding restrictions, no autoplay/play-state games.
+            "world_grid": [round(x, 4) for x in world_vectors[-1]],
+            "world_grid_shape": list(GRID),
             # The CURRENT ACCEPTED genome's own tree structure (not
             # the just-tried candidate's, even on a rejected
             # generation) -- `genome` only ever changes on an accept,
