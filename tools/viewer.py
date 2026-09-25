@@ -144,6 +144,7 @@ PAGE = """<!doctype html>
     <div><span class="plus">+ seek</span> -- get physically closer to a detected being, not just correlate with noticing it. Literal orienting, not a proxy.</div>
     <div><span class="minus">- dead_field_penalty</span> -- a SUSTAINED stretch with nothing happening in the world. Can't be dodged by moving the eye (that loophole's closed); curiosity above is the honest way to earn out of it.</div>
     <div><span class="minus">- movement_cost</span> -- real motor effort, every frame, whether or not it actually moved (a push against a wall still costs something). Doesn't cap or forbid a big jump -- pursuit/seek above can still justify one -- it just means an UNJUSTIFIED one is no longer free.</div>
+    <div><span class="minus">- corner_penalty</span> -- sitting in a corner specifically (both axes maxed out at once, not just one edge). Soft, not a hard constraint -- real reward can still outweigh it.</div>
   </div>
   <div class="sub" style="margin-top:10px;">real tensions it has to balance, not resolve for it: loom's urgency to startle vs. curiosity's pull to keep exploring (a real predator/prey visual-field tradeoff, "scalding vs. freezing" -- a threat on one side, going numb on the other); habituation's dampening of familiar beings vs. resensitizing to any real threat paired with one; dead_field's "don't go numb" vs. seek's "stay locked on what you found." No fixed right answer to any of these is built in -- only the pressure to find its own.</div>
 

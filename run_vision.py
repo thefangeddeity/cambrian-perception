@@ -125,6 +125,30 @@ SEEK_STRENGTH_THRESHOLD = 0.05  # only scored when something's actually there --
 # movement.
 MOVEMENT_COST_WEIGHT = 0.5
 
+# Corner penalty, User: "It's obsessed with corners... A corner
+# penalty, of sorts." Soft, not a hard constraint -- real reward can
+# still outweigh it if a corner is ever genuinely the right place to
+# be. Fixed constant, outside the genome's reach (same reasoning as
+# _HEAD_SIZE: this grades behavior, it isn't a perception trait, so
+# it doesn't evolve).
+CORNER_PENALTY_WEIGHT = 0.5
+
+
+def _corner_penalty(positions: list[tuple[float, float]]) -> float:
+    """
+    "Cornerness" = product of how off-center each axis is (normalized
+    to [-1, 1] over the reachable range) -- zero along either center
+    line, maximal only where BOTH axes are extreme at once (a real
+    corner, not just one edge). Averaged over the run.
+    """
+    if not positions:
+        return 0.0
+    half_range = 0.5 - fovea.FOVEA_FRACTION / 2.0
+    if half_range <= 1e-9:
+        return 0.0
+    scores = [abs((cx - 0.5) / half_range * (cy - 0.5) / half_range) for cx, cy in positions]
+    return float(np.mean(scores))
+
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
 # drifting into the freezing water behind it. loom is the "scalding"
@@ -482,6 +506,10 @@ def evaluate_genome(
     movement_cost = float(np.mean(movement_costs)) if movement_costs else 0.0
     fitness -= MOVEMENT_COST_WEIGHT * movement_cost
     breakdown["movement_cost"] = movement_cost
+
+    corner = _corner_penalty(positions)
+    fitness -= CORNER_PENALTY_WEIGHT * corner
+    breakdown["corner_penalty"] = corner
 
     return fitness, breakdown, live_info
 
