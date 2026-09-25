@@ -189,7 +189,7 @@ PAGE = """<!doctype html>
       <canvas id="grid" width="240" height="240"></canvas>
     </div>
     <div>
-      <div class="sub" id="world-retina-label">world retina -- the same 12x12 reduction as the grid on the left, run on the full frame instead of just the fovea's own crop, so the fovea's box (fovea.py's pan/tilt window, drawn on top) has real spatial context. Position reflects the LAST analyzed ~40s window, not this instant.</div>
+      <div class="sub" id="world-retina-label">world retina -- the same 12x12 reduction as the grid on the left, run on the full frame instead of just the fovea's own crop, so the fovea's box (fovea.py's pan/tilt window, drawn on top) has real spatial context. Background is a single fixed frame sampled once when this run started (stays the same for the whole run, up to an hour) -- the box position updates every generation and is current.</div>
       <canvas id="world-retina" width="240" height="240"></canvas>
     </div>
     <div>
