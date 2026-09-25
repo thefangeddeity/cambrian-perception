@@ -170,6 +170,14 @@ PAGE = """<!doctype html>
   @media (max-width: 480px) {
     body { padding: 10px; }
     .row { gap: 14px; }
+    /* User: "resize tree to fit in mobile view" -- a real, deliberate
+       exception to the "render honest size, let it scroll" rule for
+       this one case: a tree wider than the ENTIRE phone screen with
+       no visible scroll affordance just looks broken, not honest.
+       Scales the real, already-computed canvas down to fit the
+       viewport width (aspect ratio preserved, internal resolution
+       unchanged) -- desktop/tablet keep the real per-panel scroll. */
+    .tree-panel canvas { max-width: 100%; height: auto; }
   }
 </style>
 </head>
