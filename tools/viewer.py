@@ -186,11 +186,14 @@ PAGE = """<!doctype html>
            touches. -->
       <div style="margin-top:10px;">
         <span class="label">train on:</span>
-        <select id="source-picker"></select>
         <span id="source-status" style="color:#567; font-size:11px;"></span>
       </div>
       <div style="margin-top:6px;">
-        <input type="text" id="custom-url" placeholder="or paste a live YouTube URL..."
+        <!-- User: "I don't need the 'train on' dropdown, I don't want
+             hardcoded anything for now; I'll pick the training videos
+             for now." Dropdown removed -- free-text URL only, no
+             pre-baked list shown. -->
+        <input type="text" id="custom-url" placeholder="paste a live YouTube URL..."
           style="width:220px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; font-family:monospace; font-size:11px; padding:3px;">
         <button id="custom-url-submit" style="font-family:monospace; font-size:11px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; cursor:pointer;">Submit</button>
       </div>
@@ -603,24 +606,11 @@ PAGE = """<!doctype html>
       try {
         const res = await fetch('/sources');
         const d = await res.json();
-        const sel = document.getElementById('source-picker');
-        sel.innerHTML = '<option value="auto">auto (rotate)</option>' +
-          d.options.map(n => `<option value="${n}">${n}</option>`).join('');
-        sel.value = d.selected || 'auto';
-        if (d.selected_url) {
-          document.getElementById('source-status').textContent = 'custom: ' + d.selected_url;
-        }
-      } catch (e) { /* picker is a nice-to-have */ }
+        const status = document.getElementById('source-status');
+        status.textContent = d.selected_url ? ('custom: ' + d.selected_url)
+          : d.selected ? d.selected : 'auto (rotate)';
+      } catch (e) { /* status is a nice-to-have */ }
     }
-    document.getElementById('source-picker').addEventListener('change', async (e) => {
-      const status = document.getElementById('source-status');
-      status.textContent = 'applying...';
-      try {
-        const res = await fetch('/select?name=' + encodeURIComponent(e.target.value));
-        const d = await res.json();
-        status.textContent = d.ok ? 'takes effect next restart' : 'failed';
-      } catch (err) { status.textContent = 'failed'; }
-    });
     document.getElementById('custom-url-submit').addEventListener('click', async () => {
       const input = document.getElementById('custom-url');
       const status = document.getElementById('source-status');
