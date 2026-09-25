@@ -403,6 +403,25 @@ PAGE = """<!doctype html>
         // Drawn with the exact same blocky-cell technique as #grid
         // above, just on this panel's own canvas/data.
         const wc = document.getElementById('world-retina');
+        // Honest shape, not a hardcoded square -- same fix as the
+        // original fovea-rectangle commit (frame_w/frame_h, sent once
+        // per run): the WORLD this grid reduces is the real, non-
+        // square source frame, so cells (and the fovea box drawn on
+        // top) should keep its real proportions, not an arbitrary
+        // square. Falls back to 240x240 only if an older
+        // live_status.json (pre this field) is being served.
+        const maxDim = Math.min(240, window.innerWidth - 36);
+        if (d.frame_w && d.frame_h) {
+          if (d.frame_w >= d.frame_h) {
+            wc.width = maxDim;
+            wc.height = Math.round(maxDim * d.frame_h / d.frame_w);
+          } else {
+            wc.height = maxDim;
+            wc.width = Math.round(maxDim * d.frame_w / d.frame_h);
+          }
+        } else {
+          wc.width = maxDim; wc.height = maxDim;
+        }
         const wctx = wc.getContext('2d');
         if (d.world_grid && d.world_grid_shape) {
           const [wrows, wcols] = d.world_grid_shape;
