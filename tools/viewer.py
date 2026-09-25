@@ -139,9 +139,21 @@ PAGE = """<!doctype html>
      was stretching the whole panel across the page in one line
      instead of wrapping above its 320px-wide video panel. */
   #fovea-label { max-width: 320px; }
-  .video-wrap { position: relative; width: 320px; height: 180px; }
-  .video-wrap iframe { display: block; width: 100%; height: 100%; border: 1px solid #234; }
+  .video-wrap { position: relative; width: 320px; height: 180px; overflow: hidden; }
+  .video-wrap iframe { display: block; position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
   .fovea-overlay { position: absolute; top: 0; left: 0; pointer-events: none; border: none !important; }
+  /* User: "if the video is stopped, I'm watching the box move over a
+     stopped play button" -- real problem with hoping autoplay just
+     works. The real YouTube Player API reports actual play state, so
+     this overlay only shows when it's genuinely NOT playing (not a
+     guess), and is itself clickable to start playback -- a real,
+     reliable affordance instead of a caption someone might not read. */
+  .play-overlay {
+    position: absolute; inset: 0; z-index: 2;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(10, 14, 20, 0.55); color: #7fd4ff; font-family: monospace;
+    font-size: 13px; cursor: pointer; text-align: center;
+  }
   .chart-panel { max-width: 100%; overflow-x: auto; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
@@ -172,8 +184,12 @@ PAGE = """<!doctype html>
     <div>
       <div class="sub" id="fovea-label">fovea position -- box shows where it's looking, drawn over the same real video it's cropping. Position reflects the LAST analyzed ~40s window, not this instant. On iOS, tap the video if it doesn't autoplay -- a real platform restriction, not a bug here.</div>
       <div class="video-wrap" id="fovea-video-wrap">
-        <iframe id="fovea-embed" src="" frameborder="0" allow="autoplay" title="fovea position source feed"></iframe>
+        <!-- Real YouTube Player API target (not a bare iframe) --
+             lets JS ask the actual play state instead of hoping
+             autoplay worked. See the script tag + player code below. -->
+        <div id="fovea-embed"></div>
         <canvas id="fovea" class="fovea-overlay"></canvas>
+        <div id="play-overlay" class="play-overlay" style="display:none;">tap to play</div>
       </div>
     </div>
     <div>
@@ -241,7 +257,41 @@ PAGE = """<!doctype html>
     </div>
   </div>
 
+  <script src="https://www.youtube.com/iframe_api"></script>
   <script>
+    // Real YouTube Player API, not a bare iframe -- lets the page ask
+    // the actual play state instead of hoping autoplay worked. User:
+    // "if the video is stopped, I'm watching the box move over a
+    // stopped play button." ytReady/pendingVideoId handle the real
+    // race: the API script loads async, and a video may need loading
+    // before onYouTubeIframeAPIReady has fired.
+    let ytPlayer = null, ytReady = false, pendingVideoId = null;
+
+    function onYouTubeIframeAPIReady() {
+      ytReady = true;
+      ytPlayer = new YT.Player('fovea-embed', {
+        width: '100%', height: '100%',
+        playerVars: { autoplay: 1, mute: 1, playsinline: 1 },
+        events: {
+          onReady: () => { if (pendingVideoId) { ytPlayer.loadVideoById(pendingVideoId); pendingVideoId = null; } },
+          onStateChange: (e) => {
+            const overlay = document.getElementById('play-overlay');
+            // YT.PlayerState.PLAYING === 1 -- only hide the "tap to
+            // play" prompt on a REAL confirmed-playing state, not an
+            // assumption.
+            overlay.style.display = (e.data === YT.PlayerState.PLAYING) ? 'none' : 'flex';
+          },
+        },
+      });
+    }
+    function loadFoveaVideo(vid) {
+      if (!ytReady || !ytPlayer || !ytPlayer.loadVideoById) { pendingVideoId = vid; return; }
+      ytPlayer.loadVideoById(vid);
+    }
+    document.getElementById('play-overlay').addEventListener('click', () => {
+      if (ytPlayer && ytPlayer.playVideo) ytPlayer.playVideo();
+    });
+
     function nodeLabel(n) {
       if (n.kind === 'var') return 'x' + n.index;
       if (n.kind === 'const') return n.value.toFixed(2);
@@ -400,16 +450,11 @@ PAGE = """<!doctype html>
         const vid = youtubeId(d.clip);
         if (vid && vid !== currentEmbedId) {
           currentEmbedId = vid;
-          // the user (Firefox iOS): "I can't tell if it's playing or not;
-          // it doesn't autoplay." Real iOS/WebKit constraint --
-          // playsinline=1 is required or iOS blocks inline autoplay
-          // outright (forces fullscreen-or-nothing, which looks
-          // identical to frozen). Even with this + mute=1, iOS
-          // sometimes still needs a real tap before the first video
-          // on a page plays at all -- not something a URL param can
-          // fully guarantee, so the panel label says so honestly
-          // rather than claiming this is a complete fix.
-          document.getElementById('fovea-embed').src = `https://www.youtube.com/embed/${vid}?autoplay=1&mute=1&playsinline=1`;
+          // Real Player API load, not a raw src= assignment -- see
+          // loadFoveaVideo/onYouTubeIframeAPIReady above. autoplay/
+          // mute/playsinline are set once in the player's own
+          // playerVars now, not re-specified per video.
+          loadFoveaVideo(vid);
         }
 
         const fc = document.getElementById('fovea');
@@ -435,26 +480,36 @@ PAGE = """<!doctype html>
 
         const fctx = fc.getContext('2d');
         fctx.clearRect(0, 0, fc.width, fc.height);
+        const embedEl = document.getElementById('fovea-embed');
         if (!vid) {
-          // No real video to show underneath (local file/device
-          // source) -- fall back to the old blank spatial-context box.
+          // No real video to show (local file/device source) --
+          // fall back to the old blank spatial-context box.
           fctx.fillStyle = '#111';
           fctx.fillRect(0, 0, fc.width, fc.height);
           fctx.strokeStyle = '#345';
           fctx.strokeRect(0, 0, fc.width, fc.height);
-        }
-        if (d.fovea_cx !== undefined) {
+        } else if (d.fovea_cx !== undefined) {
+          // User: "Why can't fovea rectangle show the actual image
+          // it's looking at, not plain video." Can't read pixels out
+          // of a cross-origin YouTube iframe (real browser security
+          // boundary, not a choice here) -- but scaling and shifting
+          // the SAME iframe via CSS shows just its own region filling
+          // the panel, no pixel access needed, same as any photo-crop
+          // tool. frac of the frame becomes 100% of the visible panel.
           const frac = d.fovea_fraction || 0.35;
-          const bw = fc.width * frac, bh = fc.height * frac;
-          const bx = d.fovea_cx * fc.width - bw / 2;
-          const by = d.fovea_cy * fc.height - bh / 2;
+          embedEl.style.width = (100 / frac) + '%';
+          embedEl.style.height = (100 / frac) + '%';
+          embedEl.style.left = ((0.5 - d.fovea_cx / frac) * 100) + '%';
+          embedEl.style.top = ((0.5 - d.fovea_cy / frac) * 100) + '%';
+
           // Same two real penalties run_vision.py actually grades
           // fitness on (corner_penalty, edge_penalty), applied to
-          // THIS exact displayed position -- User: "touching one edge
-          // also give an orange-level penalty... shun edges unless
-          // they're worth it." Red = a true corner (both axes off);
-          // orange = hard against just one edge; yellow = approaching
-          // either; green = centered.
+          // THIS exact position -- User: "touching one edge also give
+          // an orange-level penalty... shun edges unless they're
+          // worth it." Now a border around the whole panel (which IS
+          // the crop now) instead of a box drawn on top of it. Red =
+          // a true corner; orange = hard against one edge; yellow =
+          // approaching either; green = centered.
           const halfRange = 0.5 - frac / 2;
           const normX = halfRange > 1e-9 ? (d.fovea_cx - 0.5) / halfRange : 0;
           const normY = halfRange > 1e-9 ? (d.fovea_cy - 0.5) / halfRange : 0;
@@ -464,9 +519,7 @@ PAGE = """<!doctype html>
           if (cornerness >= 0.5) boxColor = '#f44';
           else if (edgeCloseness >= 0.75) boxColor = '#f90';
           else if (edgeCloseness >= 0.4) boxColor = '#fd4';
-          fctx.strokeStyle = boxColor;
-          fctx.lineWidth = 2;
-          fctx.strokeRect(bx, by, bw, bh);
+          foveaWrap.style.border = '2px solid ' + boxColor;
         }
 
         if (d.trees) {
