@@ -178,6 +178,14 @@ PAGE = """<!doctype html>
        viewport width (aspect ratio preserved, internal resolution
        unchanged) -- desktop/tablet keep the real per-panel scroll. */
     .tree-panel canvas { max-width: 100%; height: auto; }
+    /* User: "Just optimize for mobile using Apple-compatible viewer
+       and leave it there." Same shrink-to-fit logic extended to the
+       retina grid and all chart canvases -- previously only trees got
+       it. The fovea video panel itself isn't handled here (its real
+       pixel size is computed in JS, tied to the crop-position math,
+       not just CSS -- see maxDim below) so it doesn't desync. */
+    #grid { max-width: 100%; height: auto; }
+    .chart-panel canvas { max-width: 100%; height: auto; }
   }
 </style>
 </head>
@@ -476,7 +484,12 @@ PAGE = """<!doctype html>
         // to a plain 320x180 16:9-ish box only if frame_w/h are missing
         // (an older live_status.json) or no YouTube id was found (a
         // local file/device source, not a live embed).
-        const maxDim = 320;
+        // Real size computed here, not fought with CSS after the fact
+        // -- the crop-position math above depends on vw/vh matching
+        // the ACTUAL displayed size, so shrinking just the display via
+        // CSS would desync it. On a narrow screen this caps the real
+        // size at the viewport width (minus body padding) instead.
+        const maxDim = Math.min(320, window.innerWidth - 36);
         let vw = maxDim, vh = Math.round(maxDim * 9 / 16);
         if (d.frame_w && d.frame_h) {
           vh = d.frame_w >= d.frame_h ? Math.round(maxDim * d.frame_h / d.frame_w) : maxDim;
