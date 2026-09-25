@@ -131,7 +131,7 @@ MOVEMENT_COST_WEIGHT = 0.5
 # be. Fixed constant, outside the genome's reach (same reasoning as
 # _HEAD_SIZE: this grades behavior, it isn't a perception trait, so
 # it doesn't evolve).
-CORNER_PENALTY_WEIGHT = 0.5
+CORNER_PENALTY_WEIGHT = 1.0  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
 
 
 def _corner_penalty(positions: list[tuple[float, float]]) -> float:
@@ -155,7 +155,7 @@ def _corner_penalty(positions: list[tuple[float, float]]) -> float:
 # extreme, the other centered) is genuinely less wasteful than a true
 # corner, so it costs less, not nothing. Still soft: seek/pursuit can
 # outweigh it when an edge really is where the subject is.
-EDGE_PENALTY_WEIGHT = 0.25
+EDGE_PENALTY_WEIGHT = 0.5  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
 
 
 def _edge_penalty(positions: list[tuple[float, float]]) -> float:

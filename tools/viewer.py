@@ -176,7 +176,14 @@ PAGE = """<!doctype html>
         <canvas id="fovea" class="fovea-overlay"></canvas>
       </div>
     </div>
-    <div class="stats" id="stats">
+    <div class="stats" id="stats"></div>
+    <div>
+      <!-- Real bug, found live: this used to be nested INSIDE #stats,
+           which tick() overwrites wholesale every 1s (el.innerHTML =
+           ...) -- wiped this out within a second of page load, every
+           load, so it was never actually visible. User: "I can't see
+           it." Moved to its own sibling container tick() never
+           touches. -->
       <div style="margin-top:10px;">
         <span class="label">train on:</span>
         <select id="source-picker"></select>
