@@ -46,15 +46,21 @@ ZOOM_STEP = 0.05
 # terminal speed FORCE_GAIN / (1 - DAMPING) = 0.4 of the frame per
 # frame within 2-3 frames, i.e. a real saccade (~150 ms at 15 frames/s).
 # Smoothness comes from the body, not from forbidding jumps.
-DAMPING = 0.7
-FORCE_GAIN = 0.12
+DAMPING = 0.5
+FORCE_GAIN = 0.2
 # The eye sits in elastic tissue that pulls it back toward straight ahead
-# (the oculomotor plant, Robinson): relaxed, the gaze drifts back to the
-# centre; holding it off-centre takes sustained force, which the body pays
-# for (force squared). Without this the eye integrated force, so any steady
+# (the oculomotor plant, Robinson): relaxed, the gaze returns to the centre;
+# holding it off-centre takes sustained force, which the body pays for
+# (force squared). Without this the eye integrated force, so any steady
 # push, however small, ran it into a wall -- a fresh brain's default was to
-# hug an edge. At this stiffness, holding the gaze at the frame's edge takes
-# ~a third of full force; a small bias settles part-way out, not at the wall.
+# hug an edge. The plant is overdamped, like a real eye's (tissue viscosity):
+# released, it creeps back to centre in ~0.7 s without overshooting. An
+# earlier underdamped tuning rang like a bell (5 overshoots), and a fresh
+# brain learned to drive that resonance into free circling -- a physics
+# quirk, not a strategy a real body could use; scanning that pays has to be
+# driven, and paid for. Balance (design panel): terminal saccade speed 0.4
+# of the frame per frame as before; holding the edge takes 1/5 of full force
+# (a few % of waking burn -- cheap next to food, but a real choice).
 SPRING = 0.08
 
 
