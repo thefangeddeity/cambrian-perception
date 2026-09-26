@@ -356,10 +356,14 @@ LOCK_HUD_JS = r"""
     // opened): a meal = prey coming into its gaze centre (in a livecam, a
     // snapshot); a snack = a burst of surprise.
     if (fs.frame != null && fs.frame !== st.lastFrame) {
-      const eating = fs.eat > 0.01, snacking = (fs.snack || 0) > 0.05;
-      if (eating && !st.wasEating) st.meals = (st.meals || 0) + 1;
-      if (snacking && !st.wasSnacking) st.snacks = (st.snacks || 0) + 1;
-      st.wasEating = eating; st.wasSnacking = snacking; st.lastFrame = fs.frame;
+      // A new meal / snack only after a second without one: in a crowd the
+      // gaze centre brushes in and out of people frame to frame.
+      const gap = fs.fps || 15, eating = fs.eat > 0.01, snacking = (fs.snack || 0) > 0.05;
+      if (eating && (st.lastEat == null || fs.frame - st.lastEat > gap)) st.meals = (st.meals || 0) + 1;
+      if (snacking && (st.lastSnack == null || fs.frame - st.lastSnack > gap)) st.snacks = (st.snacks || 0) + 1;
+      if (eating) st.lastEat = fs.frame;
+      if (snacking) st.lastSnack = fs.frame;
+      st.lastFrame = fs.frame;
     }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
     const tag = (fs.delay != null ? 'DELAYED' : 'REPLAY') + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
@@ -527,7 +531,7 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). View at the end of its latest run. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), shown where it really is in its whole visual field (the panel), at its true size, with a dashed outline of the widest it could open there. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). View at the end of its latest run. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
 </div>
@@ -711,21 +715,25 @@ PAGE = r"""<!doctype html>
 
   function drawLook(d) {
     if (!d.grid || !d.frame_w) return;
+    // The panel is its whole visual field; the gaze's detail sits where the
+    // gaze really is, at its true size (dashed: the widest it could open there).
     const f = d.fovea_fraction || 0.35, fmax = d.max_fraction || 0.6;
-    const [cw, ch] = crop(d, f), [mw, mh] = crop(d, fmax);
+    const [cw, ch] = crop(d, f);
     const c = $('look'), W = Math.max(160, fitWidth($('look-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-    const ctx = c.getContext('2d'), s = W / mw;
+    const ctx = c.getContext('2d'), s = W / d.frame_w;
+    const cx = (d.fovea_cx ?? 0.5) * W, cy = (d.fovea_cy ?? 0.5) * H;
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#2a3c4c'; ctx.setLineDash([6, 5]); ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1); ctx.setLineDash([]);
-    const lw = cw * s, lh = ch * s, lx = (W - lw) / 2, ly = (H - lh) / 2;
+    ctx.strokeStyle = '#2a3c4c'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+    ctx.setLineDash([6, 5]); ctx.strokeRect(cx - fmax * W / 2, cy - fmax * H / 2, fmax * W, fmax * H); ctx.setLineDash([]);
+    const lw = f * W, lh = f * H, lx = cx - lw / 2, ly = cy - lh / 2;
     if (d.colour_grid && d.colour_grid.length >= d.grid.length) drawColourGrid(ctx, d.grid, d.colour_grid, d.grid_shape, lx, ly, lw, lh);
     else drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
     ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
-    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText(`largest possible gaze (${fmax} of frame)`, 6, 14);
+    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText('its whole visual field', 6, 14);
     $('look-px').textContent = `${cw}x${ch} real pixels`;
     $('field-px').textContent = `${d.frame_w}x${d.frame_h} real pixels`;
-    $('look-scale').textContent = `Its gaze is ${(f).toFixed(3)} of the frame -- ${(100 * f / fmax).toFixed(0)}% of the widest it can open (dashed frame). Shown ${s.toFixed(1)}x real size.`;
+    $('look-scale').textContent = `Its gaze is ${(f).toFixed(3)} of the frame, centred at (${(d.fovea_cx ?? 0.5).toFixed(2)}, ${(d.fovea_cy ?? 0.5).toFixed(2)}); dashed: the widest it could open there (${fmax}). Shown ${s.toFixed(1)}x real size.`;
   }
 
   function gauge(name, v, color, note) {
