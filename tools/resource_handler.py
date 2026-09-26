@@ -189,13 +189,21 @@ def _recent_request_count(since_seconds: float = 1800.0) -> int:
 
 
 def _idle_cores(current_pct: int) -> float:
-    """Cores nobody is using beyond what the organism already has (keeping
-    one for the host): the 1-minute load minus the organism's own share."""
-    load1, _, _ = os.getloadavg()
+    """Cores sitting idle right now beyond one kept for the host, measured
+    from /proc/stat over a second (not the load average, which also counts
+    tasks waiting on I/O -- a USB camera keeps it high on idle cores). The
+    organism's own use is busy time, so this is what nobody is using."""
+    def sample():
+        fields = [int(x) for x in Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()[1:]]
+        return fields[3] + fields[4], sum(fields)  # idle + iowait, total
+    try:
+        i0, t0 = sample()
+        time.sleep(1.0)
+        i1, t1 = sample()
+    except (OSError, ValueError, IndexError):
+        return 0.0  # can't tell: change nothing
     nproc = os.cpu_count() or 1
-    ours = current_pct / 100.0
-    others = max(0.0, load1 - ours)
-    return nproc - 1 - others - ours
+    return (i1 - i0) / max(1, t1 - t0) * nproc - 1.0
 
 
 def _load_average_strain() -> bool:
