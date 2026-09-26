@@ -189,25 +189,52 @@ def _history_summary(records: list[dict]) -> dict:
 # it is on. Self-contained on purpose -- it is the piece a livecam server's
 # CV module takes over (where LOCK, "eating", becomes "take a snapshot").
 LOCK_HUD_JS = r"""
-  // ---- Its latest run, replayed: one clock for the visual field, the real
-  // picture and the target lock ----
-  // Its gaze runs over a snapshot of the newest frames (refreshed every few
-  // generations). The viewer replays its latest run at real speed, looped:
-  // the picture is the real frame it saw at that moment (run_vision keeps a
-  // short ring of them in RAM), the lock is where its gaze was on it -- so
-  // picture, gaze and prey marks always describe the same instant.
-  function replayAt(d, now, t0, defaultFps) {
+  // ---- One clock for the visual field, the real picture and the target lock ----
+  // Its gaze runs over a snapshot of the newest frames, refreshed every few
+  // generations, so the frames it has gazed at trail the live camera by a
+  // few seconds. The viewer plays them forward at real speed with a delay
+  // just long enough that every frame shown has been gazed at: a continuous
+  // delayed feed, not a loop. The picture is the real frame it saw at that
+  // moment (run_vision keeps a short ring of them in RAM), the lock is where
+  // its gaze was on it -- picture, gaze and prey marks describe one instant.
+  // clk keeps the clock between frames ({ t0 } to start). A source without
+  // frame indices (a file) falls back to looping its latest run.
+  function replayAt(d, now, clk, defaultFps) {
     const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx ?? 0.5, d.fovea_cy ?? 0.5, d.fovea_fraction || 0.35, 0]];
     const fps = d.frames_per_second || defaultFps || 15;
     const lastIdx = traj[traj.length - 1][3] ?? (traj.length - 1);
-    const cur = Math.floor(Math.max(0, now - t0) / 1000 * fps) % (lastIdx + 1);
+    let cur, delay = null;
+    if (d.world_first_index != null && d.world_age_s != null) {
+      const key = d.world_epoch + ':' + d.world_first_index + ':' + d.world_age_s + ':' + d.generation;
+      if (clk.key !== key) {
+        // A new snapshot: how stale its newest gazed-at frame got before it
+        // came is the delay that never stalls.
+        if (clk.first != null && d.world_first_index !== clk.first) {
+          clk.target = Math.max(clk.target || 0, clk.age + (now - clk.recvT) / 1000 + 0.5);
+        }
+        clk.key = key; clk.recvT = now; clk.age = d.world_age_s; clk.first = d.world_first_index;
+      }
+      const age = clk.age + (now - clk.recvT) / 1000;  // of the newest frame it has gazed at
+      const dt = clk.lastT != null ? Math.min(1, Math.max(0, (now - clk.lastT) / 1000)) : 0; clk.lastT = now;
+      if (clk.need == null) { clk.need = age + 3.0; clk.target = clk.need; }
+      // Grow toward the target at most 0.5 s per second (playback slows, never
+      // jumps back); ease the target down slowly, to the shortest delay that works.
+      clk.target = Math.max(1.0, clk.target - dt * 0.01);
+      clk.need = clk.need < clk.target ? Math.min(clk.target, clk.need + dt * 0.5) : clk.target;
+      delay = clk.need;
+      const newest = d.world_first_index + lastIdx;
+      const g = Math.floor(newest + (age - delay) * fps);
+      cur = Math.max(0, Math.min(lastIdx, g - d.world_first_index));
+    } else {
+      cur = Math.floor(Math.max(0, now - clk.t0) / 1000 * fps) % (lastIdx + 1);
+    }
     let i = 0; while (i + 1 < traj.length && (traj[i + 1][3] ?? (i + 1)) <= cur) i++;
     const at = a => a && a.length ? a[Math.min(cur, a.length - 1)] : null;
     return {
       traj, fps, lastIdx, cur, i, cx: traj[i][0], cy: traj[i][1], f: traj[i][2] || 0.35,
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
-      ageS: d.world_age_s != null ? d.world_age_s + (lastIdx - cur) / fps : null,
+      delay,
     };
   }
   // Keeps an <img> on the wanted frame of the replay: one request at a time,
@@ -297,11 +324,11 @@ LOCK_HUD_JS = r"""
     const b = d.body_now || d.body || {}, threat = Math.max(0, Math.min(1, b.threat || 0));
     if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
-    const tag = opts && opts.gen ? `REPLAY  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : 'REPLAY';
+    const tag = (fs.delay != null ? 'DELAYED' : 'REPLAY') + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
     ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(8, 8, ctx.measureText(tag).width + 26, 20);
     ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
     ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
-    const lines = [L.mode + lockIdText(L.id), fs.ageS != null ? `this frame: ${fs.ageS.toFixed(0)} s ago` : 'its latest run'];
+    const lines = [L.mode + lockIdText(L.id), fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped'];
     ctx.font = 'bold 12px monospace';
     const rw = Math.max(...lines.map(t => ctx.measureText(t).width)) + 16;
     ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(bw - rw - 8, 8, rw, 36);
@@ -330,7 +357,7 @@ LIVE_PAGE = r"""<!doctype html>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
   let D = null;
-  const t0 = performance.now(), st = {}, F = frameLoader($('cam'));
+  const clk = { t0: performance.now() }, st = {}, F = frameLoader($('cam'));
   async function poll() { try { D = await (await fetch('/state')).json(); } catch (e) { } setTimeout(poll, 1000); }
   function frame(now) {
     requestAnimationFrame(frame);
@@ -342,8 +369,9 @@ LIVE_PAGE = r"""<!doctype html>
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, bw, bh);
     if (d.generation === undefined) return;
-    const R = replayAt(d, now, t0);
+    const R = replayAt(d, now, clk);
     F.show(R.frame, R.epoch);
+    $('cam').style.visibility = F.shown != null ? 'visible' : 'hidden';
     drawLock(ctx, bw, bh, R, d, F.shown != null, F.aspect, now, st, { gen: false });
   }
   poll(); requestAnimationFrame(frame);
@@ -420,7 +448,7 @@ PAGE = r"""<!doctype html>
 <div class="quad">
   <div class="panel" id="live-panel">
     <h2 id="live-title">live view</h2>
-    <div class="video16x9" id="live-box"><img id="cam" alt="what it saw"><canvas id="hud"></canvas></div>
+    <div class="video16x9" id="live-box"><img id="cam" alt=""><canvas id="hud"></canvas></div>
     <div class="cap" id="live-cap">--</div>
     <div class="cap" id="cam-note" style="margin-top:6px"></div>
     <div class="cap" id="hud-legend" style="margin-top:6px"><label><input type="checkbox" id="hud-on" checked> HUD</label> -- <span id="hud-legend-text"></span></div>
@@ -429,7 +457,7 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
-    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors (fixed for now -- an evolvable, metabolically priced receptor count is queued) over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b>, replayed along its real path over its latest run (the newest ~600 frames), at real speed, trail = last 3 s.</div>
+    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors (fixed for now -- an evolvable, metabolically priced receptor count is queued) over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b> along its real path, played at real speed a few seconds behind live, in step with the picture beside it (its gaze runs on snapshots of its newest ~600 frames); trail = last 3 s.</div>
     <div class="legend cap" style="margin-top:8px">
       <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
       <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
@@ -521,6 +549,7 @@ PAGE = r"""<!doctype html>
   const PREY_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
   const REPLAY_FPS = 15;
   let D = null, t0 = performance.now();
+  const CLK = { t0 };  // the one clock of the visual field and the picture (replayAt)
 
   function innerWidth(el) { const cs = getComputedStyle(el); return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
   // The quad's four displays share one shape -- its camera frame's -- and
@@ -583,7 +612,7 @@ PAGE = r"""<!doctype html>
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
     // time and show whichever gaze is current at that moment -- the same
     // clock as the replayed picture beside it (replayAt, LOCK_HUD_JS).
-    const { traj, fps, lastIdx, cur, i } = replayAt(d, now, t0, REPLAY_FPS);
+    const { traj, fps, lastIdx, cur, i, delay } = replayAt(d, now, CLK, REPLAY_FPS);
     const ev = d.field_events && d.field_events[i];
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
@@ -614,7 +643,7 @@ PAGE = r"""<!doctype html>
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
     ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 3;
     ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
-    $('replay-clock').textContent = `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)` + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
+    $('replay-clock').textContent = (delay != null ? `delayed ${delay.toFixed(1)} s behind live -- gaze ${i + 1} / ${traj.length} of its latest run` : `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)`) + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
   requestAnimationFrame(drawField);
 
@@ -834,7 +863,7 @@ PAGE = r"""<!doctype html>
     $('stream-link-row').style.display = id ? 'block' : 'none';
     if (id) $('stream-link').href = `https://www.youtube.com/watch?v=${id}`;
     $('live-title').textContent = d && d.is_live ? 'the stream, as it saw it' : 'its camera, as it saw it';
-    $('live-cap').textContent = 'The real frames of its latest run, replayed in step with the visual field beside it -- same run, same clock, same frame rate -- with its gaze as a target lock. The organism itself only gets the 12x12 grids; these frames are kept in RAM only.';
+    $('live-cap').textContent = 'The real frames it saw, played at real speed just far enough behind live that it has gazed at every one (a few seconds; its gaze runs on snapshots of its newest frames), in step with the visual field beside it, with its gaze as a target lock. The organism itself only gets the 12x12 grids; these frames are kept in RAM only.';
     const running = d && d.generation !== undefined ? (d.is_live ? 'video' : 'camera') : null;
     const switching = running && (running !== want || (want === 'video' && youtubeId(d.clip) !== id));
     $('h-src').textContent = switching
@@ -862,8 +891,9 @@ PAGE = r"""<!doctype html>
     ctx.clearRect(0, 0, bw, bh);
     $('cam-note').textContent = F.failed && F.shown == null ? 'no frames to show (a file source, or CAMBRIAN_CAMERA_PREVIEW=0)' : '';
     if (!D || D.generation === undefined) return;
-    const R = replayAt(D, now, t0, REPLAY_FPS);
+    const R = replayAt(D, now, CLK, REPLAY_FPS);
     F.show(R.frame, R.epoch);
+    $('cam').style.visibility = F.shown != null ? 'visible' : 'hidden';
     if (HUD.on) drawLock(ctx, bw, bh, R, D, F.shown != null, F.aspect, now, HUD, { gen: true });
   }
   requestAnimationFrame(drawHud);
