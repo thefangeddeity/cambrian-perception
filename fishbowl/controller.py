@@ -22,7 +22,7 @@ from typing import Any
 
 from .state import MosquitoState
 
-INPUTS = 14  # Gemini's 12 + where the whole field saw motion, relative to the look (dx, dy)
+INPUTS = 18  # Gemini's 12 + where the whole field saw motion relative to the look (dx, dy) + own eye velocity (vx, vy) + hunger, curiosity
 HIDDEN = 16
 OUTPUTS = 4  # [pan, tilt, zoom, alarm]
 
@@ -79,6 +79,8 @@ class MosquitoBrain:
         state: MosquitoState,
         periph_dx: float = 0.0,
         periph_dy: float = 0.0,
+        eye_vx: float = 0.0,
+        eye_vy: float = 0.0,
     ) -> tuple[float, float, float, float, bool]:
         """
         Runs one tick of the mosquito brain.
@@ -115,6 +117,10 @@ class MosquitoBrain:
             state.search,
             periph_dx,
             periph_dy,
+            eye_vx * 2.5,  # terminal eye speed 0.4 -> ~1
+            eye_vy * 2.5,
+            state.hunger,
+            state.curiosity,
         ]
 
         # Recurrent hidden update: h_t = tanh(W_ih * x + W_hh * h_{t-1} + b_h)
@@ -183,8 +189,12 @@ class MosquitoBrain:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MosquitoBrain:
+        # Brains saved before inputs were added get zero weights for the
+        # new inputs -- identical behavior at the switch, evolution can
+        # start using them from there.
+        weights_ih = [list(row) + [0.0] * (INPUTS - len(row)) for row in data["weights_ih"]]
         return cls(
-            weights_ih=data["weights_ih"],
+            weights_ih=weights_ih,
             weights_hh=data["weights_hh"],
             weights_ho=data["weights_ho"],
             bias_h=data["bias_h"],

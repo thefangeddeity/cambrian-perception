@@ -147,7 +147,9 @@ PAGE = """<!doctype html>
      don't wrap text by default unless width-constrained; this label
      was stretching the whole panel across the page in one line
      instead of wrapping above its panel. */
-  #look-label, #visual-field-label { max-width: 320px; }
+  #visual-field-label { max-width: 720px; }
+  #look-label { max-width: 430px; }
+  .stats { min-width: 300px; }
   .chart-panel { max-width: 100%; overflow-x: auto; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
@@ -187,12 +189,12 @@ PAGE = """<!doctype html>
   <div class="sub">live perception dashboard -- real, coarse 12x12 luminance receptors, not high-res video</div>
   <div class="row">
     <div>
-      <div class="sub" id="look-label"><strong>Gaze / Fovea ("Look")</strong> -- what the organism's brain actually receives: a 12x12 luminance grid of its current focus window (real crop: <span id="look-pixels">--</span>). This is its sole visual input.</div>
-      <canvas id="look" width="240" height="240"></canvas>
+      <div class="sub" id="visual-field-label"><strong>visual field</strong> -- the whole scene at 12x12 (<span id="field-pixels">--</span>): its coarse wide-field eyes, like a jumping spider's secondary eyes. It feels threat, arousal and <em>where</em> something moved from this. The box is its <strong>look</strong>, replayed along its real path over its latest ~40 s run (faint trail = recent path). Box color: <span style="color:#4fa">centered</span> / <span style="color:#fd4">near an edge</span> / <span style="color:#f90">on an edge</span> / <span style="color:#f44">in a corner</span>.</div>
+      <canvas id="visual-field" width="240" height="240"></canvas>
     </div>
     <div>
-      <div class="sub" id="visual-field-label"><strong>Full Visual Field (Environment)</strong> -- 12x12 reference view of the entire scene (<span id="field-pixels">--</span>). The organism does not see this full view; the overlaid box shows where the fovea is currently aimed. Box color indicates penalties: <span style="color:#4fa">green</span> (centered), <span style="color:#fd4">yellow/orange</span> (edge proximity), <span style="color:#f44">red</span> (corner penalty).</div>
-      <canvas id="visual-field" width="240" height="240"></canvas>
+      <div class="sub" id="look-label"><strong>look</strong> -- its movable high-acuity eye (<span id="look-pixels">--</span>), same 12x12 grid, drawn at the same true scale as the visual field. The only place it sees detail, and the only way it eats.</div>
+      <canvas id="look" width="240" height="240"></canvas>
     </div>
     <div>
       <div class="stats" id="stats"></div>
@@ -436,28 +438,50 @@ PAGE = """<!doctype html>
     // Gemini's homeostatic gauges -- the candidate's body at the end of
     // its latest run, its energy over that run, and how often the
     // giant-fiber escape reflex took over from the brain.
+    function spark(id, series, color, label) {
+      const c = document.getElementById(id);
+      if (!c || !series || series.length < 2) return;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.strokeStyle = '#1c2a36';
+      [0, 0.5, 1].forEach(v => { const y = (1 - v) * (c.height - 14) + 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke(); });
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
+      series.forEach((v, k) => { const x = k / (series.length - 1) * c.width, y = (1 - Math.max(0, Math.min(1, v))) * (c.height - 14) + 2; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+      ctx.fillStyle = '#567'; ctx.font = '10px monospace'; ctx.fillText(label + ' (start -> end of latest run, 0..1)', 2, c.height - 2);
+    }
+
+    // Gemini's homeostatic gauges, plus what it's eating and how it
+    // moves -- the candidate's latest ~40 s run.
     function renderBody(d) {
       const el = document.getElementById('body-panel');
       if (!el || !d.body) return;
-      const bar = (name, v, color) =>
-        `<div><span class="label" style="display:inline-block;width:62px">${name}</span>` +
-        `<span style="display:inline-block;width:120px;height:8px;background:#162029;vertical-align:middle">` +
-        `<span style="display:block;width:${Math.round(Math.max(0, Math.min(1, v)) * 120)}px;height:8px;background:${color}"></span></span> ${v.toFixed(2)}</div>`;
-      el.innerHTML = '<div class="sub" style="margin:0 0 6px 0">body (end of latest run)</div>' +
+      const bar = (name, v, color, note) =>
+        `<div><span class="label" style="display:inline-block;width:78px">${name}</span>` +
+        `<span style="display:inline-block;width:180px;height:9px;background:#162029;vertical-align:middle">` +
+        `<span style="display:block;width:${Math.round(Math.max(0, Math.min(1, v)) * 180)}px;height:9px;background:${color}"></span></span> ${v.toFixed(2)}${note ? ' <span class="label">' + note + '</span>' : ''}</div>`;
+      const m = d.movement || {};
+      el.innerHTML =
+        '<div class="sub" style="margin:0 0 6px 0">body -- end of its latest run</div>' +
         bar('energy', d.body.energy, '#4fa') + bar('arousal', d.body.arousal, '#7fd4ff') +
-        bar('threat', d.body.threat, '#f44') + bar('search', d.body.search, '#fd4') +
+        bar('threat', d.body.threat, '#f44') +
+        bar('hunger', d.body.hunger ?? 0, '#f6a', 'builds while energy is low') +
+        bar('curiosity', d.body.curiosity ?? 0, '#c8f', 'appetite for something new') +
+        bar('search', d.body.search, '#fd4', 'urge to look around, driven by hunger') +
         bar('fatigue', d.body.fatigue, '#f90') +
         `<div><span class="label">reflex took over:</span> ${d.reflex_frames ?? '--'} frames</div>` +
-        '<canvas id="energy-trace" width="200" height="40" style="margin-top:4px"></canvas>';
-      const c = document.getElementById('energy-trace');
-      const s = d.energy_series || [];
-      if (c && s.length > 1) {
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, c.width, c.height);
-        ctx.strokeStyle = '#4fa'; ctx.beginPath();
-        s.forEach((v, k) => { const x = k / (s.length - 1) * c.width, y = (1 - v) * (c.height - 2) + 1; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-        ctx.stroke();
-      }
+        '<canvas id="energy-trace" width="340" height="56" style="margin-top:6px"></canvas>' +
+        '<div class="sub" style="margin:12px 0 6px 0">eating -- genuinely new visual structure through its look (a still room starves it; re-looking at what it has already seen does not feed it)</div>' +
+        bar('food', d.mean_food ?? 0, '#c8f', 'average per frame') +
+        '<canvas id="food-trace" width="340" height="56" style="margin-top:6px"></canvas>' +
+        '<div class="sub" style="margin:12px 0 6px 0">how it moves -- measured, not rewarded (Land 1969 yardstick for jumping-spider eyes)</div>' +
+        bar('fixating', m.fixate ?? 0, '#567', 'share of frames still') +
+        bar('gliding', m.glide ?? 0, '#4fa', 'slow, smooth') +
+        bar('saccades', m.saccade ?? 0, '#f90', 'fast jumps') +
+        bar('scanning', m.scan_while_still ?? 0, '#7fd4ff', 'gliding while the world is still') +
+        `<div><span class="label" style="display:inline-block;width:78px">tracking</span> ${m.tracking === null || m.tracking === undefined ? '<span class="label">-- (not enough movement in the room this run)</span>' : m.tracking.toFixed(2) + ' <span class="label">correlation with where the whole field saw motion</span>'}</div>`;
+      spark('energy-trace', d.energy_series, '#4fa', 'energy');
+      spark('food-trace', d.food_series, '#c8f', 'food');
     }
 
     async function tick() {
@@ -499,7 +523,7 @@ PAGE = """<!doctype html>
         const frac = d.fovea_fraction || 0.35;
         let scale = 1, cropW = 0, cropH = 0;
         if (d.frame_w && d.frame_h) {
-          scale = 240 / Math.max(d.frame_w, d.frame_h);
+          scale = Math.min(720, window.innerWidth - 36) / Math.max(d.frame_w, d.frame_h);
           const halfW = Math.floor(d.frame_w * frac / 2);
           const halfH = Math.floor(d.frame_h * frac / 2);
           cropW = 2 * halfW; cropH = 2 * halfH;

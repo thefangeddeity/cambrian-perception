@@ -28,6 +28,10 @@ class MosquitoState:
     threat: float = 0.0        # looming danger signal [0, 1]
     search: float = 0.0        # appetitive / host-seeking drive [0, 1]
     fatigue: float = 0.0       # motor wear from high-velocity saccades [0, 1]
+    # Gemini's plan lists "Curiosity & Hunger: appetite for novel visual
+    # structure" under interoception; its first state.py left both out.
+    hunger: float = 0.0        # builds while energy is low (visual-organism's form)
+    curiosity: float = 0.0     # appetite for novelty: grows while nothing new comes in, drops when fed
     previous_drive: float = 0.0
 
     def drive(self) -> float:
@@ -68,8 +72,9 @@ class MosquitoState:
         # Fatigue: accumulates with violent saccades, recovers when still
         self.fatigue = _clamp(0.95 * self.fatigue + 0.08 * motor_effort)
 
-        # Search pressure: accumulates when energy depletes, forcing exploration
-        self.search = _clamp(0.96 * self.search + 0.04 * (1.0 - self.energy))
+        # Hunger tracks energy deficit; search pressure follows hunger.
+        self.hunger = _clamp(0.97 * self.hunger + 0.03 * (1.0 - self.energy))
+        self.search = _clamp(0.96 * self.search + 0.04 * self.hunger)
 
     def feed_visual_sustenance(self, tracking_quality: float) -> None:
         """
@@ -83,6 +88,8 @@ class MosquitoState:
         # economically can run a surplus; frantic or badly-placed can't.
         gain = 0.012 * _clamp(tracking_quality)
         self.energy = _clamp(self.energy + gain)
+        # Curiosity: slowly rises every frame, satisfied by real novelty.
+        self.curiosity = _clamp(self.curiosity + 0.01 - 0.05 * _clamp(tracking_quality))
 
     def drive_reduction(self) -> float:
         """
@@ -98,4 +105,6 @@ class MosquitoState:
             "threat": round(self.threat, 4),
             "search": round(self.search, 4),
             "fatigue": round(self.fatigue, 4),
+            "hunger": round(self.hunger, 4),
+            "curiosity": round(self.curiosity, 4),
         }

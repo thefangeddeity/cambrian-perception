@@ -523,6 +523,7 @@ def evaluate_genome(
     dxs, dys = [], []  # real (post-clamp) look movement per frame
     movement_costs = []  # pre-clamp motor intent per frame
     energies, drives, foods = [], [], []
+    periph_active = []
     reflex_frames = 0
     last_grid = None
     prev_v = np.zeros(N_CELLS)
@@ -565,7 +566,7 @@ def evaluate_genome(
         response = float(g.evaluate("response", vb)[0])
         pan, tilt, zoom, alarm, is_reflex = brain.step(
             lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
-            periph_dx, periph_dy,
+            periph_dx, periph_dy, state.vx, state.vy,
         )
         reflex_frames += int(is_reflex)
         responses.append(response)
@@ -574,12 +575,15 @@ def evaluate_genome(
         prev_v = v
 
         prev_cx, prev_cy = state.cx, state.cy
-        state, intended_dx, intended_dy, intended_dz = fovea.step(state, pan, tilt, zoom)
+        state, force_x, force_y, intended_dz = fovea.step(state, pan, tilt, zoom)
         prev_dx, prev_dy = state.cx - prev_cx, state.cy - prev_cy
         dxs.append(prev_dx)
         dys.append(prev_dy)
-        effort = math.hypot(intended_dx, intended_dy) + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
-        movement_costs.append(math.hypot(intended_dx, intended_dy))
+        # Muscle energy grows with force squared: many gentle pushes are
+        # cheaper than one violent one covering the same ground.
+        effort = force_x * force_x + force_y * force_y + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
+        movement_costs.append(math.hypot(force_x, force_y))
+        periph_active.append(periph_motion)
 
         body.update(periph_motion, loom, effort, scarcity_cost(state.fraction))
         food = _feed_on_novelty(memory, fovea.extract(frame, state), state)
@@ -591,6 +595,27 @@ def evaluate_genome(
         prev_frame = frame
 
     step_n = max(1, len(energies) // 60)
+
+    # Movement style, MEASURED not rewarded -- the yardstick from Land
+    # (1969) on jumping-spider retinae: fixating (still), gliding (slow,
+    # smooth), saccades (fast jumps), and tracking (following where the
+    # whole field says something is moving). "Lifelike" as numbers
+    # comparable to a real animal, not an impression.
+    speeds = np.hypot(np.array(dxs), np.array(dys)) if dxs else np.zeros(1)
+    active = np.array(periph_active) > 0.2 if periph_active else np.zeros(1, bool)
+    tracking = None
+    if active.sum() >= 10 and len(dxs) > 2:
+        mcx = np.diff(np.asarray(world_signals["motion_cx"][:len(dxs)]), prepend=0.5)
+        mcy = np.diff(np.asarray(world_signals["motion_cy"][:len(dys)]), prepend=0.5)
+        tracking = round((_correlate(mcx[active], np.array(dxs)[active]) + _correlate(mcy[active], np.array(dys)[active])) / 2.0, 3)
+    movement = {
+        "fixate": round(float(np.mean(speeds < 0.005)), 3),
+        "glide": round(float(np.mean((speeds >= 0.005) & (speeds < 0.05))), 3),
+        "saccade": round(float(np.mean(speeds >= 0.05)), 3),
+        "scan_while_still": round(float(np.mean(((speeds >= 0.005) & (speeds < 0.05))[~active])) if (~active).any() else 0.0, 3),
+        "tracking": tracking,
+        "world_active": round(float(np.mean(active)), 3),
+    }
     live_info = {
         "fovea_cx": state.cx, "fovea_cy": state.cy,
         "fovea_fraction": state.fraction,
@@ -602,6 +627,11 @@ def evaluate_genome(
         "grid_shape": list(GRID),
         "body": body.to_dict(),
         "energy_series": [round(e, 4) for e in energies[::step_n]],
+        # What it's eating: genuinely new visual structure per frame
+        # (see _feed_on_novelty), sampled like energy.
+        "food_series": [round(float(np.mean(foods[k:k + step_n])), 4) for k in range(0, len(foods), step_n)],
+        "mean_food": round(float(np.mean(foods)), 4) if foods else 0.0,
+        "movement": movement,
         "reflex_frames": reflex_frames,
         "trajectory": [[round(x, 4), round(y, 4), round(f, 4)] for (x, y), f in zip(positions, fracs)],
     }
@@ -666,6 +696,7 @@ def evaluate_genome(
     breakdown["mean_food"] = float(np.mean(foods)) if foods else 0.0
     breakdown["mean_aperture"] = float(np.mean(fracs)) if fracs else 0.0
     breakdown["reflex_frames"] = reflex_frames
+    breakdown["movement"] = live_info["movement"]
 
     alarm_corr = _correlate(signals["expansion"], np.array(alarms))
     fitness += ALARM_WEIGHT * alarm_corr
@@ -965,6 +996,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "energy_series": live_info.get("energy_series"),
             "reflex_frames": live_info.get("reflex_frames"),
             "trajectory": live_info.get("trajectory"),
+            "food_series": live_info.get("food_series"),
+            "mean_food": live_info.get("mean_food"),
+            "movement": live_info.get("movement"),
             # Real source frame shape -- User: "make foveal rectangle
             # honest." Lets the viewer draw the box at the REAL aspect
             # ratio instead of a hardcoded one.

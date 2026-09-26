@@ -52,7 +52,16 @@ ZOOM_STEP = 0.05
 # necessity, not a behavioral-style choice. Whether movement ends up
 # smooth-small or saccade-large is now something the pan/tilt trees'
 # OWN evolved output magnitude actually determines.
-MAX_STEP = 1.0
+MAX_STEP = 1.0  # legacy (pre-physics); kept for reference in older docs
+
+# Eye physics: the brain applies a FORCE; the look has velocity, with
+# damping -- an eyeball (or a jumping spider's retinal tube) on muscles.
+# A small steady push gives a smooth glide; a hard push reaches
+# terminal speed FORCE_GAIN / (1 - DAMPING) = 0.4 of the frame per
+# frame within 2-3 frames, i.e. a real saccade (~150 ms at 15 frames/s).
+# Smoothness comes from the body, not from forbidding jumps.
+DAMPING = 0.7
+FORCE_GAIN = 0.12
 
 
 @dataclass
@@ -60,6 +69,8 @@ class FoveaState:
     cx: float = 0.5  # center, normalized [0, 1] within the full frame
     cy: float = 0.5
     fraction: float = FOVEA_FRACTION  # current aperture; starts at genome.fovea_fraction, then the zoom motor moves it
+    vx: float = 0.0  # look velocity (fraction of frame per frame)
+    vy: float = 0.0
 
 
 def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
@@ -78,29 +89,28 @@ def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
 
 def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: float = 0.0) -> tuple[FoveaState, float, float, float]:
     """
-    Applies the genome's own raw pan/tilt tree output as a bounded
-    move. tanh squashes an unbounded tree output (blocks.py's Node.
-    evaluate can return values up to +-MAX_CONST*1e3 in extreme cases)
-    into [-1, 1] BEFORE scaling by MAX_STEP -- so a wildly-valued
-    output saturates to "move as far as allowed this frame," never
-    further, rather than being clamped in a way that makes large and
-    huge outputs indistinguishable in some other, less predictable way.
+    Applies the brain's pan/tilt as a FORCE on a damped eye (see
+    DAMPING/FORCE_GAIN above), and zoom as a bounded aperture change.
+    tanh bounds the raw outputs to [-1, 1] first.
 
-    Returns (new_state, intended_dx, intended_dy, intended_dz) -- intended_dx/dy are
-    the PRE-CLAMP step (what the tree actually tried to do), for
-    run_vision.py's movement-cost penalty. Real motor effort isn't
-    zero just because a wall stopped the actual displacement -- an
-    isometric push against a stop still costs something -- so cost is
-    measured on INTENT, computed once here (the one place this math
-    already lives), not re-derived from the realized post-clamp
-    position change tracked separately for the pursuit reward and
-    motor-efference feedback.
+    Returns (new_state, force_x, force_y, intended_dz). Motor energy is
+    charged on force (run_vision.py: force squared -- muscle cost grows
+    faster than force), whether or not a wall stopped the movement; an
+    isometric push against a stop still costs something.
     """
-    dx = float(np.tanh(pan_output)) * MAX_STEP
-    dy = float(np.tanh(tilt_output)) * MAX_STEP
+    fx = float(np.tanh(pan_output))
+    fy = float(np.tanh(tilt_output))
     dz = float(np.tanh(zoom_output)) * ZOOM_STEP
     new_frac = float(np.clip(state.fraction + dz, MIN_FRACTION, MAX_FRACTION))
     half = new_frac / 2.0
-    new_cx = float(np.clip(state.cx + dx, half, 1.0 - half))
-    new_cy = float(np.clip(state.cy + dy, half, 1.0 - half))
-    return FoveaState(cx=new_cx, cy=new_cy, fraction=new_frac), dx, dy, dz
+    vx = DAMPING * state.vx + FORCE_GAIN * fx
+    vy = DAMPING * state.vy + FORCE_GAIN * fy
+    raw_cx, raw_cy = state.cx + vx, state.cy + vy
+    new_cx = float(np.clip(raw_cx, half, 1.0 - half))
+    new_cy = float(np.clip(raw_cy, half, 1.0 - half))
+    # Hitting the edge of the frame stops motion on that axis.
+    if new_cx != raw_cx:
+        vx = 0.0
+    if new_cy != raw_cy:
+        vy = 0.0
+    return FoveaState(cx=new_cx, cy=new_cy, fraction=new_frac, vx=vx, vy=vy), fx, fy, dz
