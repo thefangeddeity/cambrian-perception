@@ -94,9 +94,15 @@ class LiveFeed:
     the process started. Reconnects if the device drops.
     """
 
-    def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM):
+    def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM,
+                 detector=None, detect_every: int = 3):
         from .retina import frame_to_vector
         self._to_vector = frame_to_vector
+        # Prey (see prey.py): detected on the full-resolution colour frame
+        # every detect_every kept frames; only boxes are kept, and each
+        # result is held until the next detection.
+        self.detector, self.detect_every = detector, detect_every
+        self._last_prey: list = []
         self.source, self.stride, self.max_dim = source, stride, max_dim
         self._buf: collections.deque = collections.deque(maxlen=window)
         self._lock = threading.Lock()
@@ -121,6 +127,8 @@ class LiveFeed:
                     count += 1
                     if count % self.stride:
                         continue
+                    if self.detector is not None and (self.total % self.detect_every == 0):
+                        self._last_prey = self.detector.detect(frame)
                     h, w = frame.shape[:2]
                     if max(h, w) > self.max_dim:
                         scale = self.max_dim / max(h, w)
@@ -128,7 +136,7 @@ class LiveFeed:
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     vec = self._to_vector(gray)
                     with self._lock:
-                        self._buf.append((gray, vec))
+                        self._buf.append((gray, vec, self._last_prey))
                         self._times.append(time.time())
                         self.total += 1
             finally:
@@ -144,12 +152,12 @@ class LiveFeed:
             time.sleep(0.2)
         return False
 
-    def snapshot(self) -> tuple[list[np.ndarray], np.ndarray, int]:
-        """(frames, their retina vectors, total frames ever kept) -- a consistent copy of the current window."""
+    def snapshot(self) -> tuple[list[np.ndarray], np.ndarray, int, list]:
+        """(frames, their retina vectors, total frames ever kept, prey boxes per frame) -- a consistent copy of the current window."""
         with self._lock:
             items = list(self._buf)
             total = self.total
-        return [f for f, _ in items], np.array([v for _, v in items]), total
+        return [f for f, _, _ in items], np.array([v for _, v, _ in items]), total, [p for _, _, p in items]
 
     def frames_per_second(self) -> float:
         """Real rate of kept frames (the camera's own rate varies with light)."""
@@ -159,3 +167,36 @@ class LiveFeed:
 
     def close(self) -> None:
         self._stop = True
+
+
+def read_frames_with_prey(source: str, stride: int = 2, max_frames: int | None = None,
+                          max_dim: int = DEFAULT_MAX_DIM, detector=None, detect_every: int = 3) -> tuple[list[np.ndarray], list]:
+    """read_frames() for a fixed clip, plus prey boxes per kept frame
+    (detected on the colour frame every detect_every kept frames, held in
+    between). Frames stay in memory only, never written to disk."""
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video source: {source!r}")
+    frames, prey, last = [], [], []
+    try:
+        count = 0
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            count += 1
+            if (count - 1) % stride:
+                continue
+            if detector is not None and len(frames) % detect_every == 0:
+                last = detector.detect(frame)
+            h, w = frame.shape[:2]
+            if max(h, w) > max_dim:
+                scale = max_dim / max(h, w)
+                frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+            prey.append(last)
+            if max_frames is not None and len(frames) >= max_frames:
+                break
+    finally:
+        cap.release()
+    return frames, prey

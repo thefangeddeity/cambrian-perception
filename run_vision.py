@@ -72,6 +72,7 @@ import numpy as np
 
 from fishbowl import conspec, fovea, genome as G, reflexes, sandbox, video_source
 from fishbowl.state import MosquitoState
+from fishbowl import prey as prey_lib
 from fishbowl.controller import HIDDEN as BRAIN_HIDDEN
 from fishbowl.retina import GRID, N_CELLS, frame_to_vector
 
@@ -233,6 +234,12 @@ def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState
     sigma = np.sqrt(np.maximum(var, NOISE_FLOOR ** 2))
     dev = patch - mean
     surprise = np.where(seen, np.maximum(0.0, np.abs(dev) - SURPRISE_SIGMAS * sigma), UNSEEN_NOVELTY)
+    # Weighted toward the gaze CENTER (its central half counts fully, the
+    # rim a quarter): what it is actually looking at is what feeds it.
+    ry = (np.arange(y1 - y0) + 0.5) / max(1, y1 - y0) - 0.5
+    rx = (np.arange(x1 - x0) + 0.5) / max(1, x1 - x0) - 0.5
+    center = (np.abs(ry)[:, None] <= 0.25) & (np.abs(rx)[None, :] <= 0.25)
+    surprise = surprise * np.where(center, 1.0, 0.25)
     memory[y0:y1, x0:x1] = np.where(seen, mean + MEAN_RATE * dev, patch)
     variance[y0:y1, x0:x1] = np.where(seen, var + VAR_RATE * (dev * dev - var), NOISE_FLOOR ** 2)
     return float(min(1.0, surprise.sum() / (MEM_H * MEM_W) * FOOD_GAIN))
@@ -573,6 +580,8 @@ def evaluate_genome(
     quota_pct: float = REFERENCE_QUOTA_PCT,
     start_body: dict | None = None,
     fps: float = 15.0,
+    world_prey: list | None = None,
+    start_memory: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[float, dict, dict]:
     """
     Returns (fitness, breakdown, live_info). world_signals/world_conspec
@@ -601,8 +610,15 @@ def evaluate_genome(
     idxs, intervals = [], []
     brain = g.brain
     brain.reset_hidden()
-    memory = np.full((MEM_H, MEM_W), np.nan)  # what the gaze has seen, per world location
-    variance = np.full((MEM_H, MEM_W), NOISE_FLOOR ** 2)  # how much each spot usually varies
+    # What the gaze has seen per world location, and how much each spot
+    # usually varies -- carried across generations by run() (audit: a fresh
+    # memory every window meant a fan was only "boring" for ~40 s).
+    if start_memory is not None:
+        memory, variance = start_memory[0].copy(), start_memory[1].copy()
+    else:
+        memory = np.full((MEM_H, MEM_W), np.nan)
+        variance = np.full((MEM_H, MEM_W), NOISE_FLOOR ** 2)
+    prey_eaten = []
     scarcity_cost = lambda frac: _aperture_cost(frac, quota_pct)
     scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
 
@@ -675,6 +691,13 @@ def evaluate_genome(
         last_grid = v
         prev_v = v
 
+        # Eating happens at the gaze: prey held in the gaze center is a
+        # meal; genuinely new structure there is a small snack.
+        gaze_state = state
+        prey_now = prey_lib.prey_in_gaze(world_prey[t] if world_prey is not None and t < len(world_prey) else [],
+                                         state.cx, state.cy, state.fraction)
+        snack = _feed_on_novelty(memory, v, gaze_state, variance)
+
         interval = int(np.clip(round(pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
         idxs.append(t)
         intervals.append(interval)
@@ -697,8 +720,10 @@ def evaluate_genome(
         periph_active.append(periph_motion)
         body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity,
                     dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps))
-        food = _feed_on_novelty(memory, fovea.extract(frame, state), state, variance)
-        body.feed_visual_sustenance(food)
+        body.feed_visual_sustenance(snack)
+        body.feed_prey(prey_now)
+        prey_eaten.append(prey_now)
+        food = snack
         energies.append(body.energy)
         drives.append(body.drive())
         foods.append(food)
@@ -755,6 +780,13 @@ def evaluate_genome(
         # (see _feed_on_novelty), sampled like energy.
         "food_series": [round(float(np.mean(foods[k:k + step_n])), 4) for k in range(0, len(foods), step_n)],
         "mean_food": round(float(np.mean(foods)), 4) if foods else 0.0,
+        "mean_prey": round(float(np.mean(prey_eaten)), 4) if prey_eaten else 0.0,
+        "prey_series": [round(float(np.mean(prey_eaten[k:k + step_n])), 4) for k in range(0, len(prey_eaten), step_n)],
+        # prey boxes per frame + whether it was eating at that frame (held
+        # from the last gaze), for the viewer
+        "prey_boxes": [world_prey[k] if world_prey is not None and k < len(world_prey) else [] for k in range(nf)],
+        "eating": [round(float(prey_eaten[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]), 3) if prey_eaten else 0.0 for k in range(nf)],
+        "_memory": (memory, variance),
         "movement": movement,
         "field_events": [[round(float(world_signals["motion_cx"][k]), 3), round(float(world_signals["motion_cy"][k]), 3),
                           round(float(min(1.0, world_signals["motion_energy"][k] * PERIPH_MOTION_GAIN)), 3),
@@ -837,6 +869,7 @@ def evaluate_genome(
     breakdown["mean_energy"] = float(np.mean(energies)) if energies else 0.0
     breakdown["final_energy"] = energies[-1] if energies else 0.0
     breakdown["mean_food"] = float(np.mean(foods)) if foods else 0.0
+    breakdown["mean_prey"] = float(np.mean(prey_eaten)) if prey_eaten else 0.0
     breakdown["mean_aperture"] = float(np.mean(fracs)) if fracs else 0.0
     breakdown["reflex_frames"] = reflex_frames
     breakdown["movement"] = live_info["movement"]
@@ -873,8 +906,9 @@ class World:
     always scored on the same World within a generation.
     """
 
-    def __init__(self, frames: list[np.ndarray], vectors: np.ndarray, fps: float = 15.0):
+    def __init__(self, frames: list[np.ndarray], vectors: np.ndarray, fps: float = 15.0, prey: list | None = None):
         self.frames, self.vectors = frames, vectors
+        self.prey = prey if prey is not None else [[] for _ in frames]  # prey boxes per frame (fishbowl/prey.py)
         # Frozen with the snapshot: parent and candidate must be scored at
         # the SAME rate (audit: reading the live rate per evaluation could
         # differ by 0.1 fps between them -- enough to flip a decision).
@@ -971,22 +1005,26 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     feed = None
     if _is_device(source):
         print(f"Opening live feed {source!r} (frames kept in memory only, never written to disk)...")
-        feed = video_source.LiveFeed(int(source) if source.isdigit() else source)
+        detector = prey_lib.PreyDetector()
+        print(f"Prey detector: {'yolov8n loaded' if detector.available else 'MODEL MISSING -- no prey, snacks only'} ({detector.model_path})")
+        feed = video_source.LiveFeed(int(source) if source.isdigit() else source, detector=detector if detector.available else None)
         if not feed.wait_for(600):
             print("Live feed never filled its window -- aborting.")
             feed.close()
             return
-        frames, vectors, seen_total = feed.snapshot()
+        frames, vectors, seen_total, prey_boxes = feed.snapshot()
     else:
         print(f"Loading real frames from {clip_path!r} into memory (never written to disk)...")
-        frames = list(video_source.read_frames(load_source, stride=2, max_frames=600))
+        detector = prey_lib.PreyDetector()
+        frames, prey_boxes = video_source.read_frames_with_prey(load_source, stride=2, max_frames=600,
+                                                                 detector=detector if detector.available else None)
         print(f"  {len(frames)} frames loaded (clip {clip_index + 1}/{len(clips)}).")
         if len(frames) < 10:
             print("Not enough real frames to evolve against -- aborting.")
             return
         vectors = _world_vectors(frames)
         seen_total = len(frames)
-    world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0)
+    world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0, prey_boxes)
 
     def _fps() -> float:
         return world.fps
@@ -1050,7 +1088,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # rate, not 80 s of body-time per 1 s generation.
     body_now = (checkpoint or {}).get("body")
     body_clock = time.time()
-    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps())
+    # Surprise memory persists too (NaN = never seen, stored as null).
+    memory_now = None
+    if checkpoint and checkpoint.get("memory"):
+        m = checkpoint["memory"]
+        memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
+                      np.array(m["var"], dtype=float))
+    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(), world.prey, memory_now)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -1066,6 +1110,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "clip_index": (clip_index + 1) % len(clips),
             "total_generation": box.generation,
             "body": body_now,
+            "memory": {"mean": [[None if np.isnan(x) else round(float(x), 4) for x in row] for row in memory_now[0]],
+                       "var": [[round(float(x), 6) for x in row] for row in memory_now[1]]} if memory_now is not None else None,
         })
 
     # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
@@ -1119,13 +1165,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # rebuilding the world's signals costs ~0.65 s, which every
         # generation would nearly double generation time.
         if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
-            frames, vectors, total = feed.snapshot()
-            world = World(frames, vectors, feed.frames_per_second())
+            frames, vectors, total, prey_boxes = feed.snapshot()
+            world = World(frames, vectors, feed.frames_per_second(), prey_boxes)
             _observe(total - seen_total)
             seen_total = total
-        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps())
+        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(), world.prey, memory_now)
         candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(),
+            candidate, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(), world.prey, memory_now,
         )
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
@@ -1162,6 +1208,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # Advance the lasting body toward the survivor's end-of-window body,
         # by the fraction of the window's real duration that actually passed.
         end_body = (live_info if accepted else parent_info).get("body")
+        survivor_memory = (live_info if accepted else parent_info).get("_memory")
+        if survivor_memory is not None:
+            memory_now = survivor_memory
         if end_body:
             now = time.time()
             fps_real = feed.frames_per_second() if feed is not None else 15.0
@@ -1259,6 +1308,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "movement": live_info.get("movement"),
             "field_events": live_info.get("field_events"),
             "flinch": live_info.get("flinch"),
+            # Prey (YOLO boxes per frame, coordinates only) and how much it
+            # was eating at each frame -- the "is YOLO firing" view.
+            "prey_boxes": live_info.get("prey_boxes"),
+            "eating": live_info.get("eating"),
+            "mean_prey": live_info.get("mean_prey"),
+            "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.MAX_FRACTION,
             # Its lasting body right now (persists across generations and
             # restarts), vs "body" = the candidate's at the end of its window.

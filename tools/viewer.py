@@ -162,6 +162,7 @@ def _history_summary(records: list[dict]) -> dict:
             "peak_fitness_seen": r.get("peak_fitness_seen"),
             "mean_energy": bd.get("mean_energy"),
             "mean_food": bd.get("mean_food"),
+            "mean_prey": bd.get("mean_prey"),
             "mean_drive": bd.get("mean_drive"),
             "mean_aperture": bd.get("mean_aperture"),
             "mv": bd.get("movement"),
@@ -245,6 +246,7 @@ PAGE = r"""<!doctype html>
       <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
       <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion this frame (size = how much) -- its brain gets this location, so it can learn to swing its gaze there</span>
       <span><b style="color:var(--red)">red frame</b> something dark approaching (a flinch is rewarded if it reacts within 3 frames)</span>
+      <span><b style="color:#ff5fa2">- - -</b> prey: a person or animal (YOLO); <b style="color:#ff5fa2">EATING</b> = prey held in the center of its gaze</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
@@ -276,7 +278,9 @@ PAGE = r"""<!doctype html>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Food = surprise through its gaze: change beyond what each spot usually does (it remembers each spot's usual brightness and how much it usually varies). Sensor noise never feeds it; a swinging fan feeds it only until the swing becomes expected; something new in a still corner is a big meal.</div>
+      <div class="cap">Its real food is <b style="color:#ff5fa2">prey</b>: a person or animal (found by YOLO, which plays the world's physics of food -- the organism itself still only sees its 12x12 grids) held in the <b>center</b> of its gaze. Following a moving person is literally how it eats. A small <b style="color:#c8f">snack</b> comes from surprise -- change beyond what a spot usually does, remembered across runs, so a swinging fan becomes boring for good. Snacks alone can't sustain it.</div>
+      <div id="prey-gauge"></div>
+      <canvas id="prey-trace" height="60"></canvas>
       <div id="food-gauge"></div>
       <canvas id="food-trace" height="60"></canvas>
     </div>
@@ -307,7 +311,7 @@ PAGE = r"""<!doctype html>
   <div class="cap">Every pressure currently in the fitness, with its real weight in run_vision.py. <span class="tag body">body</span> = comes from staying alive (the direction this is going: Dennett's "whole iguana"). <span class="tag hand">hand-written</span> = an older score bolted on from outside, to be retired one at a time as the body takes over. Nothing is hard-wired: the old innate escape reflex was removed so the flinch can evolve.</div>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
-    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;. The biggest term. Energy is spent every frame on basal metabolism (0.003 + 0.003 &times; arousal), muscle force (0.010 &times; force&sup2;) and gaze size (0.01 &times; area &times; 150 / CPU quota, so a wide gaze costs more when CPU is scarce), and only restored by eating (up to 0.012 per frame).</td></tr>
+    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). Energy runs on a real clock: basal burn (full energy lasts ~20 min at hummingbird tempo with no food, hours when slow and acclimatized), muscle force&sup2; every frame it pushes, and a per-gaze cost for thinking and for gaze size (x CPU scarcity). Restored only by eating: prey held in the gaze center (real meals) plus small surprise snacks.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
@@ -323,6 +327,7 @@ PAGE = r"""<!doctype html>
   const $ = id => document.getElementById(id);
   const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'energy', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree'];
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo'];
+  const PREY_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
   const REPLAY_FPS = 15;
   let D = null, t0 = performance.now();
 
@@ -373,6 +378,19 @@ PAGE = r"""<!doctype html>
         ctx.beginPath(); ctx.arc(mx * W, my * H, 3 + act * 14, 0, 7); ctx.fill();
       }
       if (loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
+    }
+    // Prey (YOLO: people and animals) -- coordinates only, never pixels.
+    const pb = (d.prey_boxes && d.prey_boxes[Math.min(cur, d.prey_boxes.length - 1)]) || [];
+    ctx.font = '12px monospace'; ctx.textBaseline = 'bottom';
+    pb.forEach(([cls, conf, x0, y0, x1, y1]) => {
+      ctx.strokeStyle = '#ff5fa2'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+      ctx.strokeRect(x0 * W, y0 * H, (x1 - x0) * W, (y1 - y0) * H); ctx.setLineDash([]);
+      ctx.fillStyle = '#ff5fa2'; ctx.fillText(`${PREY_NAMES[cls] || cls} ${(conf * 100).toFixed(0)}%`, x0 * W + 2, y0 * H - 2);
+    });
+    const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
+    if (eat > 0.01) {
+      ctx.fillStyle = 'rgba(255, 95, 162, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top';
+      ctx.fillText(`EATING ${(eat * 100).toFixed(0)}%`, 10, 10);
     }
     ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
     let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
@@ -432,8 +450,10 @@ PAGE = r"""<!doctype html>
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
     spark('energy-trace', d.energy_series, '#4fa', 'energy');
-    $('food-gauge').innerHTML = gauge('food', d.mean_food, '#c8f', 'average per frame over its latest run');
-    spark('food-trace', d.food_series, '#c8f', 'food');
+    $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'a person or animal held in the center of its gaze (YOLO) -- its real food');
+    spark('prey-trace', d.prey_series, '#ff5fa2', 'prey eaten');
+    $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', 'genuinely new structure in the gaze center -- too little to live on alone');
+    spark('food-trace', d.food_series, '#c8f', 'surprise');
     const m = d.movement || {};
     $('movement').innerHTML =
       gauge('fixating', m.fixate, '#6f8798', 'share of frames still') + gauge('gliding', m.glide, '#4fa', 'slow, smooth') +
@@ -495,7 +515,7 @@ PAGE = r"""<!doctype html>
   // History charts.
   const CHARTS = [
     { id: 'c-fit', title: 'fitness', cap: 'current genome, re-scored each generation / peak ever', series: [['fitness', '#4fa', r => r.best_fitness], ['peak ever', '#6f8798', r => r.peak_fitness_seen]] },
-    { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#4fa', r => r.mean_energy], ['food', '#c8f', r => r.mean_food]] },
+    { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#4fa', r => r.mean_energy], ['prey', '#ff5fa2', r => r.mean_prey], ['surprise', '#c8f', r => r.mean_food]] },
     { id: 'c-drive', title: 'homeostatic drive', cap: 'mean drive per run -- lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
     { id: 'c-look', title: 'gaze size', cap: 'inherited gaze size at birth, and mean gaze size over each run (fraction of frame)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
     { id: 'c-pace', title: 'resting pace', cap: 'inherited resting gaze interval, every Nth frame (its temperament; the brain moves 3x either way around it)', series: [['every Nth frame', '#7fd4ff', r => r.pace]] },

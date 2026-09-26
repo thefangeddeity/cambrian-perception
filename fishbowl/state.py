@@ -24,7 +24,8 @@ from dataclasses import dataclass
 BASAL_PER_SECOND = 1.0 / 1200.0  # full energy lasts ~20 min at hummingbird pace with no food, ~2 h at reptile pace
 ACCLIMATIZE_HALF_LIFE_S = 80.0  # ~2 min time constant for metabolic rate to follow tempo
 EFFORT_COST = 1e-4               # per push, x force^2 (a full saccade ~ 0.25 s of basal)
-FOOD_PER_LOOK = 8e-4             # x surprise (0..1): a rich stream refills it in minutes
+FOOD_PER_LOOK = 2e-4             # SNACK: x surprise (0..1) -- alone it can't sustain a fast tempo
+PREY_FOOD_PER_LOOK = 1.2e-3      # MEAL: x prey held in the gaze center (0..1) -- see fishbowl/prey.py
 
 
 def _clamp(v: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -135,6 +136,11 @@ class MosquitoState:
         # the fall was 0.05 per gaze vs a rise of 0.01 per FRAME, so at slow
         # tempos curiosity could never come down and sat pinned at 1.0).
         self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.25 * _clamp(tracking_quality))
+
+    def feed_prey(self, amount: float) -> None:
+        """A real meal: prey (a person or animal, per YOLO) held in the
+        center of the gaze. The scarce, earned food source."""
+        self.energy = _clamp(self.energy + PREY_FOOD_PER_LOOK * _clamp(amount))
 
     def drive_reduction(self) -> float:
         """
