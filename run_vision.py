@@ -973,11 +973,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         preview = sandbox.LIVE_STATUS_PATH.with_name("camera.jpg")
         in_ram = sandbox.LIVE_STATUS_PATH.parent != sandbox.STATE_DIR
         use_preview = _is_device(source) and in_ram and os.environ.get("CAMBRIAN_CAMERA_PREVIEW", "1") != "0"
-        if not use_preview and in_ram:
+        if use_preview:
+            preview.parent.mkdir(parents=True, exist_ok=True)
+        elif in_ram:
             preview.unlink(missing_ok=True)
         feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None,
                                      preview_path=preview if use_preview else None)
-        if not feed.wait_for(600):
+        # A slow camera on a busy host (e.g. 8 frames/s on a laptop already
+        # running a livecam server) takes minutes to fill the window.
+        if not feed.wait_for(600, timeout=600.0):
             print("Live feed never filled its window -- aborting.")
             feed.close()
             if dessert is not None:

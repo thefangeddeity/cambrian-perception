@@ -118,6 +118,10 @@ class LiveFeed:
         self._thread.start()
 
     def _run(self) -> None:
+        if isinstance(self.source, str) and self.source.startswith("rtsp"):
+            # RTSP over UDP drops packets under load (corrupt H.264
+            # macroblocks); TCP delivers whole frames.
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
         while not self._stop:
             cap = cv2.VideoCapture(self.source)
             if not cap.isOpened():
