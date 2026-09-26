@@ -366,18 +366,18 @@ LOCK_HUD_JS = r"""
     lockShadow(ctx, true);
     ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
     ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
-    ctx.fillStyle = '#ff9fb8'; ctx.fillText(`meals ${st.meals || 0}`, 27, 34);
-    ctx.fillStyle = '#d8b4ff'; ctx.fillText(`snacks ${st.snacks || 0}`, 27, 49);
-    const lines = [L.mode + lockIdText(L.id), fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped'];
-    // Operators only: its perception tree's own guess at how much prey fills
-    // its gaze, next to the teacher's (YOLO's) -- green when they agree.
-    const own = opts && opts.internals && fs.guess != null && fs.label != null;
-    if (own) lines.push(`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`);
-    ctx.font = 'bold 12px monospace';
+    // Right-hand readout, top to bottom: mode + ID, delay, (operators only)
+    // its perception tree's own guess next to the teacher's -- green when
+    // they agree -- then snacks, then meals.
+    const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
+                  [fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped', '#9fb6c6', '11px monospace']];
+    if (opts && opts.internals && fs.guess != null && fs.label != null) {
+      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
+    }
+    rows.push([`snacks ${st.snacks || 0}`, '#d8b4ff', '11px monospace']);
+    rows.push([`meals ${st.meals || 0}`, '#ff9fb8', '11px monospace']);
     ctx.textAlign = 'right';
-    ctx.fillStyle = col; ctx.fillText(lines[0], bw - 16, 18);
-    ctx.font = '11px monospace'; ctx.fillStyle = '#9fb6c6'; ctx.fillText(lines[1], bw - 16, 35);
-    if (own) { ctx.fillStyle = Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4'; ctx.fillText(lines[2], bw - 16, 51); }
+    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, bw - 16, 18 + 16 * k); });
     lockShadow(ctx, false);
     ctx.textAlign = 'left';
   }
