@@ -259,6 +259,10 @@ ALARM_WEIGHT = 1.0
 # the aperture: x CPU scarcity. With basal rate scaling by pace (see
 # MosquitoState.update), this is what makes a fast pace of life expensive.
 THINK_COST = 2e-5  # per gaze, x scarcity
+# Each colour-opponent channel (receptors + processing) costs energy per
+# gaze, priced by CPU scarcity like everything else: colour vision only
+# evolves if seeing colour pays for itself.
+COLOUR_COST = 1e-5
 
 # The flinch, evolved rather than wired: at each onset of a real
 # approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
@@ -524,6 +528,7 @@ def evaluate_genome(
     fps: float = 15.0,
     world_prey: list | None = None,
     start_memory: tuple[np.ndarray, np.ndarray] | None = None,
+    world_colour: list | None = None,
 ) -> tuple[float, dict, dict]:
     """
     Returns (fitness, breakdown, live_info). world_signals are the
@@ -555,6 +560,11 @@ def evaluate_genome(
         memory = np.full((MEM_H, MEM_W), np.nan)
         variance = np.full((MEM_H, MEM_W), NOISE_FLOOR ** 2)
     prey_eaten = []
+    # Colour vision: how many opponent channels this genome's gaze has
+    # (0-2). Unused slots are zero, so tree inputs keep fixed positions.
+    colour_n = int(getattr(g, "colour_channels", 0)) if world_colour is not None else 0
+    colour_pad = np.zeros(2 * N_CELLS)
+    last_colour = None
     scarcity_cost = lambda frac: _aperture_cost(frac, quota_pct)
     scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
 
@@ -614,7 +624,12 @@ def evaluate_genome(
         # The brain's recurrent memory (its 16 hidden units, updated just
         # above) feeds the perception tree as extra inputs x290-x305, after
         # the look (x0-143), previous look (x144-287) and own movement.
-        vb = np.concatenate([v, prev_v, [prev_dx, prev_dy], brain.hidden])[None, :]
+        col = fovea.extract_colour(world_colour[t], state, colour_n) if colour_n else np.zeros(0)
+        colour_in = colour_pad.copy()
+        colour_in[:len(col)] = col
+        if colour_n:
+            last_colour = col
+        vb = np.concatenate([v, prev_v, [prev_dx, prev_dy], brain.hidden, colour_in])[None, :]
         response = float(g.evaluate("response", vb)[0])
         # The perception tree's output reaches the brain (next gaze): with
         # the hand-written correlation scores retired, the tree only matters
@@ -652,7 +667,8 @@ def evaluate_genome(
         dys.append(prev_dy)
         movement_costs.append(math.hypot(force_x, force_y))
         periph_active.append(periph_motion)
-        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity,
+        body.update(periph_motion, loom, effort,
+                    scarcity_cost(state.fraction) + (THINK_COST + COLOUR_COST * colour_n) * scarcity,
                     dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps))
         body.feed_visual_sustenance(snack)
         body.feed_prey(prey_now)
@@ -708,6 +724,9 @@ def evaluate_genome(
         # the no-raw-frames rule.
         "grid": last_grid.tolist() if last_grid is not None else [],
         "grid_shape": list(GRID),
+        # the gaze's colour receptors at the end of the run (red-green,
+        # then blue-yellow), for the viewer; empty without colour vision
+        "colour_grid": [round(float(x), 4) for x in last_colour] if last_colour is not None else [],
         "body": body.to_dict(),
         "energy_series": [round(e, 4) for e in energies[::step_n]],
         # What it's eating: genuinely new visual structure per frame
@@ -828,8 +847,10 @@ class World:
     always scored on the same World within a generation.
     """
 
-    def __init__(self, frames: list[np.ndarray], vectors: np.ndarray, fps: float = 15.0, prey: list | None = None):
+    def __init__(self, frames: list[np.ndarray], vectors: np.ndarray, fps: float = 15.0, prey: list | None = None,
+                 colour: list | None = None):
         self.frames, self.vectors = frames, vectors
+        self.colour = colour  # colour frames (memory only), for the gaze's colour receptors
         self.prey = prey if prey is not None else [[] for _ in frames]  # prey boxes per frame (fishbowl/prey.py)
         # Frozen with the snapshot: parent and candidate must be scored at
         # the SAME rate (audit: reading the live rate per evaluation could
@@ -867,7 +888,7 @@ def _dessert() -> dict | None:
     return sel
 
 
-def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRAIN_HIDDEN) -> None:
+def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRAIN_HIDDEN + 2 * N_CELLS) -> None:
     # Dessert overrides the camera until its deadline; then this run
     # exits and systemd restarts it back on the camera.
     home_source = source
@@ -943,11 +964,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             if dessert is not None:
                 sandbox.clear_selected_source()
             return
-        frames, vectors, seen_total, prey_boxes = feed.snapshot()
+        frames, vectors, seen_total, prey_boxes, colour_frames = feed.snapshot()
     else:
         print(f"Loading real frames from {clip_path!r} into memory (never written to disk)...")
         detector = prey_lib.PreyDetector()
-        frames, prey_boxes = video_source.read_frames_with_prey(load_source, stride=2, max_frames=600,
+        frames, prey_boxes, colour_frames = video_source.read_frames_with_prey(load_source, stride=2, max_frames=600,
                                                                  detector=detector if detector.available else None)
         print(f"  {len(frames)} frames loaded (clip {clip_index + 1}/{len(clips)}).")
         if len(frames) < 10:
@@ -955,7 +976,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             return
         vectors = _world_vectors(frames)
         seen_total = len(frames)
-    world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0, prey_boxes)
+    world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0, prey_boxes, colour_frames)
 
     def _fps() -> float:
         return world.fps
@@ -1020,7 +1041,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         m = checkpoint["memory"]
         memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
                       np.array(m["var"], dtype=float))
-    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now)
+    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -1096,8 +1117,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # rebuilding the world's signals costs ~0.65 s, which every
         # generation would nearly double generation time.
         if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
-            frames, vectors, total, prey_boxes = feed.snapshot()
-            world = World(frames, vectors, feed.frames_per_second(), prey_boxes)
+            frames, vectors, total, prey_boxes, colour_frames = feed.snapshot()
+            world = World(frames, vectors, feed.frames_per_second(), prey_boxes, colour_frames)
             if total != seen_total:
                 last_new_frame = time.time()
             elif time.time() - last_new_frame > 60:
@@ -1110,9 +1131,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
                     sandbox.clear_selected_source()
                 break
             seen_total = total
-        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now)
+        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour)
         candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now,
+            candidate, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour,
         )
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
@@ -1253,6 +1274,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.MAX_FRACTION,
+            "colour_grid": live_info.get("colour_grid"),
+            "colour_channels": genome.colour_channels,
             # Its lasting body right now (persists across generations and
             # restarts), vs "body" = the candidate's at the end of its window.
             "body_now": {k: round(v, 4) for k, v in body_now.items()} if body_now else None,

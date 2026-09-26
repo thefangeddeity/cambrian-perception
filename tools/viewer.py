@@ -238,6 +238,7 @@ PAGE = r"""<!doctype html>
   <span class="chip">watching <b id="h-src">--</b></span>
   <span class="chip">gaze size <b id="h-look">--</b></span>
   <span class="chip">pace <b id="h-pace">--</b></span>
+  <span class="chip">colour <b id="h-colour">--</b></span>
   <span class="chip">CPU quota <b id="h-quota">--</b></span>
   <span class="chip" id="h-stale"></span>
 </header>
@@ -268,7 +269,7 @@ PAGE = r"""<!doctype html>
   <div class="stack">
     <div class="panel" id="look-panel">
       <h2>gaze</h2>
-      <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. View at the end of its latest run.</div>
+      <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). View at the end of its latest run.</div>
       <canvas id="look" class="px"></canvas>
       <div class="cap" style="margin-top:8px" id="look-scale"></div>
     </div>
@@ -327,6 +328,7 @@ PAGE = r"""<!doctype html>
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
     <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). Energy runs on a real clock: basal burn (full energy lasts ~20 min at hummingbird tempo with no food, hours when slow and acclimatized), muscle force&sup2; every frame it pushes, and a per-gaze cost for thinking and for gaze size (x CPU scarcity). Restored only by eating: prey held in the gaze center (real meals) plus small surprise snacks.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>colour vision</td><td>0, 1 or 2 colour-opponent channels in its gaze (red-green, then blue-yellow), inherited and evolving. Each channel costs energy every gaze (x CPU scarcity), so colour vision only spreads if seeing colour pays -- e.g. telling prey from background.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
     <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores</td><td>luminance_change, motion_energy, directional_motion, loom (old detector), conspec_drive, alarm, optokinetic_pursuit, and seek toward CONSPEC face-template detections (CONSPEC fired on almost every frame; finding living things is now YOLO's job -- itself a stand-in until it grows its own prey detector). Retired 2026-09-26 after two independent audits: they carried 80-95% of selection while moving nothing in the body (the perception tree memorised clips to satisfy them). Still measured and logged, not scored.</td></tr>
@@ -360,6 +362,24 @@ PAGE = r"""<!doctype html>
         const x0 = Math.round(x + j * w / cols), x1 = Math.round(x + (j + 1) * w / cols);
         const g = Math.round(Math.max(0, Math.min(1, values[i * cols + j])) * 255);
         ctx.fillStyle = `rgb(${g},${g},${g})`;
+        ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      }
+    }
+  }
+  // Colour display: rebuild RGB from its light receptor (L) and its
+  // colour-opponent receptors (red-green a, blue-yellow b), inverting
+  // L = .299R+.587G+.114B, a = R-G, b = B-(R+G)/2 (checked: round-trips
+  // pure red, blue and grey exactly).
+  function drawColourGrid(ctx, lum, colour, shape, x, y, w, h) {
+    const [rows, cols] = shape, n = rows * cols;
+    for (let i = 0; i < rows; i++) {
+      const y0 = Math.round(y + i * h / rows), y1 = Math.round(y + (i + 1) * h / rows);
+      for (let j = 0; j < cols; j++) {
+        const k = i * cols + j, L = lum[k];
+        const a = 2 * (colour[k] - 0.5), b = colour.length >= 2 * n ? 2 * (colour[n + k] - 0.5) : 0;
+        const c = v => Math.round(Math.max(0, Math.min(1, v)) * 255);
+        ctx.fillStyle = `rgb(${c(0.644 * a - 0.114 * b + L)},${c(-0.356 * a - 0.114 * b + L)},${c(0.144 * a + 0.886 * b + L)})`;
+        const x0 = Math.round(x + j * w / cols), x1 = Math.round(x + (j + 1) * w / cols);
         ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
       }
     }
@@ -433,7 +453,8 @@ PAGE = r"""<!doctype html>
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     ctx.strokeStyle = '#2a3c4c'; ctx.setLineDash([6, 5]); ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1); ctx.setLineDash([]);
     const lw = cw * s, lh = ch * s, lx = (W - lw) / 2, ly = (H - lh) / 2;
-    drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
+    if (d.colour_grid && d.colour_grid.length >= d.grid.length) drawColourGrid(ctx, d.grid, d.colour_grid, d.grid_shape, lx, ly, lw, lh);
+    else drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
     ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText(`largest possible gaze (${fmax} of frame)`, 6, 14);
     $('look-px').textContent = `${cw}x${ch} real pixels`;
@@ -546,8 +567,8 @@ PAGE = r"""<!doctype html>
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#4fa', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['mutate_brain', 'mutate_pace', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
       (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +
@@ -649,6 +670,7 @@ PAGE = r"""<!doctype html>
         $('h-src').textContent = d.clip_name || d.clip || '--';
         $('h-look').textContent = `${d.fovea_fraction_accepted ?? '--'} of frame at birth`;
         $('h-pace').textContent = d.pace_accepted ? `resting ${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
+        $('h-colour').textContent = ['none (light only)', 'red-green', 'red-green + blue-yellow'][d.colour_channels ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
         drawLook(d); drawBody(d); drawBrain(d); showStream(d);

@@ -136,7 +136,9 @@ class LiveFeed:
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     vec = self._to_vector(gray)
                     with self._lock:
-                        self._buf.append((gray, vec, self._last_prey))
+                        # colour frame kept (downscaled, memory only) for the
+                        # gaze's colour receptors -- see retina.opponent_planes
+                        self._buf.append((gray, vec, self._last_prey, frame))
                         self._times.append(time.time())
                         self.total += 1
             finally:
@@ -152,12 +154,13 @@ class LiveFeed:
             time.sleep(0.2)
         return False
 
-    def snapshot(self) -> tuple[list[np.ndarray], np.ndarray, int, list]:
-        """(frames, their retina vectors, total frames ever kept, prey boxes per frame) -- a consistent copy of the current window."""
+    def snapshot(self) -> tuple[list[np.ndarray], np.ndarray, int, list, list[np.ndarray]]:
+        """(grey frames, their retina vectors, total frames ever kept, prey boxes per frame, colour frames) -- a consistent copy of the current window."""
         with self._lock:
             items = list(self._buf)
             total = self.total
-        return [f for f, _, _ in items], np.array([v for _, v, _ in items]), total, [p for _, _, p in items]
+        return ([it[0] for it in items], np.array([it[1] for it in items]), total,
+                [it[2] for it in items], [it[3] for it in items])
 
     def frames_per_second(self) -> float:
         """Real rate of kept frames (the camera's own rate varies with light)."""
@@ -177,7 +180,7 @@ def read_frames_with_prey(source: str, stride: int = 2, max_frames: int | None =
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video source: {source!r}")
-    frames, prey, last = [], [], []
+    frames, prey, last, colour = [], [], [], []
     try:
         count = 0
         while True:
@@ -194,9 +197,10 @@ def read_frames_with_prey(source: str, stride: int = 2, max_frames: int | None =
                 scale = max_dim / max(h, w)
                 frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
             frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+            colour.append(frame)
             prey.append(last)
             if max_frames is not None and len(frames) >= max_frames:
                 break
     finally:
         cap.release()
-    return frames, prey
+    return frames, prey, colour

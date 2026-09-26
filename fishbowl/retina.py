@@ -54,3 +54,18 @@ def _cell_layout(h: int, w: int):
     row_starts = np.concatenate([[0], np.cumsum(row_sizes)[:-1]])
     col_starts = np.concatenate([[0], np.cumsum(col_sizes)[:-1]])
     return row_starts, col_starts, np.outer(row_sizes, col_sizes)
+
+
+def opponent_planes(bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Colour-opponent channels, the way real colour vision encodes colour
+    after the photoreceptors: red-green (R - G) and blue-yellow
+    (B - (R + G) / 2), each mapped to [0, 1] with 0.5 = neutral. Only the
+    gaze gets these -- like a jumping spider, whose principal eyes see
+    colour while its wide-field secondary eyes are monochrome.
+    """
+    f = bgr.astype(np.float64) / 255.0
+    b, g, r = f[..., 0], f[..., 1], f[..., 2]
+    rg = 0.5 + 0.5 * (r - g)
+    by = 0.5 + 0.5 * (b - 0.5 * (r + g))
+    return rg, by

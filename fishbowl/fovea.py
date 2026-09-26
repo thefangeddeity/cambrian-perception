@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .retina import GRID, frame_to_vector
+from .retina import GRID, frame_to_vector, opponent_planes
 
 FOVEA_FRACTION = 0.35  # DEFAULT look size (fraction of the full
 # frame's width/height) for a newborn genome. The live value is a
@@ -65,6 +65,23 @@ def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
     y0 = np.clip(py - half_h, 0, h - 2 * half_h)
     window = full_frame_gray[y0:y0 + 2 * half_h, x0:x0 + 2 * half_w]
     return frame_to_vector(window)
+
+
+def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int) -> np.ndarray:
+    """The gaze's colour receptors: `channels` opponent grids (0, 1 = red-green,
+    2 = + blue-yellow) over the same crop as extract(), flattened; empty if 0."""
+    if channels <= 0 or full_frame_bgr is None:
+        return np.zeros(0)
+    h, w = full_frame_bgr.shape[:2]
+    half_w = int(w * state.fraction / 2)
+    half_h = int(h * state.fraction / 2)
+    px, py = int(state.cx * w), int(state.cy * h)
+    x0 = int(np.clip(px - half_w, 0, max(0, w - 2 * half_w)))
+    y0 = int(np.clip(py - half_h, 0, max(0, h - 2 * half_h)))
+    window = full_frame_bgr[y0:y0 + 2 * half_h, x0:x0 + 2 * half_w]
+    rg, by = opponent_planes(window)
+    planes = [rg, by][:channels]
+    return np.concatenate([frame_to_vector(pl) for pl in planes])
 
 
 def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: float = 0.0) -> tuple[FoveaState, float, float, float]:
