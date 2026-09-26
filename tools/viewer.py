@@ -203,14 +203,15 @@ PAGE = r"""<!doctype html>
   .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; cursor: zoom-out; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
   body.has-max { overflow: hidden; }
   .video16x9 { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
-  .video16x9 iframe, .video16x9 img { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
-  .liverow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+  .video16x9 iframe, .video16x9 img, .video16x9 canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
+  .video16x9 canvas { pointer-events: none; }
+  .quad > .panel > canvas, .quad > .panel > .video16x9 { margin-bottom: 8px; }
+  .quad { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
   .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
-  .brainrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
-  @media (max-width: 1250px) { .vision, .brainrow, .liverow { grid-template-columns: 1fr; } }
+  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } }
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
@@ -246,11 +247,21 @@ PAGE = r"""<!doctype html>
   <span class="chip" id="h-stale"></span>
 </header>
 
-<div class="liverow">
+<!-- The four views, clockwise from top left: what the camera (or stream)
+     shows, its visual field, its gaze, its brain. -->
+<div class="quad">
+  <div class="panel" id="live-panel">
+    <h2 id="live-title">live view</h2>
+    <div class="video16x9" id="live-box"><iframe id="stream" style="display:none" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe><img id="cam" alt="camera" style="display:none"><canvas id="hud"></canvas></div>
+    <div class="cap" id="live-cap">--</div>
+    <div class="cap" id="cam-note" style="margin-top:6px"></div>
+    <div class="cap" id="hud-legend" style="margin-top:6px"><label><input type="checkbox" id="hud-on" checked> HUD</label> -- <span id="hud-legend-text"></span></div>
+    <div class="cap" id="stream-link-row" style="margin-top:6px; display:none"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a> (some streams don't allow embedding)</div>
+  </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
-    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors (fixed for now -- an evolvable, metabolically priced receptor count is queued) over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b>, replayed along its real path over its latest run (the newest ~600 frames), at real speed, trail = last 3 s.</div>
     <canvas id="field" class="px"></canvas>
+    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors (fixed for now -- an evolvable, metabolically priced receptor count is queued) over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b>, replayed along its real path over its latest run (the newest ~600 frames), at real speed, trail = last 3 s.</div>
     <div class="legend cap" style="margin-top:8px">
       <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
       <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
@@ -262,23 +273,21 @@ PAGE = r"""<!doctype html>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
-  <div class="panel" id="live-panel">
-    <h2 id="live-title">live view</h2>
-    <div class="cap" id="live-cap">--</div>
-    <div class="video16x9"><iframe id="stream" style="display:none" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe><img id="cam" alt="camera" style="display:none"></div>
-    <div class="cap" id="cam-note" style="margin-top:6px"></div>
-    <div class="cap" id="stream-link-row" style="margin-top:6px; display:none"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a> (some streams don't allow embedding)</div>
+  <div class="panel">
+    <h2>its brain</h2>
+    <canvas id="brain" height="520"></canvas>
+    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the gaze: 19 inputs (incl. the perception tree's output) &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm / tempo. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+  </div>
+  <div class="panel" id="look-panel">
+    <h2>gaze</h2>
+    <canvas id="look" class="px"></canvas>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). View at the end of its latest run. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
+    <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
 </div>
 
 <div class="vision">
   <div class="stack">
-    <div class="panel" id="look-panel">
-      <h2>gaze</h2>
-      <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). View at the end of its latest run.</div>
-      <canvas id="look" class="px"></canvas>
-      <div class="cap" style="margin-top:8px" id="look-scale"></div>
-    </div>
     <div class="panel" id="dessert-card">
       <h2>dessert</h2>
       <div class="cap">Switch it from the camera to a live YouTube stream -- to speed up learning with more going on, or overnight when the room is asleep. It stays on the video until you press "back to camera", or optionally until a set time. The stream is checked to really be live first; frames are never saved.</div>
@@ -290,6 +299,11 @@ PAGE = r"""<!doctype html>
       </div>
       <label class="cap" style="display:block; margin-top:6px"><input type="checkbox" id="dessert-timed"> go back to the camera by itself at <input type="time" id="dessert-until" value="07:00"></label>
       <div id="submit-status" class="cap" style="margin-top:6px"></div>
+    </div>
+    <div class="panel">
+      <h2>its perception tree</h2>
+      <div class="cap">The genome's evolved "response" tree: reads the gaze's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Its output goes into the brain as the "tree" input -- it is no longer graded by any score of its own, so it only matters if what it perceives helps the body.</div>
+      <div id="trees"></div>
     </div>
   </div>
 
@@ -309,19 +323,6 @@ PAGE = r"""<!doctype html>
       <div class="cap">Measured, not rewarded. Yardstick: Land 1969, jumping-spider retinae (fixate / glide / saccade, scanning still things, tracking moving ones).</div>
       <div id="movement"></div>
     </div>
-  </div>
-</div>
-
-<div class="brainrow">
-  <div class="panel">
-    <h2>its brain</h2>
-    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the gaze: 19 inputs (incl. the perception tree's output) &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm / tempo. Its memory units also feed the perception tree (right). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
-    <canvas id="brain" height="520"></canvas>
-  </div>
-  <div class="panel">
-    <h2>its perception tree</h2>
-    <div class="cap">The genome's evolved "response" tree: reads the gaze's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Its output goes into the brain as the "tree" input -- it is no longer graded by any score of its own, so it only matters if what it perceives helps the body.</div>
-    <div id="trees"></div>
   </div>
 </div>
 
@@ -353,6 +354,9 @@ PAGE = r"""<!doctype html>
   let D = null, t0 = performance.now();
 
   function innerWidth(el) { const cs = getComputedStyle(el); return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
+  // The quad's four displays share one shape -- its camera frame's -- and
+  // the full width of their panels, so they are the same size and aligned.
+  function quadAspect() { return D && D.frame_w && D.frame_h ? D.frame_h / D.frame_w : 9 / 16; }
   function isMax(el) { const p = el && el.closest ? el.closest('.panel') : null; return !!(p && p.classList.contains('maximized')); }
   // Width that also fits the screen's height when maximized, for a canvas of the given aspect (h/w).
   function fitWidth(panel, aspect) {
@@ -452,7 +456,7 @@ PAGE = r"""<!doctype html>
     if (!d.grid || !d.frame_w) return;
     const f = d.fovea_fraction || 0.35, fmax = d.max_fraction || 0.6;
     const [cw, ch] = crop(d, f), [mw, mh] = crop(d, fmax);
-    const c = $('look'), W = Math.max(160, fitWidth($('look-panel'), mh / mw)), H = Math.round(W * mh / mw);
+    const c = $('look'), W = Math.max(160, fitWidth($('look-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'), s = W / mw;
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
@@ -509,14 +513,15 @@ PAGE = r"""<!doctype html>
   // The whole recurrent brain.
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
-    const c = $('brain'), W = Math.max(500, Math.floor(innerWidth(c.parentElement)));
-    c.height = isMax(c) ? Math.max(520, window.innerHeight - 160) : 520;
-    const H = c.height;
-    c.width = W;
+    const c = $('brain'), W = Math.max(200, fitWidth($('brain').closest('.panel'), quadAspect()));
+    // Same shape as the other three; a narrow phone screen gets extra height
+    // so its 19 input labels stay legible.
+    const H = Math.round(W < 600 ? Math.max(320, W * quadAspect()) : W * quadAspect());
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
-    const hm = Math.min(220, W * 0.25), netW = W - hm - 40;
+    const hm = Math.min(220, W * 0.25, H - 50), netW = W - hm - 40;
     const xin = 90, xh = xin + (netW - 90) * 0.5, xout = netW - 50;
     const yAt = (k, n) => 24 + k * (H - 48) / Math.max(1, n - 1);
     let maxW = 1e-9; br.weights_ih.forEach(r => r.forEach(v => maxW = Math.max(maxW, Math.abs(v)))); br.weights_ho.forEach(r => r.forEach(v => maxW = Math.max(maxW, Math.abs(v))));
@@ -680,7 +685,130 @@ PAGE = r"""<!doctype html>
       ? `switching to ${want === 'video' ? 'the video' : 'its camera'}... (restarting, about a minute)`
       : ((d && (d.clip_name || d.clip)) || '--');
   }
-  function refreshCam() { $('cam').src = '/camera.jpg?t=' + Date.now(); }
+  function refreshCam() {
+    $('cam').src = '/camera.jpg?t=' + Date.now();
+    fetch('/camera.json').then(r => r.ok ? r.json() : null).then(j => { HUD.prey = (j && j.prey) || []; }).catch(() => {});
+  }
+
+  // ---- HUD over the live view ----
+  // On its camera: a compound-eye mosaic -- the same 12x12 mean-brightness
+  // reduction its wide-field eyes make, computed here from the live picture
+  // (dot size = brightness, green = change since the last picture) -- plus
+  // brackets on the prey its detector sees right now. On a stream only the
+  // vitals: that picture runs up to a minute apart from what it sees, so
+  // drawing where things are would not line up. Its gaze is never drawn
+  // here: it lives in a replayed window (see the visual field), not in this
+  // live picture.
+  const HUD = { lum: null, glow: new Float32Array(144), prey: [], aspect: null, lastT: performance.now(), on: true };
+  try { HUD.on = localStorage.getItem('hud-on') !== '0'; } catch (e) { }
+  $('hud-on').checked = HUD.on;
+  $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
+  $('hud-on').addEventListener('click', e => e.stopPropagation());
+  const mosaicCanvas = document.createElement('canvas');
+  function readMosaic(img) {
+    const w = img.naturalWidth, h = img.naturalHeight; if (!w || !h) return;
+    HUD.aspect = w / h;
+    mosaicCanvas.width = w; mosaicCanvas.height = h;
+    const mctx = mosaicCanvas.getContext('2d', { willReadFrequently: true });
+    mctx.drawImage(img, 0, 0);
+    const px = mctx.getImageData(0, 0, w, h).data, lum = new Float32Array(144), cnt = new Float32Array(144);
+    for (let y = 0; y < h; y++) {
+      const r = Math.min(11, Math.floor(y * 12 / h));
+      for (let x = 0; x < w; x++) {
+        const k = r * 12 + Math.min(11, Math.floor(x * 12 / w)), i = (y * w + x) * 4;
+        lum[k] += (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255; cnt[k]++;
+      }
+    }
+    for (let k = 0; k < 144; k++) lum[k] /= Math.max(1, cnt[k]);
+    // change beyond sensor noise (its NOISE_FLOOR, 0.02) lights the cell
+    if (HUD.lum) for (let k = 0; k < 144; k++) HUD.glow[k] = Math.max(HUD.glow[k], Math.min(1, Math.max(0, Math.abs(lum[k] - HUD.lum[k]) - 0.02) * 12));
+    HUD.lum = lum;
+  }
+  $('cam').addEventListener('load', () => readMosaic($('cam')));
+  function drawHud(now) {
+    requestAnimationFrame(drawHud);
+    const box = $('live-box'), c = $('hud'), panel = $('live-panel');
+    const cam = $('cam').style.display !== 'none';
+    // Same shape as the other three displays; the picture is fitted inside
+    // (object-fit: contain), and the HUD is drawn on the picture's own area.
+    const aspect = 1 / quadAspect();
+    const bw = fitWidth(panel, 1 / aspect);
+    box.style.aspectRatio = String(aspect); box.style.width = bw + 'px';
+    const dpr = window.devicePixelRatio || 1, W = Math.round(bw * dpr), H = Math.round(bw / aspect * dpr);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const bh = bw / aspect;
+    ctx.clearRect(0, 0, bw, bh);
+    const ia = cam && HUD.aspect ? HUD.aspect : aspect;
+    const iw = ia >= aspect ? bw : bh * ia, ih = ia >= aspect ? bw / ia : bh;
+    const ox = (bw - iw) / 2, oy = (bh - ih) / 2;
+    ctx.save(); ctx.translate(ox, oy);
+    const w = iw, h = ih;
+    const dt = Math.min(1, (now - HUD.lastT) / 1000); HUD.lastT = now;
+    const fade = Math.pow(0.25, dt);
+    for (let k = 0; k < 144; k++) HUD.glow[k] *= fade;
+    $('hud-legend-text').textContent = cam
+      ? 'dots: its 12x12 wide-field receptors, read from this picture the way its eyes reduce it (size = brightness, green = changed); pink brackets: prey its detector sees now; bottom: its body and pulse (one beat per gaze).'
+      : 'on a stream, only its body and pulse (one beat per gaze): this picture runs up to a minute apart from what it sees, so nothing is drawn on it.';
+    if (!HUD.on) { ctx.restore(); return; }
+    if (cam && HUD.lum) {
+      const cw = w / 12, ch = h / 12, rmax = Math.min(cw, ch) * 0.16;
+      ctx.strokeStyle = 'rgba(127, 212, 255, 0.10)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = 1; i < 12; i++) { ctx.moveTo(i * cw, 0); ctx.lineTo(i * cw, h); ctx.moveTo(0, i * ch); ctx.lineTo(w, i * ch); }
+      ctx.stroke();
+      for (let r = 0; r < 12; r++) for (let q = 0; q < 12; q++) {
+        const k = r * 12 + q, g = HUD.glow[k];
+        if (g > 0.03) { ctx.fillStyle = `rgba(140, 255, 90, ${0.28 * g})`; ctx.fillRect(q * cw + 1, r * ch + 1, cw - 2, ch - 2); }
+        ctx.fillStyle = g > 0.03 ? `rgba(170, 255, 120, ${0.5 + 0.5 * g})` : 'rgba(127, 212, 255, 0.3)';
+        ctx.beginPath(); ctx.arc((q + 0.5) * cw, (r + 0.5) * ch, 1 + rmax * HUD.lum[k], 0, 7); ctx.fill();
+      }
+      ctx.lineWidth = 2; ctx.font = '12px monospace'; ctx.textBaseline = 'bottom';
+      HUD.prey.forEach(([cls, conf, x0, y0, x1, y1]) => {
+        const X0 = x0 * w, Y0 = y0 * h, X1 = x1 * w, Y1 = y1 * h, L = Math.max(4, Math.min(18, (X1 - X0) / 3, (Y1 - Y0) / 3));
+        ctx.strokeStyle = '#ff5fa2'; ctx.beginPath();
+        [[X0, Y0, 1, 1], [X1, Y0, -1, 1], [X0, Y1, 1, -1], [X1, Y1, -1, -1]].forEach(([x, y, sx, sy]) => { ctx.moveTo(x + sx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * L); });
+        ctx.stroke();
+        ctx.fillStyle = '#ff5fa2'; ctx.fillText(`${PREY_NAMES[cls] || cls} ${(conf * 100).toFixed(0)}%`, X0 + 2, Math.max(14, Y0 - 3));
+      });
+    }
+    ctx.restore();
+    {
+    const w = bw, h = bh;
+    const d = D || {}, b = d.body_now || d.body || {};
+    const threat = Math.max(0, Math.min(1, b.threat || 0));
+    if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, w - 8, h - 8); }
+    // tag, top left
+    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    const tag = `LIVE  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}`;
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(8, 8, ctx.measureText(tag).width + 26, 20);
+    ctx.fillStyle = Math.floor(now / 600) % 2 ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
+    // vitals strip, bottom: body bars and a pulse that beats once per gaze
+    const sh = 40, sy = h - sh;
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.62)'; ctx.fillRect(0, sy, w, sh);
+    const bars = [['energy', b.energy, '#4fa'], ['hunger', b.hunger, '#f6a'], ['threat', b.threat, '#f44']];
+    const bw2 = Math.min(90, (w * 0.5 - 20) / 3);
+    bars.forEach(([name, v, col], i) => {
+      const x = 10 + i * (bw2 + 8), val = Math.max(0, Math.min(1, v || 0));
+      ctx.fillStyle = '#6f8798'; ctx.fillText(name, x, sy + 12);
+      ctx.fillStyle = '#1c2a36'; ctx.fillRect(x, sy + 22, bw2, 8);
+      ctx.fillStyle = col; ctx.fillRect(x, sy + 22, bw2 * val, 8);
+    });
+    const gps = d.pace ? (d.frames_per_second || 15) / d.pace : 0;
+    const px0 = 10 + 3 * (bw2 + 8) + 6, px1 = w - 10, base = sy + 27;
+    if (px1 - px0 > 40) {
+      ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let x = px0; x <= px1; x += 1) {
+        const t = now / 1000 - (px1 - x) / 200, ph = gps > 0 ? (((t * gps) % 1) + 1) % 1 : 0.5;
+        const y = base - (ph < 0.1 ? Math.sin(ph / 0.1 * Math.PI) * 13 : 0) + (ph >= 0.1 && ph < 0.16 ? Math.sin((ph - 0.1) / 0.06 * Math.PI) * 4 : 0);
+        x === px0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = '#6f8798'; ctx.textAlign = 'right'; ctx.fillText(`pulse ${gps ? gps.toFixed(1) : '--'} gazes/s`, px1, sy + 10); ctx.textAlign = 'left';
+    }
+    }
+  }
+  requestAnimationFrame(drawHud);
   $('cam').addEventListener('load', () => { $('cam-note').textContent = ''; });
   $('cam').addEventListener('error', () => { $('cam-note').textContent = 'no camera picture yet -- the organism writes one once its camera is open'; });
 
@@ -792,6 +920,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/camera.json"):
+            try:
+                body = CAMERA_PREVIEW_PATH.with_suffix(".json").read_bytes()
+            except OSError:
+                body = b'{"prey": []}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

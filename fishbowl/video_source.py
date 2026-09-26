@@ -11,6 +11,7 @@ README's fishbowl boundary.
 """
 
 import collections
+import json
 import os
 import threading
 import time
@@ -169,6 +170,11 @@ class LiveFeed:
                 tmp = self.preview_path.with_suffix(".tmp")
                 tmp.write_bytes(jpg.tobytes())
                 os.replace(tmp, self.preview_path)
+                # The detector's latest boxes for this picture (normalized
+                # coordinates only), for the viewer's HUD.
+                meta = self.preview_path.with_suffix(".json")
+                tmp.write_text(json.dumps({"t": round(time.time(), 2), "prey": self._last_prey}))
+                os.replace(tmp, meta)
         except (OSError, cv2.error):
             pass
 
