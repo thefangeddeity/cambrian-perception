@@ -207,7 +207,7 @@ PAGE = """<!doctype html>
            your 'train on' line is redundant." No dropdown either --
            User: "I don't want hardcoded anything for now; I'll pick
            the training videos for now." -->
-      <div style="margin-top:6px;">
+      <div id="url-picker" style="margin-top:6px; display:none;">
         <input type="text" id="custom-url" placeholder="paste a live YouTube URL..."
           style="width:220px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; font-family:monospace; font-size:11px; padding:3px;">
         <button id="custom-url-submit" style="font-family:monospace; font-size:11px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; cursor:pointer;">Submit</button>
@@ -369,6 +369,9 @@ PAGE = """<!doctype html>
           setTimeout(tick, 2000);
           return;
         }
+        // YouTube URL box only when a YouTube source is actually in use
+        // -- on the camera it would restart the service and change nothing.
+        document.getElementById('url-picker').style.display = d.is_live ? 'block' : 'none';
         const watchingName = d.clip_name || d.clip || '';
         const watchingLive = d.is_live
           ? ` <a href="${d.clip}" target="_blank" rel="noopener" style="color:#4fa">(live &#8599;)</a>`
