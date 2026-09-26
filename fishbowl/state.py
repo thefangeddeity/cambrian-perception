@@ -22,6 +22,7 @@ from dataclasses import dataclass
 # the ~1-minute lives Gemini's per-tick numbers implied (measured: with
 # surprise as food every brain starved within one 80 s window).
 BASAL_PER_SECOND = 1.0 / 1200.0  # full energy lasts ~20 min at hummingbird pace with no food, ~2 h at reptile pace
+ACCLIMATIZE_HALF_LIFE_S = 80.0  # ~2 min time constant for metabolic rate to follow tempo
 EFFORT_COST = 1e-4               # per push, x force^2 (a full saccade ~ 0.25 s of basal)
 FOOD_PER_LOOK = 8e-4             # x surprise (0..1): a rich stream refills it in minutes
 
@@ -41,6 +42,11 @@ class MosquitoState:
     # structure" under interoception; its first state.py left both out.
     hunger: float = 0.0        # builds while energy is low (visual-organism's form)
     curiosity: float = 0.0     # appetite for novelty: grows while nothing new comes in, drops when fed
+    # Metabolic rate, acclimatizing: drifts toward the rate its current
+    # tempo implies over ~2 minutes (User: animals "habituate to differing
+    # metabolic environments... like how bears get sluggish in winter,
+    # hyper in spring"). 1.0 = gazing every frame; slower tempo -> lower.
+    metabolic_rate: float = 1.0
     previous_drive: float = 0.0
 
     def drive(self) -> float:
@@ -89,9 +95,15 @@ class MosquitoState:
         self.arousal = leak(self.arousal, 0.92, motion)
         self.threat = leak(self.threat, 0.85, loom)
 
-        # Basal rate scales with pace: 1 = hummingbird, 6 = reptile at 1/6.
-        bmr = 1.0 / max(1, pace)
+        # Basal rate follows its ACCLIMATIZED metabolic rate, which drifts
+        # toward 1/pace (the tempo it is gazing at right now) with a ~2 min
+        # time constant -- slowing down only pays off once it has been slow
+        # for a while, so it can't flip between hummingbird and reptile
+        # for free every frame.
         seconds = dt_seconds if dt_seconds is not None else dt / 15.0
+        k = 0.5 ** (seconds / ACCLIMATIZE_HALF_LIFE_S)
+        self.metabolic_rate = k * self.metabolic_rate + (1.0 - k) * (1.0 / max(1, pace))
+        bmr = self.metabolic_rate
         basal_cost = BASAL_PER_SECOND * (1.0 + self.arousal) * bmr * seconds
         effort_cost = EFFORT_COST * motor_effort
         # A wider look processes more pixels: priced per look by the
@@ -130,7 +142,7 @@ class MosquitoState:
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
-        fields = ("energy", "arousal", "threat", "search", "fatigue", "hunger", "curiosity")
+        fields = ("energy", "arousal", "threat", "search", "fatigue", "hunger", "curiosity", "metabolic_rate")
         return cls(**{k: float(data[k]) for k in fields if k in data})
 
     def to_dict(self) -> dict[str, float]:
@@ -142,4 +154,5 @@ class MosquitoState:
             "fatigue": round(self.fatigue, 4),
             "hunger": round(self.hunger, 4),
             "curiosity": round(self.curiosity, 4),
+            "metabolic_rate": round(self.metabolic_rate, 4),
         }

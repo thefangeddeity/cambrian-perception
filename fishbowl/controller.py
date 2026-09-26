@@ -24,7 +24,7 @@ from .state import MosquitoState
 
 INPUTS = 18  # Gemini's 12 + where the whole field saw motion relative to the look (dx, dy) + own eye velocity (vx, vy) + hunger, curiosity
 HIDDEN = 16
-OUTPUTS = 4  # [pan, tilt, zoom, alarm]
+OUTPUTS = 5  # [pan, tilt, zoom, alarm, tempo] -- tempo: speed up / slow down its gazing (see run_vision.py)
 
 
 def _tanh(x: float) -> float:
@@ -84,7 +84,7 @@ class MosquitoBrain:
     ) -> tuple[float, float, float, float, bool]:
         """
         Runs one tick of the mosquito brain.
-        Returns: (pan_dx, tilt_dy, d_zoom, alarm_response, is_reflex)
+        Returns: (pan_dx, tilt_dy, d_zoom, alarm_response, tempo, is_reflex)
         """
         # No hard-wired escape reflex (User: "No hard-wired flinch. A fast
         # reaction to looming gets rewarded so it can evolve."). Gemini's
@@ -140,8 +140,9 @@ class MosquitoBrain:
         tilt_dy = outputs[1]
         d_zoom = outputs[2]
         alarm = outputs[3]
+        tempo = outputs[4]
 
-        return pan_dx, tilt_dy, d_zoom, alarm, False
+        return pan_dx, tilt_dy, d_zoom, alarm, tempo, False
 
     def clone(self) -> MosquitoBrain:
         return MosquitoBrain(
@@ -189,7 +190,9 @@ class MosquitoBrain:
         return cls(
             weights_ih=weights_ih,
             weights_hh=data["weights_hh"],
-            weights_ho=data["weights_ho"],
+            # Brains saved before an output was added get a silent (zero)
+            # row for it: identical behavior until evolution uses it.
+            weights_ho=[list(r) for r in data["weights_ho"]] + [[0.0] * HIDDEN for _ in range(OUTPUTS - len(data["weights_ho"]))],
             bias_h=data["bias_h"],
-            bias_o=data["bias_o"],
+            bias_o=list(data["bias_o"]) + [0.0] * (OUTPUTS - len(data["bias_o"])),
         )

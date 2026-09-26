@@ -292,31 +292,33 @@ FLINCH_WEIGHT = 1.0
 FLINCH_THRESHOLD = 0.18
 FLINCH_WINDOW = 3
 
+TEMPO_RANGE = 3.0   # brain can speed up / slow down its gazing up to 3x around its resting pace
+MAX_INTERVAL = 12   # slowest: one gaze every 12 frames
 
-def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float], pace: int = 1) -> dict:
+
+def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float], intervals: list[int]) -> dict:
+    """Onsets of real approach, and whether it widened its gaze or made a
+    saccade within FLINCH_WINDOW real frames -- gazes are unevenly spaced,
+    so latency is counted in real frames (plus, on average, half the
+    interval before the gaze that noticed it). A slow tempo pays for it."""
     onsets = [t for t in range(1, len(looms)) if looms[t] > FLINCH_THRESHOLD >= looms[t - 1]]
     latencies = []
     for t in onsets:
-        lat = None
-        # Looks are `pace` base frames apart, and on average an approach
-        # starts (pace-1)/2 frames before the look that notices it -- so
-        # latency is counted in real frames, and a slow pace pays for it.
-        k = 0
-        while t + k < len(speeds):
-            real = k * pace + (pace - 1) / 2.0
-            if real > FLINCH_WINDOW:
-                break
-            i = t + k
+        lat, elapsed = None, (intervals[t - 1] - 1) / 2.0 if t - 1 < len(intervals) else 0.0
+        i = t
+        while i < len(speeds) and elapsed <= FLINCH_WINDOW:
             widened = i + 1 < len(fracs) and fracs[i + 1] - fracs[i] > 0.01
             if widened or speeds[i] >= 0.05:
-                lat = real
+                lat = elapsed
                 break
-            k += 1
+            elapsed += intervals[i] if i < len(intervals) else 1
+            i += 1
         latencies.append(lat)
     reacted = [l for l in latencies if l is not None]
     score = float(np.mean([1.0 - l / (FLINCH_WINDOW + 1) if l is not None else 0.0 for l in latencies])) if latencies else 0.0
     return {"events": len(onsets), "reacted": len(reacted),
             "mean_latency_frames": round(float(np.mean(reacted)), 2) if reacted else None, "score": round(score, 3)}
+
 
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
@@ -589,9 +591,14 @@ def evaluate_genome(
     # Pace of life: the caller hands over every pace-th frame (and the
     # world signals at that rate); each look spans `pace` base frames of
     # real time (1/15 s each).
+    # Tempo: the genome's pace is its RESTING gaze interval (temperament);
+    # the brain's tempo output speeds it up or slows it down up to
+    # TEMPO_RANGE-fold either way, gaze by gaze -- a continuum, not a
+    # fixed hummingbird/reptile type (the user). The body's metabolic rate
+    # acclimatizes to it slowly (MosquitoState.metabolic_rate).
     pace = max(1, int(getattr(g, "pace", 1)))
-    gaze_seconds = pace / max(1.0, fps)  # real time between gazes
     drive_start = body.drive()
+    idxs, intervals = [], []
     brain = g.brain
     brain.reset_hidden()
     memory = np.full((MEM_H, MEM_W), np.nan)  # what the gaze has seen, per world location
@@ -613,8 +620,10 @@ def evaluate_genome(
     # now the brain's real applied movement.
     prev_dx, prev_dy = 0.0, 0.0
     prev_frame = None
+    t = 0
 
-    for frame in frames:
+    while t < len(frames):
+        frame = frames[t]
         v = fovea.extract(frame, state)
         positions.append((state.cx, state.cy))
         fracs.append(state.fraction)
@@ -638,13 +647,13 @@ def evaluate_genome(
         # secondary eyes / locust LGMD), plus where in it something moved,
         # relative to the look -- so the brain can learn to swing its look
         # toward movement. The look's own readings above are for detail.
-        t_idx = len(positions) - 1
+        t_idx = t
         loom = min(1.0, float(world_signals["expansion"][t_idx]) * EXPANSION_GAIN)
         periph_motion = min(1.0, float(world_signals["motion_energy"][t_idx]) * PERIPH_MOTION_GAIN)
         periph_dx = float(world_signals["motion_cx"][t_idx]) - state.cx
         periph_dy = float(world_signals["motion_cy"][t_idx]) - state.cy
 
-        pan, tilt, zoom, alarm, is_reflex = brain.step(
+        pan, tilt, zoom, alarm, tempo, is_reflex = brain.step(
             lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
             periph_dx, periph_dy, state.vx, state.vy,
         )
@@ -674,7 +683,11 @@ def evaluate_genome(
         movement_costs.append(math.hypot(force_x, force_y))
         periph_active.append(periph_motion)
 
-        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity, dt=pace, pace=pace, dt_seconds=gaze_seconds)
+        interval = int(np.clip(round(pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
+        idxs.append(t)
+        intervals.append(interval)
+        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity,
+                    dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps))
         food = _feed_on_novelty(memory, fovea.extract(frame, state), state, variance)
         body.feed_visual_sustenance(food)
         energies.append(body.energy)
@@ -682,8 +695,11 @@ def evaluate_genome(
         foods.append(food)
 
         prev_frame = frame
+        t += interval
 
     step_n = max(1, len(energies) // 60)
+    sel = {k: np.asarray(v)[idxs] for k, v in world_signals.items()}
+    iv = np.array(intervals, dtype=float) if intervals else np.ones(1)
 
     # Movement style, MEASURED not rewarded -- the yardstick from Land
     # (1969) on jumping-spider retinae: fixating (still), gliding (slow,
@@ -692,12 +708,12 @@ def evaluate_genome(
     # comparable to a real animal, not an impression.
     # Per base frame (1/15 s), so a slow pace can't look "smooth" just by
     # moving the same distance in fewer, bigger steps.
-    speeds = (np.hypot(np.array(dxs), np.array(dys)) / pace) if dxs else np.zeros(1)
+    speeds = (np.hypot(np.array(dxs), np.array(dys)) / iv) if dxs else np.zeros(1)
     active = np.array(periph_active) > 0.2 if periph_active else np.zeros(1, bool)
     tracking = None
     if active.sum() >= 10 and len(dxs) > 2:
-        mcx = np.diff(np.asarray(world_signals["motion_cx"][:len(dxs)]), prepend=0.5)
-        mcy = np.diff(np.asarray(world_signals["motion_cy"][:len(dys)]), prepend=0.5)
+        mcx = np.diff(sel["motion_cx"], prepend=0.5)
+        mcy = np.diff(sel["motion_cy"], prepend=0.5)
         tracking = round((_correlate(mcx[active], np.array(dxs)[active]) + _correlate(mcy[active], np.array(dys)[active])) / 2.0, 3)
     movement = {
         "fixate": round(float(np.mean(speeds < 0.005)), 3),
@@ -724,11 +740,14 @@ def evaluate_genome(
         "mean_food": round(float(np.mean(foods)), 4) if foods else 0.0,
         "movement": movement,
         "field_events": field_events,
-        "flinch": _flinch([e[3] for e in field_events], speeds, fracs, pace),
-        "pace": pace,
+        "flinch": _flinch([e[3] for e in field_events], speeds, fracs, intervals),
+        "pace": round(float(iv.mean()), 2),  # mean gaze interval actually used this run
+        "tempo_series": [round(float(np.mean(intervals[k:k + step_n])), 2) for k in range(0, len(intervals), step_n)],
         "brain_hidden": [round(h, 3) for h in brain.hidden],
         "reflex_frames": reflex_frames,
-        "trajectory": [[round(x, 4), round(y, 4), round(f, 4)] for (x, y), f in zip(positions, fracs)],
+        # (cx, cy, aperture, frame index): gazes are unevenly spaced now,
+        # so the viewer replays each at its real moment.
+        "trajectory": [[round(x, 4), round(y, 4), round(f, 4), i] for (x, y), f, i in zip(positions, fracs, idxs)],
     }
 
     responses = np.array(responses)
@@ -736,8 +755,8 @@ def evaluate_genome(
     if not np.all(np.isfinite(responses)) or not np.all(np.isfinite(alarms)):
         return float("-inf"), {}, live_info
 
-    signals = world_signals
-    cs, conspec_peak_cx, conspec_peak_cy = world_conspec
+    signals = sel
+    cs, conspec_peak_cx, conspec_peak_cy = (np.asarray(a)[idxs] for a in world_conspec)
 
     fitness = 0.0
     breakdown = {}
@@ -752,7 +771,7 @@ def evaluate_genome(
     breakdown["conspec_drive"] = discounted_drive
     breakdown["loom_max"] = float(signals["loom"].max())
 
-    curiosity = _curiosity_score(positions) / pace  # per base frame of real time
+    curiosity = _curiosity_score(positions) * len(positions) / max(1.0, float(iv.sum()))  # per real frame
     fitness += CURIOSITY_WEIGHT * curiosity
     breakdown["curiosity"] = curiosity
 
@@ -790,7 +809,7 @@ def evaluate_genome(
     # candidate start from the same body, so this is a fair comparison;
     # scaled to "per 20 minutes" so a slow real-clock body still gives
     # selection a clear signal.
-    window_seconds = max(1e-6, len(frames) * gaze_seconds)
+    window_seconds = max(1e-6, float(iv.sum()) / max(1.0, fps))
     drive_reduction = (drive_start - body.drive()) * (1200.0 / window_seconds)
     fitness += DRIVE_REDUCTION_WEIGHT * drive_reduction
     breakdown["drive_reduction"] = drive_reduction
@@ -1007,7 +1026,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # rate, not 80 s of body-time per 1 s generation.
     body_now = (checkpoint or {}).get("body")
     body_clock = time.time()
-    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct, body_now, _fps())
+    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps())
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -1080,9 +1099,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             world = World(frames, vectors)
             _observe(total - seen_total)
             seen_total = total
-        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct, body_now, _fps())
+        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps())
         candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, *world.at_pace(candidate.pace), habituation.discount, quota_pct, body_now, _fps(),
+            candidate, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(),
         )
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)

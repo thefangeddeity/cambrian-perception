@@ -285,7 +285,7 @@ PAGE = r"""<!doctype html>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
     <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;. The biggest term. Energy is spent every frame on basal metabolism (0.003 + 0.003 &times; arousal), muscle force (0.010 &times; force&sup2;) and gaze size (0.01 &times; area &times; 150 / CPU quota, so a wide gaze costs more when CPU is scarce), and only restored by eating (up to 0.012 per frame).</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>pace of life</td><td>How often it gazes: every 1st to 6th frame it gets, inherited and evolving. Time passes the same for all -- basal burn, hunger, fatigue run in real time -- but each gaze costs compute (0.001 &times; CPU scarcity) plus the gaze-size cost, and basal metabolism scales with pace (a hummingbird idles hot, a reptile idles cheap). Slow means cheaper, fewer meals per second and slower reactions.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>alarm</td><td>Its brain's alarm output tracking real approaching objects.</td></tr>
@@ -338,9 +338,13 @@ PAGE = r"""<!doctype html>
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
     drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H);
-    const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx, d.fovea_cy, d.fovea_fraction || 0.35]];
-    const fps = (d.frames_per_second || REPLAY_FPS) / (d.pace || 1);
-    const i = Math.floor((now - t0) / 1000 * fps) % traj.length;
+    const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx, d.fovea_cy, d.fovea_fraction || 0.35, 0]];
+    // Gazes are unevenly spaced (its tempo changes): replay in real frame
+    // time and show whichever gaze is current at that moment.
+    const fps = d.frames_per_second || REPLAY_FPS;
+    const lastIdx = traj[traj.length - 1][3] ?? (traj.length - 1);
+    const cur = Math.floor((now - t0) / 1000 * fps) % (lastIdx + 1);
+    let i = 0; while (i + 1 < traj.length && (traj[i + 1][3] ?? (i + 1)) <= cur) i++;
     const ev = d.field_events && d.field_events[i];
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
@@ -351,14 +355,14 @@ PAGE = r"""<!doctype html>
       if (loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
     }
     ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
-    const k0 = Math.max(0, i - Math.round(3 * fps));
+    let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
     for (let k = k0; k <= i; k++) { const px = traj[k][0] * W, py = traj[k][1] * H; k === k0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
     ctx.stroke();
     const [cx, cy, f] = traj[i];
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
     ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 3;
     ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
-    $('replay-clock').textContent = `replay: gaze ${i + 1} / ${traj.length}  (t = ${(i / fps).toFixed(1)} s of ${(traj.length / fps).toFixed(0)} s, ${fps.toFixed(1)} gazes/s)` + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
+    $('replay-clock').textContent = `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)` + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
   requestAnimationFrame(drawField);
 
@@ -404,7 +408,8 @@ PAGE = r"""<!doctype html>
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
       gauge('arousal', b.arousal, '#7fd4ff', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
-      `<div class="cap" style="margin-top:4px">pace of life: <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes per second (gazes every ${d.pace || '--'} of the ${(d.frames_per_second || 15).toFixed(1)} frames/s it gets; 1 = hummingbird-fast ... 6 = reptile-slow); basal metabolism scales with it</div>` +
+      `<div class="cap" style="margin-top:4px">tempo: <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes/s on average in its latest run (resting: ${d.pace_accepted ? ((d.frames_per_second || 15) / d.pace_accepted).toFixed(1) : '--'}). It can speed up or slow down 3x either way, any time -- a continuum, like a bear sluggish in winter and hyper in spring.</div>` +
+      gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
     spark('energy-trace', d.energy_series, '#4fa', 'energy');
     $('food-gauge').innerHTML = gauge('food', d.mean_food, '#c8f', 'average per frame over its latest run');
@@ -473,7 +478,7 @@ PAGE = r"""<!doctype html>
     { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#4fa', r => r.mean_energy], ['food', '#c8f', r => r.mean_food]] },
     { id: 'c-drive', title: 'homeostatic drive', cap: 'mean drive per run -- lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
     { id: 'c-look', title: 'gaze size', cap: 'inherited gaze size at birth, and mean gaze size over each run (fraction of frame)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
-    { id: 'c-pace', title: 'pace of life', cap: 'gazes every Nth frame (1 = hummingbird-fast, 6 = reptile-slow)', series: [['every Nth frame', '#7fd4ff', r => r.pace]] },
+    { id: 'c-pace', title: 'resting pace', cap: 'inherited resting gaze interval, every Nth frame (its temperament; the brain moves 3x either way around it)', series: [['every Nth frame', '#7fd4ff', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: 'resource_handler: grows with real improvement, shrinks under system strain (%)', series: [['quota %', '#fd4', r => r.quota_pct]] },
     { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#6f8798', r => r.mv && r.mv.fixate], ['glide', '#4fa', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#7fd4ff', r => r.tree_depth]] },
@@ -533,7 +538,7 @@ PAGE = r"""<!doctype html>
         $('h-peak').textContent = d.peak_fitness_seen;
         $('h-src').textContent = d.clip_name || d.clip || '--';
         $('h-look').textContent = `${d.fovea_fraction_accepted ?? '--'} of frame at birth`;
-        $('h-pace').textContent = d.pace_accepted ? `${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
+        $('h-pace').textContent = d.pace_accepted ? `resting ${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
         drawLook(d); drawBody(d); drawBrain(d);
