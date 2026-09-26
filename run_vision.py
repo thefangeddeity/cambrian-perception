@@ -39,7 +39,6 @@ import argparse
 import math
 import os
 import random
-import shutil
 import signal
 import subprocess
 import time
@@ -967,6 +966,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # is living in now (audit: a fixed stream clip reused for an hour let
     # the organism memorise it). Only local files keep one fixed clip.
     feed = None
+    # This run's id: frame files carry it, so a restart never collides with
+    # (or wipes) the frames the viewer is still playing from the last run.
+    feed_epoch = int(time.time())
     if _is_device(source) or source == "live":
         print(f"Opening live feed {clip_path!r} (frames kept in memory only, never written to disk)...")
         detector = prey_lib.PreyDetector()
@@ -978,13 +980,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         in_ram = sandbox.LIVE_STATUS_PATH.parent != sandbox.STATE_DIR
         use_frames = in_ram and os.environ.get("CAMBRIAN_CAMERA_PREVIEW", "1") != "0"
         if in_ram:
-            shutil.rmtree(frames_dir, ignore_errors=True)
             for old in ("camera.jpg", "camera.json"):  # the earlier single preview
                 sandbox.LIVE_STATUS_PATH.with_name(old).unlink(missing_ok=True)
         if use_frames:
             frames_dir.mkdir(parents=True, exist_ok=True)
         feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None,
-                                     frames_dir=frames_dir if use_frames else None)
+                                     frames_dir=frames_dir if use_frames else None, epoch=feed_epoch)
         # A slow camera on a busy host (e.g. 8 frames/s on a laptop already
         # running a livecam server) takes minutes to fill the window.
         if not feed.wait_for(600, timeout=600.0):
@@ -1008,9 +1009,6 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0, prey_boxes, colour_frames)
     world.t_newest = feed.newest_time if feed is not None else None
     world.first_index = feed.snapshot_first if feed is not None else None
-    # Frame files are per run: the viewer adds this to its frame requests so
-    # a browser never shows a cached frame of an earlier run.
-    feed_epoch = int(time.time())
 
     def _fps() -> float:
         return world.fps

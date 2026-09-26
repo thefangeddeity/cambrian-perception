@@ -109,7 +109,7 @@ class LiveFeed:
     """
 
     def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM,
-                 detector=None, frames_dir=None):
+                 detector=None, frames_dir=None, epoch: int = 0):
         from .retina import frame_to_vector
         self._to_vector = frame_to_vector
         # Prey (see prey.py): detected on its own thread, on the newest
@@ -124,7 +124,9 @@ class LiveFeed:
         # latest run: the last FRAME_RING of them, f<index>.jpg. Only ever
         # pointed at the RAM runtime dir (run_vision.py), never at disk;
         # None = off.
-        self.frames_dir = frames_dir
+        self.frames_dir, self.epoch = frames_dir, epoch
+        if frames_dir is not None:
+            self._drop_old_runs()
         self.newest_time = None  # set by snapshot()
         self.snapshot_first = 0  # index of the first frame in the last snapshot
         self._buf: collections.deque = collections.deque(maxlen=window)
@@ -202,10 +204,23 @@ class LiveFeed:
             if ok:
                 tmp = self.frames_dir / "tmp.jpg"
                 tmp.write_bytes(jpg.tobytes())
-                os.replace(tmp, self.frames_dir / f"f{index}.jpg")
-            (self.frames_dir / f"f{index - FRAME_RING}.jpg").unlink(missing_ok=True)
+                os.replace(tmp, self.frames_dir / f"f{self.epoch}_{index}.jpg")
+            (self.frames_dir / f"f{self.epoch}_{index - FRAME_RING}.jpg").unlink(missing_ok=True)
+            if index % 600 == 0:
+                self._drop_old_runs()
         except (OSError, cv2.error):
             pass
+
+    def _drop_old_runs(self, older_than_s: float = 300.0) -> None:
+        """Earlier runs' frames: kept a while (the viewer plays them until this
+        run reports in), then removed."""
+        now = time.time()
+        for p in self.frames_dir.glob("f*.jpg"):
+            try:
+                if not p.name.startswith(f"f{self.epoch}_") and now - p.stat().st_mtime > older_than_s:
+                    p.unlink()
+            except OSError:
+                pass
 
     def wait_for(self, n: int, timeout: float = 180.0) -> bool:
         deadline = time.time() + timeout

@@ -1005,9 +1005,10 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/frame?"):
             # One frame of its recent past, by index (immutable per run and
             # index -- the page adds the run's epoch -- so cacheable).
-            i = (parse_qs(urlparse(self.path).query).get("i") or [""])[0]
+            q = parse_qs(urlparse(self.path).query)
+            i, e = (q.get("i") or [""])[0], (q.get("e") or ["0"])[0]
             try:
-                body = (FRAMES_DIR / f"f{int(i)}.jpg").read_bytes() if i.isdigit() else None
+                body = (FRAMES_DIR / f"f{int(e)}_{int(i)}.jpg").read_bytes() if i.isdigit() and e.isdigit() else None
             except OSError:
                 body = None
             if body is None:
