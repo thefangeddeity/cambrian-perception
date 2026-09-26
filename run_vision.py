@@ -107,23 +107,27 @@ MOVEMENT_COST_WEIGHT = 0.5
 # be. Fixed constant, outside the genome's reach (same reasoning as
 # _HEAD_SIZE: this grades behavior, it isn't a perception trait, so
 # it doesn't evolve).
+# Both corner and edge are measured on the gaze's CENTER over the whole
+# frame (fixed 2026-09-26). They used to be normalized over the range the
+# center could reach, which shrinks as the gaze widens: at aperture 0.6 the
+# center could only travel 0.3..0.7, so almost any position scored as "on
+# an edge" (the live organism read ~0.95) -- a penalty on a wide gaze, not
+# on where it looked. The center can now reach the frame's edges
+# (fovea.py), so following a cat along a wall is possible; the penalty
+# stays soft, so food there can outweigh it.
 CORNER_PENALTY_WEIGHT = 1.0  # doubled 2026-09-24
 
 
 def _corner_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> float:
     """
-    "Cornerness" = product of how off-center each axis is (normalized
-    to [-1, 1] over the reachable range) -- zero along either center
-    line, maximal only where BOTH axes are extreme at once (a real
-    corner, not just one edge). Averaged over the run.
+    "Cornerness" = product of how off-center the gaze's center is on each
+    axis (normalized to [-1, 1] over the frame) -- zero along either center
+    line, maximal only where BOTH axes are extreme at once (a real corner,
+    not just one edge). Averaged over the run.
     """
     if not positions:
         return 0.0
-    scores = []
-    for (cx, cy), frac in zip(positions, fracs):
-        half_range = 0.5 - frac / 2.0
-        scores.append(abs((cx - 0.5) / half_range * (cy - 0.5) / half_range) if half_range > 1e-9 else 0.0)
-    return float(np.mean(scores))
+    return float(np.mean([abs((cx - 0.5) / 0.5 * (cy - 0.5) / 0.5) for cx, cy in positions]))
 
 
 # Shun edges unless they're worth it. Real,
@@ -138,11 +142,7 @@ def _edge_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> f
     """Max (not product) of how off-center each axis is -- unlike cornerness, this alone is already high for EITHER a corner or a single edge; corner_penalty's own weight is what makes a true corner cost more overall."""
     if not positions:
         return 0.0
-    scores = []
-    for (cx, cy), frac in zip(positions, fracs):
-        half_range = 0.5 - frac / 2.0
-        scores.append(max(abs((cx - 0.5) / half_range), abs((cy - 0.5) / half_range)) if half_range > 1e-9 else 0.0)
-    return float(np.mean(scores))
+    return float(np.mean([max(abs(cx - 0.5), abs(cy - 0.5)) / 0.5 for cx, cy in positions]))
 
 
 # --- Homeostasis (Gemini's plan: fishbowl/state.py + controller.py) ---
@@ -190,11 +190,17 @@ def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState
     Spots never seen before count as UNSEEN_NOVELTY. Plain running
     statistics per spot, no learning model needed.
     """
-    x0 = int(round((st.cx - st.fraction / 2) * MEM_W)); x1 = max(x0 + 1, int(round((st.cx + st.fraction / 2) * MEM_W)))
-    y0 = int(round((st.cy - st.fraction / 2) * MEM_H)); y1 = max(y0 + 1, int(round((st.cy + st.fraction / 2) * MEM_H)))
-    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(MEM_W, x1), min(MEM_H, y1)
+    # The gaze may hang past the frame's edge (fovea.py); only its on-frame
+    # part is remembered, each memory cell mapped to its own gaze cell.
+    gx0 = int(round((st.cx - st.fraction / 2) * MEM_W)); gx1 = max(gx0 + 1, int(round((st.cx + st.fraction / 2) * MEM_W)))
+    gy0 = int(round((st.cy - st.fraction / 2) * MEM_H)); gy1 = max(gy0 + 1, int(round((st.cy + st.fraction / 2) * MEM_H)))
+    x0, y0, x1, y1 = max(0, gx0), max(0, gy0), min(MEM_W, gx1), min(MEM_H, gy1)
+    if x1 <= x0 or y1 <= y0:
+        return 0.0
     grid = look.reshape(GRID)
-    patch = grid[np.ix_(np.arange(y1 - y0) * GRID[0] // (y1 - y0), np.arange(x1 - x0) * GRID[1] // (x1 - x0))]
+    rows = np.minimum(GRID[0] - 1, (np.arange(y0, y1) - gy0) * GRID[0] // (gy1 - gy0))
+    cols = np.minimum(GRID[1] - 1, (np.arange(x0, x1) - gx0) * GRID[1] // (gx1 - gx0))
+    patch = grid[np.ix_(rows, cols)]
     region = memory[y0:y1, x0:x1]
     seen = ~np.isnan(region)
     mean = np.nan_to_num(region)
@@ -206,8 +212,8 @@ def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState
     surprise = np.where(seen, np.maximum(0.0, np.abs(dev) - SURPRISE_SIGMAS * sigma), UNSEEN_NOVELTY)
     # Weighted toward the gaze CENTER (its central half counts fully, the
     # rim a quarter): what it is actually looking at is what feeds it.
-    ry = (np.arange(y1 - y0) + 0.5) / max(1, y1 - y0) - 0.5
-    rx = (np.arange(x1 - x0) + 0.5) / max(1, x1 - x0) - 0.5
+    ry = (np.arange(y0, y1) - gy0 + 0.5) / (gy1 - gy0) - 0.5
+    rx = (np.arange(x0, x1) - gx0 + 0.5) / (gx1 - gx0) - 0.5
     center = (np.abs(ry)[:, None] <= 0.25) & (np.abs(rx)[None, :] <= 0.25)
     surprise = surprise * np.where(center, 1.0, 0.25)
     memory[y0:y1, x0:x1] = np.where(seen, mean + MEAN_RATE * dev, patch)

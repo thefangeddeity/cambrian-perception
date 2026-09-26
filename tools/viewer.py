@@ -334,7 +334,7 @@ PAGE = r"""<!doctype html>
     <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores</td><td>luminance_change, motion_energy, directional_motion, loom (old detector), conspec_drive, alarm, optokinetic_pursuit, and seek toward CONSPEC face-template detections (CONSPEC fired on almost every frame; finding living things is now YOLO's job -- itself a stand-in until it grows its own prey detector). Retired 2026-09-26 after two independent audits: they carried 80-95% of selection while moving nothing in the body (the perception tree memorised clips to satisfy them). Still measured and logged, not scored.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Rate of reaching new gaze positions (5x5 grid). Overlaps with eating novelty now.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead_field / movement_cost</td><td>Sustained stretches with nothing happening in the world; pushing the eye at all (on top of the body's energy cost for force).</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>corner / edge penalty</td><td>Sitting in a corner, or hard against one edge.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>corner / edge penalty</td><td>The center of its gaze sitting in a corner, or against one edge. Measured on the center, over the whole frame -- the center can reach the edge (the part of the gaze past it sees black), so it can follow a cat along a wall when that pays more than this costs.</td></tr>
   </table>
 </div>
 
@@ -386,8 +386,7 @@ PAGE = r"""<!doctype html>
   }
   function crop(d, f) { return [2 * Math.floor(d.frame_w * f / 2), 2 * Math.floor(d.frame_h * f / 2)]; }
   function boxColor(cx, cy, f) {
-    const hr = 0.5 - f / 2;
-    const nx = hr > 1e-9 ? (cx - 0.5) / hr : 0, ny = hr > 1e-9 ? (cy - 0.5) / hr : 0;
+    const nx = (cx - 0.5) / 0.5, ny = (cy - 0.5) / 0.5;  // where its gaze's CENTER is, over the whole frame
     const corner = Math.abs(nx * ny), edge = Math.max(Math.abs(nx), Math.abs(ny));
     return corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#4fa';
   }

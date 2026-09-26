@@ -9,8 +9,14 @@ resolution at once) and machine learning (Mnih et al.'s "Recurrent
 Models of Visual Attention" -- a small glimpse window, and CHOOSING
 where to look next is itself a real, trainable action). The brain
 (controller.py) chooses; this module only applies its force to a damped
-eye and keeps the gaze inside the real frame -- it never decides WHERE
-to look.
+eye -- it never decides WHERE to look.
+
+The gaze's CENTER can reach any point of the frame, edges and corners
+included, like an eye that can point its fovea at anything in view: a cat
+walking along the edge of the room can be followed and eaten. Whatever
+part of the gaze hangs past the frame sees nothing (black; neutral for
+colour) -- no light arrives from outside the world, so it feeds nothing
+and still costs its aperture.
 """
 
 from dataclasses import dataclass
@@ -53,18 +59,24 @@ class FoveaState:
     vy: float = 0.0
 
 
-def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
-    """Crops the current fovea window out of the real full frame and returns its retina.py-style flat grid vector."""
-    h, w = full_frame_gray.shape
-    half_w = int(w * state.fraction / 2)
-    half_h = int(h * state.fraction / 2)
-    px = int(state.cx * w)
-    py = int(state.cy * h)
+def _window(frame: np.ndarray, state: FoveaState) -> np.ndarray:
+    """The gaze window, centered on (cx, cy) at its real pixel size; any
+    part past the frame's edge is zero (black: no light from there)."""
+    h, w = frame.shape[:2]
+    half_w = max(1, int(w * state.fraction / 2))
+    half_h = max(1, int(h * state.fraction / 2))
+    x0, y0 = int(state.cx * w) - half_w, int(state.cy * h) - half_h
+    out = np.zeros((2 * half_h, 2 * half_w) + frame.shape[2:], dtype=frame.dtype)
+    sx0, sy0 = max(0, x0), max(0, y0)
+    sx1, sy1 = min(w, x0 + 2 * half_w), min(h, y0 + 2 * half_h)
+    if sx1 > sx0 and sy1 > sy0:
+        out[sy0 - y0:sy1 - y0, sx0 - x0:sx1 - x0] = frame[sy0:sy1, sx0:sx1]
+    return out
 
-    x0 = np.clip(px - half_w, 0, w - 2 * half_w)
-    y0 = np.clip(py - half_h, 0, h - 2 * half_h)
-    window = full_frame_gray[y0:y0 + 2 * half_h, x0:x0 + 2 * half_w]
-    return frame_to_vector(window)
+
+def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
+    """Crops the current gaze window out of the real full frame and returns its retina.py-style flat grid vector."""
+    return frame_to_vector(_window(full_frame_gray, state))
 
 
 def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int) -> np.ndarray:
@@ -72,14 +84,7 @@ def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int)
     2 = + blue-yellow) over the same crop as extract(), flattened; empty if 0."""
     if channels <= 0 or full_frame_bgr is None:
         return np.zeros(0)
-    h, w = full_frame_bgr.shape[:2]
-    half_w = int(w * state.fraction / 2)
-    half_h = int(h * state.fraction / 2)
-    px, py = int(state.cx * w), int(state.cy * h)
-    x0 = int(np.clip(px - half_w, 0, max(0, w - 2 * half_w)))
-    y0 = int(np.clip(py - half_h, 0, max(0, h - 2 * half_h)))
-    window = full_frame_bgr[y0:y0 + 2 * half_h, x0:x0 + 2 * half_w]
-    rg, by = opponent_planes(window)
+    rg, by = opponent_planes(_window(full_frame_bgr, state))  # black -> neutral (0.5)
     planes = [rg, by][:channels]
     return np.concatenate([frame_to_vector(pl) for pl in planes])
 
@@ -101,13 +106,12 @@ def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: 
     fy = float(np.clip(tilt_output, -1.0, 1.0))
     dz = float(np.clip(zoom_output, -1.0, 1.0)) * ZOOM_STEP
     new_frac = float(np.clip(state.fraction + dz, MIN_FRACTION, MAX_FRACTION))
-    half = new_frac / 2.0
     vx = DAMPING * state.vx + FORCE_GAIN * fx
     vy = DAMPING * state.vy + FORCE_GAIN * fy
     raw_cx, raw_cy = state.cx + vx, state.cy + vy
-    new_cx = float(np.clip(raw_cx, half, 1.0 - half))
-    new_cy = float(np.clip(raw_cy, half, 1.0 - half))
-    # Hitting the edge of the frame stops motion on that axis.
+    new_cx = float(np.clip(raw_cx, 0.0, 1.0))
+    new_cy = float(np.clip(raw_cy, 0.0, 1.0))
+    # The center reaching the edge of the frame stops motion on that axis.
     if new_cx != raw_cx:
         vx = 0.0
     if new_cy != raw_cy:
