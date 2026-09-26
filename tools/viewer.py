@@ -236,6 +236,7 @@ LOCK_HUD_JS = r"""
     return {
       traj, fps, lastIdx, cur, i, cx: traj[i][0], cy: traj[i][1], f: traj[i][2] || 0.35,
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
+      guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null,
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
       delay,
     };
@@ -339,12 +340,17 @@ LOCK_HUD_JS = r"""
     ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
     ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
     const lines = [L.mode + lockIdText(L.id), fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped'];
+    // Operators only: its perception tree's own guess at how much prey fills
+    // its gaze, next to the teacher's (YOLO's) -- green when they agree.
+    const own = opts && opts.internals && fs.guess != null && fs.label != null;
+    if (own) lines.push(`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`);
     ctx.font = 'bold 12px monospace';
     const rw = Math.max(...lines.map(t => ctx.measureText(t).width)) + 16;
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(bw - rw - 8, 8, rw, 36);
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(bw - rw - 8, 8, rw, own ? 52 : 36);
     ctx.textAlign = 'right';
     ctx.fillStyle = col; ctx.fillText(lines[0], bw - 16, 18);
     ctx.font = '11px monospace'; ctx.fillStyle = '#9fb6c6'; ctx.fillText(lines[1], bw - 16, 35);
+    if (own) { ctx.fillStyle = Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4'; ctx.fillText(lines[2], bw - 16, 51); }
     ctx.textAlign = 'left';
   }
 """
@@ -909,7 +915,7 @@ PAGE = r"""<!doctype html>
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('hud-legend-text').textContent = 'the reticle is its gaze (SCAN / TRACK = prey in its gaze / LOCK = prey held in its center: eating -- in a livecam, the moment to take a snapshot), with the ID of what it is on; pink corners: prey the detector found in that frame. The client view (just this, full screen) is at /live.';
+  $('hud-legend-text').textContent = 'the reticle is its gaze (SCAN / TRACK = prey in its gaze / LOCK = prey held in its center: eating -- in a livecam, the moment to take a snapshot), with the ID of what it is on; pink corners: prey the detector found in that frame; top right, the OWN guess of its perception tree at how much prey fills its gaze, next to the label from the teacher (YOLO), green when they agree -- the student catching up with the teacher. The client view (just this, full screen) is at /live.';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');
@@ -925,7 +931,7 @@ PAGE = r"""<!doctype html>
     if (!D || D.generation === undefined) return;
     const R = replayAt(D, now, CLK, REPLAY_FPS);
     F.show(R.frame, R.epoch);
-    if (HUD.on) drawLock(ctx, bw, bh, R, D, F.shown != null, F.aspect, now, HUD, { gen: true });
+    if (HUD.on) drawLock(ctx, bw, bh, R, D, F.shown != null, F.aspect, now, HUD, { gen: true, internals: true });
   }
   requestAnimationFrame(drawHud);
 

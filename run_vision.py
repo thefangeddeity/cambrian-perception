@@ -320,6 +320,10 @@ PREY_SENSE_COST = 2e-5  # per unit of weight on its inputs, per gaze, x scarcity
 TEACHER_WEIGHT = 3.0
 
 
+def _round2(v):
+    return None if v is None else round(float(v), 2)
+
+
 def _prey_sense(boxes: list, cx: float, cy: float, level: int) -> tuple[float, float, float]:
     if level <= 0 or not boxes:
         return 0.0, 0.0, 0.0
@@ -777,9 +781,10 @@ def evaluate_genome(
         # the hand-written correlation scores retired, the tree only matters
         # if what it perceives helps the body.
         prev_response = float(np.tanh(response)) if math.isfinite(response) else 0.0
-        if not was_asleep:
-            teacher_p.append(0.5 * (1.0 + prev_response))
-            teacher_y.append(prey_lib.prey_in_window(boxes_now, state.cx, state.cy, state.fraction))
+        # One per gaze (None asleep): its tree's own guess at how much prey
+        # fills its gaze, and the teacher's label for it.
+        teacher_p.append(None if was_asleep else 0.5 * (1.0 + prev_response))
+        teacher_y.append(None if was_asleep else prey_lib.prey_in_window(boxes_now, state.cx, state.cy, state.fraction))
         responses.append(response)
         alarms.append(alarm)
         last_grid = v
@@ -907,6 +912,10 @@ def evaluate_genome(
         # from the last gaze), for the viewer
         "prey_boxes": [world_prey[k] if world_prey is not None and k < len(world_prey) else [] for k in range(nf)],
         "eating": [round(float(prey_eaten[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]), 3) if prey_eaten else 0.0 for k in range(nf)],
+        # Per frame: its perception tree's own guess at how much prey fills
+        # its gaze, next to the teacher's (YOLO's) label -- for the viewer.
+        "tree_guess": [_round2(teacher_p[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_p else None for k in range(nf)],
+        "teacher_label": [_round2(teacher_y[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_y else None for k in range(nf)],
         "_memory": (memory, variance),
         "movement": movement,
         "field_events": [[round(float(world_signals["motion_cx"][k]), 3), round(float(world_signals["motion_cy"][k]), 3),
@@ -976,8 +985,9 @@ def evaluate_genome(
 
     # The perception tree's teacher (see TEACHER_WEIGHT).
     teacher_error = None
-    if teacher_y:
-        ty, tp = np.array(teacher_y), np.array(teacher_p)
+    graded = [(p, y) for p, y in zip(teacher_p, teacher_y) if y is not None]
+    if graded:
+        tp, ty = np.array([p for p, _ in graded]), np.array([y for _, y in graded])
         with_prey = ty > 0.05
         parts = [float(np.mean((tp[m] - ty[m]) ** 2)) for m in (with_prey, ~with_prey) if m.any()]
         teacher_error = float(np.mean(parts))
@@ -1664,6 +1674,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # was eating at each frame -- the "is YOLO firing" view.
             "prey_boxes": live_info.get("prey_boxes"),
             "eating": live_info.get("eating"),
+            "tree_guess": live_info.get("tree_guess"),
+            "teacher_label": live_info.get("teacher_label"),
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.MAX_FRACTION,
