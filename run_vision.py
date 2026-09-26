@@ -38,9 +38,16 @@ Usage:
 import argparse
 import math
 import os
+
+# One math thread per process (set before numpy loads): parallel work goes
+# through worker processes (see _Workers), and a thread per core spinning in
+# the math library only fights the host -- on a busy laptop it took 4 cores.
+for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_var, "1")
 import random
 import signal
 import subprocess
+import threading
 import time
 import sys
 from pathlib import Path
@@ -481,6 +488,35 @@ def _clip_display_name(source: str, clip_path: str) -> str:
                 return name
         return clip_path
     return Path(clip_path).stem
+
+
+# A chosen live stream is checked again while it is watched: a broadcast
+# that ends turns into a recording at the same address, which still plays
+# (the viewer checked "really live" only when it was chosen).
+LIVE_RECHECK_S = 120.0
+
+
+def _still_live(watch_url: str) -> bool | None:
+    """yt-dlp's own verdict: is the stream live right now? None = couldn't
+    tell (e.g. no network), which changes nothing."""
+    yt_dlp = Path(sys.executable).parent / "yt-dlp"
+    if not yt_dlp.exists():
+        yt_dlp = Path("yt-dlp")
+    try:
+        result = subprocess.run([str(yt_dlp), "--skip-download", "--no-warnings", "--print", "is_live", "--", watch_url],
+                                capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = result.stdout.strip().splitlines()
+    verdict = lines[-1].strip() if lines else ""
+    if verdict == "True":
+        return True
+    if verdict == "False":
+        return False
+    err = result.stderr.lower()
+    if result.returncode != 0 and ("unavailable" in err or "removed" in err or "private" in err):
+        return False  # gone altogether
+    return None
 
 
 def _resolve_live_url(watch_url: str) -> str:
@@ -1033,6 +1069,9 @@ class _Workers:
 
 
 WORLD_REFRESH_GENERATIONS = 5
+# ...or sooner: a snapshot older than this is refreshed every generation, so
+# on a slow host its gaze stays close to live (and a dead feed is noticed).
+WORLD_REFRESH_MAX_S = 10.0
 
 
 class World:
@@ -1145,6 +1184,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             print(f"Live stream unavailable ({e}) -- clearing the video choice, back to {home_source}.")
             if dessert is not None:
                 sandbox.clear_selected_source()
+            return
+        if dessert is not None and _still_live(clip_path) is False:
+            print(f"The chosen stream is no longer live (a recording now) -- clearing the video choice, back to {home_source}.")
+            sandbox.clear_selected_source()
             return
 
     clip_name = _clip_display_name(source, clip_path)
@@ -1287,6 +1330,17 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     stop = {"now": False}
     workers = None  # the worker pool, started when more than one child is scored (False = unavailable)
     world_prev = None  # the previous snapshot, for re-checking a winner
+    world_time = time.time()  # when the current snapshot was taken
+    # A chosen stream is re-checked every LIVE_RECHECK_S in the background.
+    stream_ended = {"yes": False}
+    if source == "live" and dessert is not None:
+        def _watch_liveness() -> None:
+            while not stop["now"]:
+                time.sleep(LIVE_RECHECK_S)
+                if not stop["now"] and _still_live(clip_path) is False:
+                    stream_ended["yes"] = True
+                    return
+        threading.Thread(target=_watch_liveness, name="liveness", daemon=True).start()
     _last_status = [0.0]
     last_new_frame = time.time()
 
@@ -1301,6 +1355,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     while box.should_continue() and not stop["now"]:
         # Dessert over (deadline passed, or cleared in the viewer): stop
         # this run so systemd brings it back on its home camera.
+        if stream_ended["yes"]:
+            print(f"The chosen stream is no longer live (it became a recording) -- back to {home_source}.")
+            sandbox.clear_selected_source()
+            break
         if dessert is not None and box.generation % 25 == 0 and _dessert() is None:
             print(f"Dessert over -- returning to {home_source}.")
             break
@@ -1347,7 +1405,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # Every WORLD_REFRESH_GENERATIONS generations (a few seconds):
         # rebuilding the world's signals costs ~0.65 s, which every
         # generation would nearly double generation time.
-        if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
+        if feed is not None and (box.generation % WORLD_REFRESH_GENERATIONS == 0
+                                 or time.time() - world_time > WORLD_REFRESH_MAX_S):
+            world_time = time.time()
             frames, vectors, total, prey_boxes, colour_frames = feed.snapshot()
             world_prev = world
             world = World(frames, vectors, feed.frames_per_second(), prey_boxes, colour_frames)
