@@ -110,6 +110,7 @@ class LiveFeed:
         # replaced about once a second. Only ever pointed at the RAM runtime
         # dir (run_vision.py), never at disk; None = off.
         self.preview_path, self._preview_t = preview_path, 0.0
+        self.newest_time = None  # set by snapshot()
         self._buf: collections.deque = collections.deque(maxlen=window)
         self._lock = threading.Lock()
         self.total = 0  # frames ever kept -- lets callers find what's new since their last look
@@ -192,6 +193,9 @@ class LiveFeed:
         with self._lock:
             items = list(self._buf)
             total = self.total
+            # when the newest frame of this snapshot arrived (for "how far
+            # behind live is its gaze")
+            self.newest_time = self._times[-1] if self._times else None
         return ([it[0] for it in items], np.array([it[1] for it in items]), total,
                 [it[2] for it in items], [it[3] for it in items])
 

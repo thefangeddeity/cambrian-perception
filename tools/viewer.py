@@ -183,6 +183,164 @@ def _history_summary(records: list[dict]) -> dict:
 
 # Raw string: the page is served byte-for-byte, no Python escape
 # processing (an unescaped apostrophe in the JS broke the page once).
+# The target-lock HUD, shared by the viewer's live panel and the client page
+# (/live): its gaze drawn as a fighter jet's target lock, with the ID of what
+# it is on. Self-contained on purpose -- it is the piece a livecam server's
+# CV module takes over (where LOCK, "eating", becomes "take a snapshot").
+LOCK_HUD_JS = r"""
+  // ---- Target lock: its gaze on the live picture ----
+  // The reticle is its gaze -- the box it sees detail through, with the
+  // diamond marking its center, where it eats -- on the newest frame it has.
+  // Its gaze runs over a snapshot of the newest frames (refreshed every few
+  // generations), so it trails the live picture by the "behind" readout.
+  //   SCAN  nothing it hunts is in its gaze
+  //   TRACK prey (person/animal) somewhere in its gaze
+  //   LOCK  prey held in its gaze center: it is eating -- in a livecam, the
+  //         moment to take a snapshot
+  // ID = the prey nearest its gaze center, per the detector. Pink corner
+  // marks = prey the detector sees in the live picture right now. On a
+  // stream only the readout: that picture runs up to a minute apart from
+  // what it sees, so nothing is drawn on it.
+  const LOCK_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
+  function lockCorners(ctx, X0, Y0, X1, Y1, L) {
+    ctx.beginPath();
+    [[X0, Y0, 1, 1], [X1, Y0, -1, 1], [X0, Y1, 1, -1], [X1, Y1, -1, -1]].forEach(([x, y, sx, sy]) => { ctx.moveTo(x + sx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * L); });
+    ctx.stroke();
+  }
+  function lockState(d) {
+    const n = d.eating ? d.eating.length : 0, eat = n ? d.eating[n - 1] : 0;
+    const boxes = (d.prey_boxes && d.prey_boxes.length ? d.prey_boxes[d.prey_boxes.length - 1] : []) || [];
+    const cx = d.fovea_cx, cy = d.fovea_cy, f = d.fovea_fraction || 0.35;
+    const overlap = (b, half) => Math.max(0, Math.min(b[4], cx + half) - Math.max(b[2], cx - half)) * Math.max(0, Math.min(b[5], cy + half) - Math.max(b[3], cy - half));
+    let id = null, best = 0, inGaze = false;
+    boxes.forEach(b => {
+      const whole = overlap(b, f / 2), score = 4 * overlap(b, f / 4) + whole;
+      if (whole > 0) inGaze = true;
+      if (score > best) { best = score; id = b; }
+    });
+    return { mode: eat > 0.01 ? 'LOCK' : inGaze ? 'TRACK' : 'SCAN', id };
+  }
+  function lockIdText(id) { return id ? ` ${(LOCK_NAMES[id[0]] || ('class ' + id[0])).toUpperCase()} ${(id[1] * 100).toFixed(0)}%` : ''; }
+  // Draws the HUD on a bw x bh box. d = live status, prey = the detector's
+  // live boxes, cam = the picture is its own camera (the reticle is drawn
+  // only then), imgAspect = the picture's width / height (it is fitted
+  // inside the box), st = glide state kept between frames, opts.gen = show
+  // the generation in the LIVE tag.
+  function drawLock(ctx, bw, bh, d, prey, cam, imgAspect, now, st, opts) {
+    const dt = Math.min(1, (now - (st.lastT || now)) / 1000); st.lastT = now;
+    const L = lockState(d), aspect = bw / bh;
+    const col = L.mode === 'LOCK' ? '#ff4d6d' : L.mode === 'TRACK' ? '#fd4' : '#7fd4ff';
+    const blink = Math.floor(now / 350) % 2 === 0;
+    if (cam && d.fovea_cx !== undefined) {
+      const ia = imgAspect || aspect;
+      const w = ia >= aspect ? bw : bh * ia, h = ia >= aspect ? bw / ia : bh;
+      ctx.save(); ctx.translate((bw - w) / 2, (bh - h) / 2);
+      ctx.strokeStyle = 'rgba(255, 95, 162, 0.75)'; ctx.lineWidth = 1.5;
+      (prey || []).forEach(b => lockCorners(ctx, b[2] * w, b[3] * h, b[4] * w, b[5] * h, 8));
+      // glide to each new gaze (status arrives about once a second)
+      const k = 1 - Math.pow(0.01, dt), f = d.fovea_fraction || 0.35;
+      st.rx = st.rx == null ? d.fovea_cx : st.rx + (d.fovea_cx - st.rx) * k;
+      st.ry = st.ry == null ? d.fovea_cy : st.ry + (d.fovea_cy - st.ry) * k;
+      st.rs = st.rs == null ? f : st.rs + (f - st.rs) * k;
+      const x = st.rx * w, y = st.ry * h, gw = st.rs * w, gh = st.rs * h;
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      lockCorners(ctx, x - gw / 2, y - gh / 2, x + gw / 2, y + gh / 2, Math.min(gw, gh) * 0.16);
+      // its center (the central half of the gaze, where it eats): a diamond that spins on LOCK
+      const r = Math.min(gw, gh) / 4;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(L.mode === 'LOCK' ? now / 300 : Math.PI / 4);
+      ctx.strokeRect(-r / Math.SQRT2, -r / Math.SQRT2, 2 * r / Math.SQRT2, 2 * r / Math.SQRT2);
+      ctx.restore();
+      ctx.beginPath();
+      [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([sx, sy]) => { ctx.moveTo(x + sx * r * 1.15, y + sy * r * 1.15); ctx.lineTo(x + sx * r * 1.6, y + sy * r * 1.6); });
+      ctx.stroke();
+      if (L.mode !== 'LOCK' || blink) {
+        ctx.font = 'bold 12px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+        const label = L.mode + lockIdText(L.id), ly = Math.min(h - 18, y + gh / 2 + 6);
+        const tw = ctx.measureText(label).width + 10;
+        ctx.fillStyle = 'rgba(10, 14, 20, 0.7)'; ctx.fillRect(x - tw / 2, ly - 2, tw, 17);
+        ctx.fillStyle = col; ctx.fillText(label, x, ly);
+        ctx.textAlign = 'left';
+      }
+      ctx.restore();
+    }
+    const b = d.body_now || d.body || {}, threat = Math.max(0, Math.min(1, b.threat || 0));
+    if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
+    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    const tag = opts && opts.gen ? `LIVE  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : 'LIVE';
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(8, 8, ctx.measureText(tag).width + 26, 20);
+    ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
+    const lines = [L.mode + lockIdText(L.id), d.world_age_s != null ? `gaze ${Number(d.world_age_s).toFixed(1)} s behind live` : 'gaze: latest run'];
+    ctx.font = 'bold 12px monospace';
+    const rw = Math.max(...lines.map(t => ctx.measureText(t).width)) + 16;
+    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(bw - rw - 8, 8, rw, 36);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = col; ctx.fillText(lines[0], bw - 16, 18);
+    ctx.font = '11px monospace'; ctx.fillStyle = '#9fb6c6'; ctx.fillText(lines[1], bw - 16, 35);
+    ctx.textAlign = 'left';
+  }
+  function lockYoutubeId(url) {
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      if (u.hostname.endsWith('youtu.be')) return u.pathname.slice(1).split('/')[0] || null;
+      if (u.searchParams.get('v')) return u.searchParams.get('v');
+      const m = u.pathname.match(/\/(?:live|embed|shorts)\/([^/?#]+)/);
+      return m ? m[1] : null;
+    } catch (e) { return null; }
+  }
+"""
+
+# The client-facing page: only the live picture and the target lock. The
+# viewer ("/") is the operators' view with the organism's insides.
+LIVE_PAGE = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live view</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05080c; color: #cfe6f5; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #box { position: relative; background: #000; }
+  #box img, #box iframe, #box canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
+  #box canvas { pointer-events: none; }
+</style></head>
+<body>
+<div id="wrap"><div id="box"><iframe id="stream" style="display:none" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe><img id="cam" alt="" style="display:none"><canvas id="hud"></canvas></div></div>
+<script>
+/*LOCK_HUD_JS*/
+  const $ = id => document.getElementById(id);
+  let D = null, SEL = null, prey = [], imgAspect = null, streamId = null;
+  const st = {};
+  async function poll() { try { D = await (await fetch('/state')).json(); } catch (e) { } setTimeout(poll, 1000); }
+  async function pollSel() { try { SEL = await (await fetch('/sources')).json(); } catch (e) { } setTimeout(pollSel, 5000); }
+  function wantVideo() { return SEL ? SEL.active : !!(D && D.is_live); }
+  function refresh() {
+    if (wantVideo()) return;
+    $('cam').src = '/camera.jpg?t=' + Date.now();
+    fetch('/camera.json').then(r => r.ok ? r.json() : null).then(j => { prey = (j && j.prey) || []; }).catch(() => { });
+  }
+  $('cam').addEventListener('load', () => { const i = $('cam'); if (i.naturalWidth) imgAspect = i.naturalWidth / i.naturalHeight; });
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const video = wantVideo();
+    if (!video && !$('cam').getAttribute('src')) refresh();
+    const id = video ? lockYoutubeId((SEL && SEL.selected_url) || (D && D.clip)) : null;
+    $('stream').style.display = id ? 'block' : 'none';
+    $('cam').style.display = video ? 'none' : 'block';
+    if (id !== streamId) { streamId = id; $('stream').src = id ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1` : 'about:blank'; }
+    const aspect = D && D.frame_w && D.frame_h ? D.frame_w / D.frame_h : (imgAspect || 16 / 9);
+    const bw = Math.min(window.innerWidth, window.innerHeight * aspect), bh = bw / aspect;
+    const box = $('box'); box.style.width = bw + 'px'; box.style.height = bh + 'px';
+    const c = $('hud'), dpr = window.devicePixelRatio || 1, W = Math.round(bw * dpr), H = Math.round(bh * dpr);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, bw, bh);
+    drawLock(ctx, bw, bh, D || {}, prey, !video, imgAspect, now, st, { gen: false });
+  }
+  setInterval(refresh, 1000);
+  poll(); pollSel(); refresh(); requestAnimationFrame(frame);
+</script>
+</body></html>
+""".replace("/*LOCK_HUD_JS*/", LOCK_HUD_JS)
+
 PAGE = r"""<!doctype html>
 <html>
 <head>
@@ -346,6 +504,7 @@ PAGE = r"""<!doctype html>
 </div>
 
 <script>
+/*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
   const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'energy', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree'];
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo'];
@@ -690,123 +849,29 @@ PAGE = r"""<!doctype html>
     fetch('/camera.json').then(r => r.ok ? r.json() : null).then(j => { HUD.prey = (j && j.prey) || []; }).catch(() => {});
   }
 
-  // ---- HUD over the live view ----
-  // On its camera: a compound-eye mosaic -- the same 12x12 mean-brightness
-  // reduction its wide-field eyes make, computed here from the live picture
-  // (dot size = brightness, green = change since the last picture) -- plus
-  // brackets on the prey its detector sees right now. On a stream only the
-  // vitals: that picture runs up to a minute apart from what it sees, so
-  // drawing where things are would not line up. Its gaze is never drawn
-  // here: it lives in a replayed window (see the visual field), not in this
-  // live picture.
-  const HUD = { lum: null, glow: new Float32Array(144), prey: [], aspect: null, lastT: performance.now(), on: true };
+  // ---- HUD over the live view: the target lock (LOCK_HUD_JS, shared with /live) ----
+  const HUD = { prey: [], aspect: null, on: true };
   try { HUD.on = localStorage.getItem('hud-on') !== '0'; } catch (e) { }
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  const mosaicCanvas = document.createElement('canvas');
-  function readMosaic(img) {
-    const w = img.naturalWidth, h = img.naturalHeight; if (!w || !h) return;
-    HUD.aspect = w / h;
-    mosaicCanvas.width = w; mosaicCanvas.height = h;
-    const mctx = mosaicCanvas.getContext('2d', { willReadFrequently: true });
-    mctx.drawImage(img, 0, 0);
-    const px = mctx.getImageData(0, 0, w, h).data, lum = new Float32Array(144), cnt = new Float32Array(144);
-    for (let y = 0; y < h; y++) {
-      const r = Math.min(11, Math.floor(y * 12 / h));
-      for (let x = 0; x < w; x++) {
-        const k = r * 12 + Math.min(11, Math.floor(x * 12 / w)), i = (y * w + x) * 4;
-        lum[k] += (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255; cnt[k]++;
-      }
-    }
-    for (let k = 0; k < 144; k++) lum[k] /= Math.max(1, cnt[k]);
-    // change beyond sensor noise (its NOISE_FLOOR, 0.02) lights the cell
-    if (HUD.lum) for (let k = 0; k < 144; k++) HUD.glow[k] = Math.max(HUD.glow[k], Math.min(1, Math.max(0, Math.abs(lum[k] - HUD.lum[k]) - 0.02) * 12));
-    HUD.lum = lum;
-  }
-  $('cam').addEventListener('load', () => readMosaic($('cam')));
+  $('cam').addEventListener('load', () => { const i = $('cam'); if (i.naturalWidth) HUD.aspect = i.naturalWidth / i.naturalHeight; });
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');
     const cam = $('cam').style.display !== 'none';
-    // Same shape as the other three displays; the picture is fitted inside
-    // (object-fit: contain), and the HUD is drawn on the picture's own area.
+    // Same shape as the other three displays; the picture is fitted inside.
     const aspect = 1 / quadAspect();
-    const bw = fitWidth(panel, 1 / aspect);
+    const bw = fitWidth(panel, 1 / aspect), bh = bw / aspect;
     box.style.aspectRatio = String(aspect); box.style.width = bw + 'px';
-    const dpr = window.devicePixelRatio || 1, W = Math.round(bw * dpr), H = Math.round(bw / aspect * dpr);
+    const dpr = window.devicePixelRatio || 1, W = Math.round(bw * dpr), H = Math.round(bh * dpr);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const bh = bw / aspect;
     ctx.clearRect(0, 0, bw, bh);
-    const ia = cam && HUD.aspect ? HUD.aspect : aspect;
-    const iw = ia >= aspect ? bw : bh * ia, ih = ia >= aspect ? bw / ia : bh;
-    const ox = (bw - iw) / 2, oy = (bh - ih) / 2;
-    ctx.save(); ctx.translate(ox, oy);
-    const w = iw, h = ih;
-    const dt = Math.min(1, (now - HUD.lastT) / 1000); HUD.lastT = now;
-    const fade = Math.pow(0.25, dt);
-    for (let k = 0; k < 144; k++) HUD.glow[k] *= fade;
     $('hud-legend-text').textContent = cam
-      ? 'dots: its 12x12 wide-field receptors, read from this picture the way its eyes reduce it (size = brightness, green = changed); pink brackets: prey its detector sees now; bottom: its body and pulse (one beat per gaze).'
-      : 'on a stream, only its body and pulse (one beat per gaze): this picture runs up to a minute apart from what it sees, so nothing is drawn on it.';
-    if (!HUD.on) { ctx.restore(); return; }
-    if (cam && HUD.lum) {
-      const cw = w / 12, ch = h / 12, rmax = Math.min(cw, ch) * 0.16;
-      ctx.strokeStyle = 'rgba(127, 212, 255, 0.10)'; ctx.lineWidth = 1; ctx.beginPath();
-      for (let i = 1; i < 12; i++) { ctx.moveTo(i * cw, 0); ctx.lineTo(i * cw, h); ctx.moveTo(0, i * ch); ctx.lineTo(w, i * ch); }
-      ctx.stroke();
-      for (let r = 0; r < 12; r++) for (let q = 0; q < 12; q++) {
-        const k = r * 12 + q, g = HUD.glow[k];
-        if (g > 0.03) { ctx.fillStyle = `rgba(140, 255, 90, ${0.28 * g})`; ctx.fillRect(q * cw + 1, r * ch + 1, cw - 2, ch - 2); }
-        ctx.fillStyle = g > 0.03 ? `rgba(170, 255, 120, ${0.5 + 0.5 * g})` : 'rgba(127, 212, 255, 0.3)';
-        ctx.beginPath(); ctx.arc((q + 0.5) * cw, (r + 0.5) * ch, 1 + rmax * HUD.lum[k], 0, 7); ctx.fill();
-      }
-      ctx.lineWidth = 2; ctx.font = '12px monospace'; ctx.textBaseline = 'bottom';
-      HUD.prey.forEach(([cls, conf, x0, y0, x1, y1]) => {
-        const X0 = x0 * w, Y0 = y0 * h, X1 = x1 * w, Y1 = y1 * h, L = Math.max(4, Math.min(18, (X1 - X0) / 3, (Y1 - Y0) / 3));
-        ctx.strokeStyle = '#ff5fa2'; ctx.beginPath();
-        [[X0, Y0, 1, 1], [X1, Y0, -1, 1], [X0, Y1, 1, -1], [X1, Y1, -1, -1]].forEach(([x, y, sx, sy]) => { ctx.moveTo(x + sx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * L); });
-        ctx.stroke();
-        ctx.fillStyle = '#ff5fa2'; ctx.fillText(`${PREY_NAMES[cls] || cls} ${(conf * 100).toFixed(0)}%`, X0 + 2, Math.max(14, Y0 - 3));
-      });
-    }
-    ctx.restore();
-    {
-    const w = bw, h = bh;
-    const d = D || {}, b = d.body_now || d.body || {};
-    const threat = Math.max(0, Math.min(1, b.threat || 0));
-    if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, w - 8, h - 8); }
-    // tag, top left
-    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
-    const tag = `LIVE  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}`;
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(8, 8, ctx.measureText(tag).width + 26, 20);
-    ctx.fillStyle = Math.floor(now / 600) % 2 ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
-    // vitals strip, bottom: body bars and a pulse that beats once per gaze
-    const sh = 40, sy = h - sh;
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.62)'; ctx.fillRect(0, sy, w, sh);
-    const bars = [['energy', b.energy, '#4fa'], ['hunger', b.hunger, '#f6a'], ['threat', b.threat, '#f44']];
-    const bw2 = Math.min(90, (w * 0.5 - 20) / 3);
-    bars.forEach(([name, v, col], i) => {
-      const x = 10 + i * (bw2 + 8), val = Math.max(0, Math.min(1, v || 0));
-      ctx.fillStyle = '#6f8798'; ctx.fillText(name, x, sy + 12);
-      ctx.fillStyle = '#1c2a36'; ctx.fillRect(x, sy + 22, bw2, 8);
-      ctx.fillStyle = col; ctx.fillRect(x, sy + 22, bw2 * val, 8);
-    });
-    const gps = d.pace ? (d.frames_per_second || 15) / d.pace : 0;
-    const px0 = 10 + 3 * (bw2 + 8) + 6, px1 = w - 10, base = sy + 27;
-    if (px1 - px0 > 40) {
-      ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 1.5; ctx.beginPath();
-      for (let x = px0; x <= px1; x += 1) {
-        const t = now / 1000 - (px1 - x) / 200, ph = gps > 0 ? (((t * gps) % 1) + 1) % 1 : 0.5;
-        const y = base - (ph < 0.1 ? Math.sin(ph / 0.1 * Math.PI) * 13 : 0) + (ph >= 0.1 && ph < 0.16 ? Math.sin((ph - 0.1) / 0.06 * Math.PI) * 4 : 0);
-        x === px0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-      ctx.fillStyle = '#6f8798'; ctx.textAlign = 'right'; ctx.fillText(`pulse ${gps ? gps.toFixed(1) : '--'} gazes/s`, px1, sy + 10); ctx.textAlign = 'left';
-    }
-    }
+      ? 'the reticle is its gaze on the newest frame it has (SCAN / TRACK = prey in its gaze / LOCK = prey held in its center: eating -- in a livecam, the moment to take a snapshot), with the ID of what it is on; pink corners: prey the detector sees live. The client view (just this, full screen) is at /live.'
+      : 'on a stream only the readout: this picture runs up to a minute apart from what it sees, so the lock is not drawn on it. The client view is at /live.';
+    if (HUD.on) drawLock(ctx, bw, bh, D || {}, HUD.prey, cam, HUD.aspect, now, HUD, { gen: true });
   }
   requestAnimationFrame(drawHud);
   $('cam').addEventListener('load', () => { $('cam-note').textContent = ''; });
@@ -871,7 +936,7 @@ PAGE = r"""<!doctype html>
 </script>
 </body>
 </html>
-"""
+""".replace("/*LOCK_HUD_JS*/", LOCK_HUD_JS)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -881,6 +946,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
             body = PAGE.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/live" or self.path.startswith("/live?"):
+            body = LIVE_PAGE.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

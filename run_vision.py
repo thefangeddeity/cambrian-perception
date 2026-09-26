@@ -860,6 +860,7 @@ class World:
                  colour: list | None = None):
         self.frames, self.vectors = frames, vectors
         self.colour = colour  # colour frames (memory only), for the gaze's colour receptors
+        self.t_newest = None  # arrival time of its newest frame (live feeds only)
         self.prey = prey if prey is not None else [[] for _ in frames]  # prey boxes per frame (fishbowl/prey.py)
         # Frozen with the snapshot: parent and candidate must be scored at
         # the SAME rate (audit: reading the live rate per evaluation could
@@ -1000,6 +1001,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         vectors = _world_vectors(frames)
         seen_total = len(frames)
     world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0, prey_boxes, colour_frames)
+    world.t_newest = feed.newest_time if feed is not None else None
 
     def _fps() -> float:
         return world.fps
@@ -1142,6 +1144,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
             frames, vectors, total, prey_boxes, colour_frames = feed.snapshot()
             world = World(frames, vectors, feed.frames_per_second(), prey_boxes, colour_frames)
+            world.t_newest = feed.newest_time
             if total != seen_total:
                 last_new_frame = time.time()
             elif time.time() - last_new_frame > 60:
@@ -1275,6 +1278,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "fovea_cx": round(live_info["fovea_cx"], 4),
             "fovea_cy": round(live_info["fovea_cy"], 4),
             "fovea_fraction": live_info["fovea_fraction"],
+            # Its gaze above is on the newest frame of its current snapshot;
+            # this is how long ago that frame arrived (the viewer's lock HUD).
+            "world_age_s": round(time.time() - world.t_newest, 1) if world.t_newest else None,
             "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
             "quota_pct": quota_pct,
             # Gemini's homeostasis: the candidate's body at the end of this
