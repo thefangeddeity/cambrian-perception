@@ -35,6 +35,10 @@ class PreyDetector:
     only has its small surprise snack to live on."""
 
     def __init__(self, model_path: Path | str = DEFAULT_MODEL):
+        # 2 threads: measured on Tanzania, 129 ms per detection vs ~200 ms
+        # for OpenCV's default fan-out, which also spread ~160% CPU across
+        # worker threads competing with evolution itself.
+        cv2.setNumThreads(2)
         self.model_path = Path(model_path)
         self.net = cv2.dnn.readNetFromONNX(str(self.model_path)) if self.model_path.exists() else None
 
