@@ -25,9 +25,13 @@ import random
 
 import numpy as np
 
-from . import blocks
+from . import blocks, fovea
 
-TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree")
+# mutate_fovea resizes the look (genome.fovea_fraction) instead of
+# touching a tree -- same fitness gate, same operator-weight learning,
+# so how often resizing gets TRIED is itself learned from evidence.
+TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea")
+FOVEA_MUTATION_SIGMA = 0.03
 
 DEFAULT_CHANNELS = ("response", "pan", "tilt")
 
@@ -88,11 +92,13 @@ class Genome:
         meta_mutation_rate: float,
         n_vars: int = 3,
         op_success: dict[str, float] | None = None,
+        fovea_fraction: float = fovea.FOVEA_FRACTION,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
         self.meta_mutation_rate = meta_mutation_rate
         self.n_vars = n_vars
+        self.fovea_fraction = float(fovea_fraction)
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
         # mutation_weights toward. Defaults to a neutral 0.5 prior for
@@ -111,6 +117,7 @@ class Genome:
             self.meta_mutation_rate,
             self.n_vars,
             dict(self.op_success),
+            self.fovea_fraction,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
@@ -259,6 +266,12 @@ class Genome:
         probs = probs / probs.sum()
         choice = rng.choices(names, weights=probs, k=1)[0]
 
+        if choice == "mutate_fovea":
+            old = self.fovea_fraction
+            self.fovea_fraction = float(np.clip(
+                old + rng.gauss(0.0, FOVEA_MUTATION_SIGMA), fovea.MIN_FRACTION, fovea.MAX_FRACTION,
+            ))
+            return "fovea", (choice if self.fovea_fraction != old else "noop_inapplicable")
         if choice == "grow":
             applied, hit_ceiling = self._grow(rng, channel, max_nodes, max_depth)
         else:
@@ -347,17 +360,27 @@ class Genome:
             "meta_mutation_rate": self.meta_mutation_rate,
             "n_vars": self.n_vars,
             "op_success": self.op_success,
+            "fovea_fraction": self.fovea_fraction,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "Genome":
+        # Old checkpoints predate newer operators (e.g. mutate_fovea):
+        # give any missing one a fair uniform share and the neutral 0.5
+        # success prior, then renormalize -- evolved trees and learned
+        # weights for existing operators are kept as-is.
+        weights = dict(data["mutation_weights"])
+        op_success = dict(data.get("op_success") or {})
+        for name in TASK_OPS:
+            weights.setdefault(name, 1.0 / len(TASK_OPS))
+            op_success.setdefault(name, 0.5)
+        total = sum(weights.values())
+        weights = {k: v / total for k, v in weights.items()}
         return Genome(
             trees={name: blocks.Node.from_dict(t) for name, t in data["trees"].items()},
-            mutation_weights=dict(data["mutation_weights"]),
+            mutation_weights=weights,
             meta_mutation_rate=float(data["meta_mutation_rate"]),
             n_vars=int(data.get("n_vars", 3)),
-            # Old checkpoints (pre-dating this field) fall back to the
-            # same neutral 0.5-for-everyone prior random_genome() uses
-            # for a fresh genome.
-            op_success=data.get("op_success") or {name: 0.5 for name in TASK_OPS},
+            op_success=op_success,
+            fovea_fraction=float(data.get("fovea_fraction", fovea.FOVEA_FRACTION)),
         )

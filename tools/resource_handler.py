@@ -57,7 +57,7 @@ import time
 from pathlib import Path
 
 STATE_DIR = Path(__file__).resolve().parent.parent / "state"
-EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.json"
+EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
 REQUESTS_PATH = STATE_DIR / "requests.json"
 HANDLER_STATE_PATH = STATE_DIR / "handler_state.json"
 
@@ -134,21 +134,45 @@ def _set_quota_pct(pct: int) -> None:
     )
 
 
+def _tail_jsonl(path: Path, max_lines: int, max_bytes: int = 2_000_000) -> list[dict]:
+    if not path.exists():
+        return []
+    with path.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        f.seek(max(0, size - max_bytes))
+        lines = f.read().decode("utf-8", errors="replace").splitlines()[-max_lines:]
+    out = []
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue  # partial first line from the byte-offset seek
+    return out
+
+
 def _recent_fitness_improved(window: int = 200) -> bool:
-    log = _read_json(EVOLUTION_LOG_PATH, [])
-    if len(log) < 2:
-        return False
-    recent = log[-window:]
-    fitnesses = [e["best_fitness"] for e in recent if e.get("best_fitness") is not None]
-    if len(fitnesses) < 2:
-        return False
-    return fitnesses[-1] > fitnesses[0] + 1e-6
+    # Real bug fixed 2026-09-25: this read evolution_log.json, which
+    # stopped existing when sandbox.py moved to evolution_log.jsonl --
+    # so it returned False every run and the quota could never grow.
+    # best_fitness is also no longer a ratchet (re-scored per clip), so
+    # "last > first" was noise anyway. "New food" = a real accepted
+    # candidate that actually beat its parent.
+    for e in _tail_jsonl(EVOLUTION_LOG_PATH, window):
+        f, p = e.get("fitness"), e.get("parent_fitness")
+        if e.get("accepted") and f is not None and p is not None and f > p + 1e-6:
+            return True
+    return False
 
 
 def _recent_request_count(since_seconds: float = 1800.0) -> int:
     requests = _read_json(REQUESTS_PATH, [])
     if not requests:
         return 0
+    stamped = [r for r in requests if "unix" in r]
+    if stamped:
+        cutoff = time.time() - since_seconds
+        return sum(1 for r in stamped if r["unix"] >= cutoff)
     # requests.json entries carry their own elapsed_seconds from THAT
     # run's own start, not a wall-clock timestamp -- real, honest
     # limitation: this counts requests in the tail of the log instead

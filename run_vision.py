@@ -134,7 +134,7 @@ MOVEMENT_COST_WEIGHT = 0.5
 CORNER_PENALTY_WEIGHT = 1.0  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
 
 
-def _corner_penalty(positions: list[tuple[float, float]]) -> float:
+def _corner_penalty(positions: list[tuple[float, float]], frac: float) -> float:
     """
     "Cornerness" = product of how off-center each axis is (normalized
     to [-1, 1] over the reachable range) -- zero along either center
@@ -143,7 +143,7 @@ def _corner_penalty(positions: list[tuple[float, float]]) -> float:
     """
     if not positions:
         return 0.0
-    half_range = 0.5 - fovea.FOVEA_FRACTION / 2.0
+    half_range = 0.5 - frac / 2.0
     if half_range <= 1e-9:
         return 0.0
     scores = [abs((cx - 0.5) / half_range * (cy - 0.5) / half_range) for cx, cy in positions]
@@ -158,15 +158,30 @@ def _corner_penalty(positions: list[tuple[float, float]]) -> float:
 EDGE_PENALTY_WEIGHT = 0.5  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
 
 
-def _edge_penalty(positions: list[tuple[float, float]]) -> float:
+def _edge_penalty(positions: list[tuple[float, float]], frac: float) -> float:
     """Max (not product) of how off-center each axis is -- unlike cornerness, this alone is already high for EITHER a corner or a single edge; corner_penalty's own weight is what makes a true corner cost more overall."""
     if not positions:
         return 0.0
-    half_range = 0.5 - fovea.FOVEA_FRACTION / 2.0
+    half_range = 0.5 - frac / 2.0
     if half_range <= 1e-9:
         return 0.0
     scores = [max(abs((cx - 0.5) / half_range), abs((cy - 0.5) / half_range)) for cx, cy in positions]
     return float(np.mean(scores))
+
+
+# Price of the look's size, User: "grow its visual field as curiosity
+# wants and resources allow, but shrink as resource hunger limits it."
+# Area (frac^2) because that's what a bigger crop really costs to
+# process; multiplied by scarcity = REFERENCE_QUOTA_PCT / the real
+# current CPU quota resource_handler.py has granted. A genome only
+# keeps a bigger look if seeing more earns back its price -- never
+# forced either way.
+FIELD_COST_WEIGHT = 1.0
+REFERENCE_QUOTA_PCT = 150.0
+
+
+def _field_cost(frac: float, quota_pct: float) -> float:
+    return (frac * frac) * (REFERENCE_QUOTA_PCT / max(1.0, quota_pct))
 
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
@@ -418,6 +433,7 @@ def evaluate_genome(
     world_signals: dict[str, np.ndarray],
     world_conspec: tuple[np.ndarray, np.ndarray, np.ndarray],
     habituation_discount: float,
+    quota_pct: float = REFERENCE_QUOTA_PCT,
 ) -> tuple[float, dict, dict]:
     """
     Returns (fitness, breakdown, live_info). world_signals/world_conspec
@@ -429,7 +445,7 @@ def evaluate_genome(
     is now observed once per run, from the real world signal, not from
     any genome's path -- see run()).
     """
-    state = fovea.FoveaState()
+    state = fovea.FoveaState(fraction=g.fovea_fraction)
     responses = []
     positions = []
     dxs, dys = [], []  # real fovea movement per frame, for the pursuit reward
@@ -492,7 +508,7 @@ def evaluate_genome(
 
     live_info = {
         "fovea_cx": state.cx, "fovea_cy": state.cy,
-        "fovea_fraction": fovea.FOVEA_FRACTION,
+        "fovea_fraction": g.fovea_fraction,
         "last_response": responses[-1] if responses else 0.0,
         # The actual 144-value grid the organism just processed, for
         # the viewer -- this is genuinely "what it's seeing", already
@@ -547,13 +563,17 @@ def evaluate_genome(
     fitness -= MOVEMENT_COST_WEIGHT * movement_cost
     breakdown["movement_cost"] = movement_cost
 
-    corner = _corner_penalty(positions)
+    corner = _corner_penalty(positions, g.fovea_fraction)
     fitness -= CORNER_PENALTY_WEIGHT * corner
     breakdown["corner_penalty"] = corner
 
-    edge = _edge_penalty(positions)
+    edge = _edge_penalty(positions, g.fovea_fraction)
     fitness -= EDGE_PENALTY_WEIGHT * edge
     breakdown["edge_penalty"] = edge
+
+    field_cost = _field_cost(g.fovea_fraction, quota_pct)
+    fitness -= FIELD_COST_WEIGHT * field_cost
+    breakdown["field_cost"] = field_cost
 
     return fitness, breakdown, live_info
 
@@ -679,7 +699,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
     # so the "how good has this lineage ever been" number isn't lost
     # now that best_fitness itself is an honest, re-scored-every-
     # generation live value rather than a one-way ratchet.
-    best_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount)
+    # Real current CPU quota (resource_handler.py's own record), prices
+    # the look's size -- refreshed periodically below, never inferred.
+    quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
+    best_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount, quota_pct)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -698,6 +721,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
 
     while box.should_continue():
         box.generation += 1
+        if box.generation % 50 == 0:
+            quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
         candidate = genome.clone()
 
         # Every generation now really tries a tree mutation -- the
@@ -727,9 +752,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
         # generations is habituation.discount; re-scoring both parent
         # and candidate under the SAME current discount on the SAME
         # frames keeps every single accept/reject decision honest.
-        parent_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount)
+        parent_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount, quota_pct)
         candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, frames, world_signals, world_conspec, habituation.discount,
+            candidate, frames, world_signals, world_conspec, habituation.discount, quota_pct,
         )
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
@@ -743,6 +768,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             accepted = rng.random() < NEUTRAL_ACCEPT_PROB
 
         if accepted:
+            # Evolution just chose to pay for a bigger look -- a real,
+            # organism-derived demand for resources, surfaced as a request
+            # resource_handler.py can weigh (with real fitness gain) to
+            # grant more quota. Never granted by the organism itself.
+            if applied == "mutate_fovea" and candidate.fovea_fraction > genome.fovea_fraction:
+                box.log_request(
+                    f"look grew {genome.fovea_fraction:.3f} -> {candidate.fovea_fraction:.3f} "
+                    f"at quota {quota_pct:.0f}%"
+                )
             genome = candidate
             best_fitness = candidate_fitness
             margin = max(0.005, margin * 0.995)
@@ -799,6 +833,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "channel": channel,
             "mutation_type": applied,
             "fitness_delta": (candidate_fitness - parent_fitness) if both_finite else None,
+            "fovea_fraction": genome.fovea_fraction,
+            "quota_pct": quota_pct,
             "tree_stats": {
                 name: {"nodes": tree.node_count(), "depth": tree.depth()}
                 for name, tree in genome.trees.items()
@@ -820,6 +856,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "fovea_cx": round(live_info["fovea_cx"], 4),
             "fovea_cy": round(live_info["fovea_cy"], 4),
             "fovea_fraction": live_info["fovea_fraction"],
+            "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
+            "quota_pct": quota_pct,
             # Real source frame shape -- User: "make foveal rectangle
             # honest." Lets the viewer draw the box at the REAL aspect
             # ratio instead of a hardcoded one.

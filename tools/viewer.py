@@ -379,6 +379,7 @@ PAGE = """<!doctype html>
           <div><span class="label">peak ever:</span> ${d.peak_fitness_seen !== undefined ? d.peak_fitness_seen : '--'}</div>
           <div><span class="label">response:</span> ${d.response}</div>
           <div><span class="label">habituation:</span> ${d.habituation_exposure}</div>
+          <div><span class="label">look size:</span> ${d.fovea_fraction_accepted !== undefined ? d.fovea_fraction_accepted : d.fovea_fraction} of frame (CPU quota ${d.quota_pct !== undefined ? d.quota_pct + '%' : '--'})</div>
           <div><span class="label">watching:</span> ${watchingName}${watchingLive}</div>
         `;
 
@@ -543,8 +544,8 @@ PAGE = """<!doctype html>
       }
     }
 
-    const MUTATION_TYPES = ['mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-    const MUTATION_COLORS = { mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+    const MUTATION_TYPES = ['mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree', 'mutate_fovea'];
+    const MUTATION_COLORS = { mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66', mutate_fovea: '#c8f' };
 
     function drawMutationChart(records) {
       const c = document.getElementById('chart-mutation');

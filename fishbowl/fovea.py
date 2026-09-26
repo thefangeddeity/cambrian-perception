@@ -22,9 +22,14 @@ import numpy as np
 
 from .retina import GRID, frame_to_vector
 
-FOVEA_FRACTION = 0.35  # fovea window is this fraction of the full
-# frame's width/height -- big enough to hold real content, small
-# enough that covering the whole scene actually requires moving.
+FOVEA_FRACTION = 0.35  # DEFAULT look size (fraction of the full
+# frame's width/height) for a newborn genome. The live value is a
+# heritable trait, genome.fovea_fraction, evolved within the bounds
+# below and priced by real compute scarcity (see run_vision.py's
+# field cost) -- User: "grow its visual field as curiosity wants and
+# resources allow, but shrink as resource hunger limits it."
+MIN_FRACTION = 0.10  # 2*int(179*0.10/2)=16 rows, still >= retina's 12
+MAX_FRACTION = 0.90  # below 1.0 so the look can still move at all
 
 # Real correction, User: "Curiosity and large saccades should evolve,
 # not be forced." MAX_STEP used to be 0.12 -- small enough that NO
@@ -50,13 +55,14 @@ MAX_STEP = 1.0
 class FoveaState:
     cx: float = 0.5  # center, normalized [0, 1] within the full frame
     cy: float = 0.5
+    fraction: float = FOVEA_FRACTION  # fixed for a genome's lifetime, set from genome.fovea_fraction
 
 
 def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
     """Crops the current fovea window out of the real full frame and returns its retina.py-style flat grid vector."""
     h, w = full_frame_gray.shape
-    half_w = int(w * FOVEA_FRACTION / 2)
-    half_h = int(h * FOVEA_FRACTION / 2)
+    half_w = int(w * state.fraction / 2)
+    half_h = int(h * state.fraction / 2)
     px = int(state.cx * w)
     py = int(state.cy * h)
 
@@ -88,7 +94,7 @@ def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[Fove
     """
     dx = float(np.tanh(pan_output)) * MAX_STEP
     dy = float(np.tanh(tilt_output)) * MAX_STEP
-    half = FOVEA_FRACTION / 2.0
+    half = state.fraction / 2.0
     new_cx = float(np.clip(state.cx + dx, half, 1.0 - half))
     new_cy = float(np.clip(state.cy + dy, half, 1.0 - half))
-    return FoveaState(cx=new_cx, cy=new_cy), dx, dy
+    return FoveaState(cx=new_cx, cy=new_cy, fraction=state.fraction), dx, dy

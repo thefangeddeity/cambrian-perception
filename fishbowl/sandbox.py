@@ -25,6 +25,17 @@ REQUESTS_PATH = STATE_DIR / "requests.json"
 CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
 LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
 SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
+HANDLER_STATE_PATH = STATE_DIR / "handler_state.json"
+
+
+def load_quota_pct(default: float) -> float:
+    """The CPU quota resource_handler.py last actually set (its own
+    written record) -- read-only, used to price the look's size."""
+    data = _read_json(HANDLER_STATE_PATH, None) if HANDLER_STATE_PATH.exists() else None
+    try:
+        return float(data["last_quota_pct"])
+    except (TypeError, KeyError, ValueError):
+        return float(default)
 
 
 def save_live_status(data: dict) -> None:
@@ -152,6 +163,7 @@ class Sandbox:
         entries.append({
             "generation": self.generation,
             "elapsed_seconds": round(time.perf_counter() - self.start_time, 1),
+            "unix": time.time(),
             "text": text,
         })
         _write_json_atomic(REQUESTS_PATH, entries)
