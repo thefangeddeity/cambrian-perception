@@ -240,16 +240,23 @@ LOCK_HUD_JS = r"""
       delay,
     };
   }
-  // Keeps an <img> on the wanted frame of the replay: one request at a time,
-  // frames are immutable per (run, index), so the browser caches them.
+  // Keeps an <img> on the wanted frame of the replay. Each frame is loaded
+  // off-screen first and only shown once it has loaded, so a missing frame
+  // never replaces the picture (it just keeps the last good one). One request
+  // at a time; frames are immutable per (run, index), so the browser caches them.
   function frameLoader(img) {
     const L = { shown: null, want: null, busy: false, aspect: null, failed: false };
-    img.addEventListener('load', () => { L.busy = false; L.failed = false; L.shown = L.want; img.style.visibility = 'visible'; if (img.naturalWidth) L.aspect = img.naturalWidth / img.naturalHeight; });
-    img.addEventListener('error', () => { L.busy = false; L.failed = true; });
+    const pre = new Image();
+    pre.addEventListener('load', () => {
+      L.busy = false; L.failed = false; L.shown = L.want;
+      img.src = pre.src; img.style.visibility = 'visible';
+      if (pre.naturalWidth) L.aspect = pre.naturalWidth / pre.naturalHeight;
+    });
+    pre.addEventListener('error', () => { L.busy = false; L.failed = true; });
     L.show = (g, epoch) => {
       const key = g == null ? null : epoch + ':' + g;
       if (key == null || key === L.shown || L.busy) return;
-      L.busy = true; L.want = key; img.src = '/frame?i=' + g + '&e=' + epoch;
+      L.busy = true; L.want = key; pre.src = '/frame?i=' + g + '&e=' + epoch;
     };
     return L;
   }
