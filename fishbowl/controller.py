@@ -86,18 +86,11 @@ class MosquitoBrain:
         Runs one tick of the mosquito brain.
         Returns: (pan_dx, tilt_dy, d_zoom, alarm_response, is_reflex)
         """
-        # -------------------------------------------------------------
-        # 1. Giant Fiber Reflex: Emergency Evasion
-        # -------------------------------------------------------------
-        # Real insects have giant descending fibers that fire on sudden loom,
-        # triggering an immediate ballistic jump/takeoff before the brain deliberates.
-        if loom > 0.18 or state.threat > 0.65:
-            # Evasive reaction: jump away from optic flow, rapidly expand aperture
-            escape_dx = -1.0 if flow_x > 0 else 1.0
-            escape_dy = -1.0 if flow_y > 0 else 1.0
-            escape_zoom = 1.0  # zoom out to maximize field of view
-            alarm = 1.0
-            return escape_dx, escape_dy, escape_zoom, alarm, True
+        # No hard-wired escape reflex (User: "No hard-wired flinch. A fast
+        # reaction to looming gets rewarded so it can evolve."). Gemini's
+        # giant-fiber override lived here; run_vision.py now rewards a
+        # fast reaction to real approach instead, and this network has to
+        # evolve the flinch itself from its loom/threat inputs.
 
         # -------------------------------------------------------------
         # 2. Central Complex: Recurrent Processing

@@ -216,15 +216,15 @@ PAGE = r"""<!doctype html>
       <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
       <span><b style="color:var(--orange)">&#9633;</b> on an edge</span>
       <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
-      <span><b style="color:var(--magenta)">&#9679;</b> where the whole field saw motion (size = how much)</span>
-      <span><b style="color:var(--red)">red frame</b> something dark approaching / reflex fired</span>
+      <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion this frame (size = how much) -- its brain gets this location, so it can learn to swing its look there</span>
+      <span><b style="color:var(--red)">red frame</b> something dark approaching (a flinch is rewarded if it reacts within ~200 ms)</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
 
   <div class="panel" id="look-panel">
     <h2>look</h2>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a much smaller patch (<span id="look-px">--</span>), magnified here. The only place it sees detail, and the only way it eats. This is its view at the end of its latest run.</div>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the look sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. View at the end of its latest run.</div>
     <canvas id="look" class="px"></canvas>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
@@ -253,12 +253,12 @@ PAGE = r"""<!doctype html>
 <div class="brainrow">
   <div class="panel">
     <h2>its brain</h2>
-    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the look: 18 inputs &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm. Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the look: 18 inputs &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm. Its memory units also feed the perception tree (right). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
     <canvas id="brain" height="520"></canvas>
   </div>
   <div class="panel">
     <h2>its perception tree</h2>
-    <div class="cap">The genome's evolved "response" tree: reads the look's 12x12 cells (x0-x143), the previous frame's (x144-x287) and its own last movement (x288-x289). Graded by the hand-written scores below.</div>
+    <div class="cap">The genome's evolved "response" tree: reads the look's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Graded by the hand-written scores below.</div>
     <div id="trees"></div>
   </div>
 </div>
@@ -267,12 +267,12 @@ PAGE = r"""<!doctype html>
 
 <div class="panel" style="margin-top:16px">
   <h2>what drives it</h2>
-  <div class="cap">Every pressure currently in the fitness, with its real weight in run_vision.py. <span class="tag body">body</span> = comes from staying alive (the direction this is going: Dennett's "whole iguana"). <span class="tag hand">hand-written</span> = an older score bolted on from outside, to be retired one at a time as the body takes over. <span class="tag innate">innate</span> = hard-wired, not scored.</div>
+  <div class="cap">Every pressure currently in the fitness, with its real weight in run_vision.py. <span class="tag body">body</span> = comes from staying alive (the direction this is going: Dennett's "whole iguana"). <span class="tag hand">hand-written</span> = an older score bolted on from outside, to be retired one at a time as the body takes over. Nothing is hard-wired: the old innate escape reflex was removed so the flinch can evolve.</div>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
     <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;. The biggest term. Energy is spent every frame on basal metabolism (0.003 + 0.003 &times; arousal), muscle force (0.010 &times; force&sup2;) and look size (0.01 &times; area &times; 150 / CPU quota, so a wide look costs more when CPU is scarce), and only restored by eating (up to 0.012 per frame).</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
-    <tr><td><span class="tag innate">innate</span></td><td>&mdash;</td><td>giant-fiber reflex</td><td>When something dark expands fast anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013) or threat is high, the reflex overrides the brain for that frame: jump and widen the look.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its look or making a saccade within 3 frames (~200 ms), more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>alarm</td><td>Its brain's alarm output tracking real approaching objects.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+0.5 / +0.75 / +0.75</td><td>luminance_change / motion_energy / directional_motion</td><td>The response tree's output correlating with global brightness change, any change, and which way things move (Hassenstein-Reichardt).</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+2.0</td><td>loom (old detector)</td><td>Response tree correlating with reflexes.loom_score. Known flaw, measured: it scores sideways motion ~10x higher than a real approach. The body uses the corrected expansion detector; this score is first in line for retirement.</td></tr>
@@ -329,10 +329,10 @@ PAGE = r"""<!doctype html>
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
       if (act > 0.05) {
-        ctx.fillStyle = 'rgba(255, 68, 255, 0.75)';
+        ctx.fillStyle = 'rgba(140, 255, 90, 0.85)';
         ctx.beginPath(); ctx.arc(mx * W, my * H, 3 + act * 14, 0, 7); ctx.fill();
       }
-      if (reflex || loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
+      if (loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
     }
     ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
     const k0 = Math.max(0, i - 45);
@@ -342,19 +342,26 @@ PAGE = r"""<!doctype html>
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
     ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 3;
     ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
-    $('replay-clock').textContent = `replay: frame ${i + 1} / ${traj.length}  (t = ${(i / REPLAY_FPS).toFixed(1)} s of ${(traj.length / REPLAY_FPS).toFixed(0)} s)` + (ev && ev[4] ? '  -- REFLEX' : '');
+    $('replay-clock').textContent = `replay: frame ${i + 1} / ${traj.length}  (t = ${(i / REPLAY_FPS).toFixed(1)} s of ${(traj.length / REPLAY_FPS).toFixed(0)} s)` + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
   requestAnimationFrame(drawField);
 
   function drawLook(d) {
     if (!d.grid || !d.frame_w) return;
-    const f = d.fovea_fraction || 0.35, [cw, ch] = crop(d, f);
-    const c = $('look'), W = Math.max(160, Math.floor(innerWidth($('look-panel')))), H = Math.round(W * ch / cw);
+    const f = d.fovea_fraction || 0.35, fmax = d.max_fraction || 0.6;
+    const [cw, ch] = crop(d, f), [mw, mh] = crop(d, fmax);
+    const c = $('look'), W = Math.max(160, Math.floor(innerWidth($('look-panel')))), H = Math.round(W * mh / mw);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-    drawGrid(c.getContext('2d'), d.grid, d.grid_shape, 0, 0, W, H);
+    const ctx = c.getContext('2d'), s = W / mw;
+    ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#2a3c4c'; ctx.setLineDash([6, 5]); ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1); ctx.setLineDash([]);
+    const lw = cw * s, lh = ch * s, lx = (W - lw) / 2, ly = (H - lh) / 2;
+    drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
+    ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
+    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText(`largest possible look (${fmax} of frame)`, 6, 14);
     $('look-px').textContent = `${cw}x${ch} real pixels`;
     $('field-px').textContent = `${d.frame_w}x${d.frame_h} real pixels`;
-    $('look-scale').textContent = `shown ${(W / cw).toFixed(1)}x its real size; the visual field is shown ${(innerWidth($('field-panel')) / d.frame_w).toFixed(1)}x.`;
+    $('look-scale').textContent = `Its look is ${(f).toFixed(3)} of the frame -- ${(100 * f / fmax).toFixed(0)}% of the widest it can open (dashed frame). Shown ${s.toFixed(1)}x real size.`;
   }
 
   function gauge(name, v, color, note) {
@@ -381,7 +388,7 @@ PAGE = r"""<!doctype html>
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
       gauge('arousal', b.arousal, '#7fd4ff', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
-      `<div class="cap" style="margin-top:4px">reflex took over on <b style="color:var(--cyan)">${d.reflex_frames ?? '--'}</b> frames of its latest run</div>`;
+      (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / 15 * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
     spark('energy-trace', d.energy_series, '#4fa', 'energy');
     $('food-gauge').innerHTML = gauge('food', d.mean_food, '#c8f', 'average per frame over its latest run');
     spark('food-trace', d.food_series, '#c8f', 'food');

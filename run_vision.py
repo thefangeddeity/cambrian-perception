@@ -70,6 +70,7 @@ import numpy as np
 
 from fishbowl import conspec, fovea, genome as G, reflexes, sandbox, video_source
 from fishbowl.state import MosquitoState
+from fishbowl.controller import HIDDEN as BRAIN_HIDDEN
 from fishbowl.retina import GRID, N_CELLS, frame_to_vector
 
 # How much each reflex/drive contributes to total fitness -- loom
@@ -248,6 +249,35 @@ HOMEOSTASIS_WEIGHT = 3.0
 # Gemini's brain has an "alarm" output; it earns fitness by tracking
 # real world loom (never forced to).
 ALARM_WEIGHT = 1.0
+
+# The flinch, evolved rather than wired: at each onset of a real
+# approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
+# reacting within FLINCH_WINDOW frames (~200 ms at 15 frames/s) by
+# widening the look or making a saccade -- more for a faster reaction,
+# nothing for none. No approach in a run means no reward and no penalty.
+FLINCH_WEIGHT = 1.0
+FLINCH_THRESHOLD = 0.18
+FLINCH_WINDOW = 3
+
+
+def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float]) -> dict:
+    onsets = [t for t in range(1, len(looms)) if looms[t] > FLINCH_THRESHOLD >= looms[t - 1]]
+    latencies = []
+    for t in onsets:
+        lat = None
+        for k in range(FLINCH_WINDOW + 1):
+            i = t + k
+            if i >= len(speeds):
+                break
+            widened = i + 1 < len(fracs) and fracs[i + 1] - fracs[i] > 0.01
+            if widened or speeds[i] >= 0.05:
+                lat = k
+                break
+        latencies.append(lat)
+    reacted = [l for l in latencies if l is not None]
+    score = float(np.mean([1.0 - l / (FLINCH_WINDOW + 1) if l is not None else 0.0 for l in latencies])) if latencies else 0.0
+    return {"events": len(onsets), "reacted": len(reacted),
+            "mean_latency_frames": round(float(np.mean(reacted)), 2) if reacted else None, "score": round(score, 3)}
 
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
@@ -563,12 +593,15 @@ def evaluate_genome(
         periph_dx = float(world_signals["motion_cx"][t_idx]) - state.cx
         periph_dy = float(world_signals["motion_cy"][t_idx]) - state.cy
 
-        vb = np.concatenate([v, prev_v, [prev_dx, prev_dy]])[None, :]
-        response = float(g.evaluate("response", vb)[0])
         pan, tilt, zoom, alarm, is_reflex = brain.step(
             lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
             periph_dx, periph_dy, state.vx, state.vy,
         )
+        # The brain's recurrent memory (its 16 hidden units, updated just
+        # above) feeds the perception tree as extra inputs x290-x305, after
+        # the look (x0-143), previous look (x144-287) and own movement.
+        vb = np.concatenate([v, prev_v, [prev_dx, prev_dy], brain.hidden])[None, :]
+        response = float(g.evaluate("response", vb)[0])
         reflex_frames += int(is_reflex)
         field_events.append([
             round(float(world_signals["motion_cx"][t_idx]), 3), round(float(world_signals["motion_cy"][t_idx]), 3),
@@ -638,6 +671,7 @@ def evaluate_genome(
         "mean_food": round(float(np.mean(foods)), 4) if foods else 0.0,
         "movement": movement,
         "field_events": field_events,
+        "flinch": _flinch([e[3] for e in field_events], speeds, fracs),
         "brain_hidden": [round(h, 3) for h in brain.hidden],
         "reflex_frames": reflex_frames,
         "trajectory": [[round(x, 4), round(y, 4), round(f, 4)] for (x, y), f in zip(positions, fracs)],
@@ -705,6 +739,11 @@ def evaluate_genome(
     breakdown["reflex_frames"] = reflex_frames
     breakdown["movement"] = live_info["movement"]
 
+    flinch = live_info["flinch"]
+    fitness += FLINCH_WEIGHT * flinch["score"]
+    breakdown["flinch"] = flinch["score"]
+    breakdown["loom_events"] = flinch["events"]
+
     alarm_corr = _correlate(signals["expansion"], np.array(alarms))
     fitness += ALARM_WEIGHT * alarm_corr
     breakdown["alarm_loom"] = alarm_corr
@@ -723,7 +762,7 @@ NEUTRAL_EPSILON = 0.001
 NEUTRAL_ACCEPT_PROB = 0.1
 
 
-def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> None:
+def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRAIN_HIDDEN) -> None:
     clips = _list_clips(source)
 
     checkpoint = sandbox.load_checkpoint()
@@ -806,9 +845,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
     habituation = conspec.Habituation()
     margin = 0.05
 
-    if checkpoint is not None and checkpoint.get("n_vars") == n_vars:
+    # Inputs are only ever APPENDED (e.g. the brain's hidden units), so a
+    # checkpoint with fewer inputs is prefix-compatible: every existing
+    # tree index keeps its meaning.
+    if checkpoint is not None and 0 < int(checkpoint.get("n_vars", 0)) <= n_vars:
         print(f"Resuming from checkpoint (previous best_fitness={checkpoint['best_fitness']:.4f}).")
         genome = G.Genome.from_dict(checkpoint["genome"])
+        genome.n_vars = n_vars
         margin = float(checkpoint.get("margin", margin))
         habituation.exposure = float(checkpoint.get("habituation_exposure", 0.0))
     else:
@@ -1007,6 +1050,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "mean_food": live_info.get("mean_food"),
             "movement": live_info.get("movement"),
             "field_events": live_info.get("field_events"),
+            "flinch": live_info.get("flinch"),
+            "max_fraction": fovea.MAX_FRACTION,
             # The accepted genome's whole recurrent brain (Gemini's
             # MosquitoBrain) for the viewer's brain diagram, plus the
             # candidate's hidden state at the end of its run.
