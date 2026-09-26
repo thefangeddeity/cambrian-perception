@@ -11,7 +11,6 @@ README's fishbowl boundary.
 """
 
 import collections
-import json
 import os
 import threading
 import time
@@ -85,6 +84,11 @@ def read_frames(source: str, stride: int = 1, max_frames: int | None = None, max
         cap.release()
 
 
+# Frames kept for the viewer's replay: twice the default window, so the
+# frames of the run it is showing are still there when it shows them.
+FRAME_RING = 1200
+
+
 class LiveFeed:
     """
     A live camera kept continuously in memory: a background thread reads
@@ -97,7 +101,7 @@ class LiveFeed:
     """
 
     def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM,
-                 detector=None, detect_every: int = 3, preview_path=None):
+                 detector=None, detect_every: int = 3, frames_dir=None):
         from .retina import frame_to_vector
         self._to_vector = frame_to_vector
         # Prey (see prey.py): detected on the full-resolution colour frame
@@ -106,11 +110,13 @@ class LiveFeed:
         self.detector, self.detect_every = detector, detect_every
         self._last_prey: list = []
         self.source, self.stride, self.max_dim = source, stride, max_dim
-        # Camera preview for the viewer: one small JPEG of the newest frame,
-        # replaced about once a second. Only ever pointed at the RAM runtime
-        # dir (run_vision.py), never at disk; None = off.
-        self.preview_path, self._preview_t = preview_path, 0.0
+        # Each kept frame as a small JPEG, for the viewer's replay of its
+        # latest run: the last FRAME_RING of them, f<index>.jpg. Only ever
+        # pointed at the RAM runtime dir (run_vision.py), never at disk;
+        # None = off.
+        self.frames_dir = frames_dir
         self.newest_time = None  # set by snapshot()
+        self.snapshot_first = 0  # index of the first frame in the last snapshot
         self._buf: collections.deque = collections.deque(maxlen=window)
         self._lock = threading.Lock()
         self.total = 0  # frames ever kept -- lets callers find what's new since their last look
@@ -140,9 +146,8 @@ class LiveFeed:
                         continue
                     if self.detector is not None and (self.total % self.detect_every == 0):
                         self._last_prey = self.detector.detect(frame)
-                    if self.preview_path is not None and time.time() - self._preview_t >= 1.0:
-                        self._preview_t = time.time()
-                        self._write_preview(frame)
+                    if self.frames_dir is not None:
+                        self._write_frame(frame, self.total)
                     h, w = frame.shape[:2]
                     if max(h, w) > self.max_dim:
                         scale = self.max_dim / max(h, w)
@@ -159,23 +164,19 @@ class LiveFeed:
                 cap.release()
             time.sleep(1.0)
 
-    def _write_preview(self, frame: np.ndarray, max_dim: int = 640) -> None:
-        """Best effort: a viewer that can't show the camera for a moment is fine."""
+    def _write_frame(self, frame: np.ndarray, index: int, max_dim: int = 640) -> None:
+        """Best effort: a replay missing a frame is fine."""
         try:
             h, w = frame.shape[:2]
             if max(h, w) > max_dim:
                 s = max_dim / max(h, w)
                 frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
-            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if ok:
-                tmp = self.preview_path.with_suffix(".tmp")
+                tmp = self.frames_dir / "tmp.jpg"
                 tmp.write_bytes(jpg.tobytes())
-                os.replace(tmp, self.preview_path)
-                # The detector's latest boxes for this picture (normalized
-                # coordinates only), for the viewer's HUD.
-                meta = self.preview_path.with_suffix(".json")
-                tmp.write_text(json.dumps({"t": round(time.time(), 2), "prey": self._last_prey}))
-                os.replace(tmp, meta)
+                os.replace(tmp, self.frames_dir / f"f{index}.jpg")
+            (self.frames_dir / f"f{index - FRAME_RING}.jpg").unlink(missing_ok=True)
         except (OSError, cv2.error):
             pass
 
@@ -196,6 +197,7 @@ class LiveFeed:
             # when the newest frame of this snapshot arrived (for "how far
             # behind live is its gaze")
             self.newest_time = self._times[-1] if self._times else None
+            self.snapshot_first = total - len(items)
         return ([it[0] for it in items], np.array([it[1] for it in items]), total,
                 [it[2] for it in items], [it[3] for it in items])
 

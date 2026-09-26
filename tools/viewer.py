@@ -48,8 +48,9 @@ STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 # Same place run_vision writes it: RAM (/dev/shm) where available.
 _RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception"))
 LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR) / "live_status.json"
-# Camera preview run_vision.py keeps next to it, in RAM (see video_source.LiveFeed).
-CAMERA_PREVIEW_PATH = LIVE_STATUS_PATH.with_name("camera.jpg")
+# Its recent frames, small JPEGs run_vision.py keeps next to it in RAM (a
+# short ring, see video_source.LiveFeed), for replaying its latest run.
+FRAMES_DIR = LIVE_STATUS_PATH.with_name("frames")
 EVOLUTION_LOG_PREV_PATH = STATE_DIR / "evolution_log.1.jsonl"
 # Paths defined independently here, not imported from fishbowl.sandbox
 # -- same deliberate independence as everything else in this module
@@ -188,60 +189,90 @@ def _history_summary(records: list[dict]) -> dict:
 # it is on. Self-contained on purpose -- it is the piece a livecam server's
 # CV module takes over (where LOCK, "eating", becomes "take a snapshot").
 LOCK_HUD_JS = r"""
-  // ---- Target lock: its gaze on the live picture ----
-  // The reticle is its gaze -- the box it sees detail through, with the
-  // diamond marking its center, where it eats -- on the newest frame it has.
+  // ---- Its latest run, replayed: one clock for the visual field, the real
+  // picture and the target lock ----
   // Its gaze runs over a snapshot of the newest frames (refreshed every few
-  // generations), so it trails the live picture by the "behind" readout.
+  // generations). The viewer replays its latest run at real speed, looped:
+  // the picture is the real frame it saw at that moment (run_vision keeps a
+  // short ring of them in RAM), the lock is where its gaze was on it -- so
+  // picture, gaze and prey marks always describe the same instant.
+  function replayAt(d, now, t0, defaultFps) {
+    const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx ?? 0.5, d.fovea_cy ?? 0.5, d.fovea_fraction || 0.35, 0]];
+    const fps = d.frames_per_second || defaultFps || 15;
+    const lastIdx = traj[traj.length - 1][3] ?? (traj.length - 1);
+    const cur = Math.floor(Math.max(0, now - t0) / 1000 * fps) % (lastIdx + 1);
+    let i = 0; while (i + 1 < traj.length && (traj[i + 1][3] ?? (i + 1)) <= cur) i++;
+    const at = a => a && a.length ? a[Math.min(cur, a.length - 1)] : null;
+    return {
+      traj, fps, lastIdx, cur, i, cx: traj[i][0], cy: traj[i][1], f: traj[i][2] || 0.35,
+      eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
+      frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
+      ageS: d.world_age_s != null ? d.world_age_s + (lastIdx - cur) / fps : null,
+    };
+  }
+  // Keeps an <img> on the wanted frame of the replay: one request at a time,
+  // frames are immutable per (run, index), so the browser caches them.
+  function frameLoader(img) {
+    const L = { shown: null, want: null, busy: false, aspect: null, failed: false };
+    img.addEventListener('load', () => { L.busy = false; L.failed = false; L.shown = L.want; if (img.naturalWidth) L.aspect = img.naturalWidth / img.naturalHeight; });
+    img.addEventListener('error', () => { L.busy = false; L.failed = true; });
+    L.show = (g, epoch) => {
+      const key = g == null ? null : epoch + ':' + g;
+      if (key == null || key === L.shown || L.busy) return;
+      L.busy = true; L.want = key; img.src = '/frame?i=' + g + '&e=' + epoch;
+    };
+    return L;
+  }
+
+  // ---- Target lock: its gaze on the picture ----
+  // The reticle is its gaze -- the box it sees detail through, with the
+  // diamond marking its center, where it eats.
   //   SCAN  nothing it hunts is in its gaze
   //   TRACK prey (person/animal) somewhere in its gaze
   //   LOCK  prey held in its gaze center: it is eating -- in a livecam, the
   //         moment to take a snapshot
-  // ID = the prey nearest its gaze center, per the detector. Pink corner
-  // marks = prey the detector sees in the live picture right now. On a
-  // stream only the readout: that picture runs up to a minute apart from
-  // what it sees, so nothing is drawn on it.
+  // ID = the prey nearest its gaze center, per the detector; pink corner
+  // marks = all prey the detector found in that frame.
   const LOCK_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
   function lockCorners(ctx, X0, Y0, X1, Y1, L) {
     ctx.beginPath();
     [[X0, Y0, 1, 1], [X1, Y0, -1, 1], [X0, Y1, 1, -1], [X1, Y1, -1, -1]].forEach(([x, y, sx, sy]) => { ctx.moveTo(x + sx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * L); });
     ctx.stroke();
   }
-  function lockState(d) {
-    const n = d.eating ? d.eating.length : 0, eat = n ? d.eating[n - 1] : 0;
-    const boxes = (d.prey_boxes && d.prey_boxes.length ? d.prey_boxes[d.prey_boxes.length - 1] : []) || [];
-    const cx = d.fovea_cx, cy = d.fovea_cy, f = d.fovea_fraction || 0.35;
+  function lockState(fs) {
+    const cx = fs.cx, cy = fs.cy, f = fs.f;
     const overlap = (b, half) => Math.max(0, Math.min(b[4], cx + half) - Math.max(b[2], cx - half)) * Math.max(0, Math.min(b[5], cy + half) - Math.max(b[3], cy - half));
     let id = null, best = 0, inGaze = false;
-    boxes.forEach(b => {
+    (fs.boxes || []).forEach(b => {
       const whole = overlap(b, f / 2), score = 4 * overlap(b, f / 4) + whole;
       if (whole > 0) inGaze = true;
       if (score > best) { best = score; id = b; }
     });
-    return { mode: eat > 0.01 ? 'LOCK' : inGaze ? 'TRACK' : 'SCAN', id };
+    return { mode: fs.eat > 0.01 ? 'LOCK' : inGaze ? 'TRACK' : 'SCAN', id };
   }
   function lockIdText(id) { return id ? ` ${(LOCK_NAMES[id[0]] || ('class ' + id[0])).toUpperCase()} ${(id[1] * 100).toFixed(0)}%` : ''; }
-  // Draws the HUD on a bw x bh box. d = live status, prey = the detector's
-  // live boxes, cam = the picture is its own camera (the reticle is drawn
-  // only then), imgAspect = the picture's width / height (it is fitted
-  // inside the box), st = glide state kept between frames, opts.gen = show
-  // the generation in the LIVE tag.
-  function drawLock(ctx, bw, bh, d, prey, cam, imgAspect, now, st, opts) {
+  // Draws the HUD on a bw x bh box. fs = the replay's current frame
+  // (replayAt), d = status, picture = a frame is shown (the reticle is drawn
+  // only then), imgAspect = the picture's width / height (fitted inside the
+  // box), st = glide state kept between frames, opts.gen = show generation.
+  function drawLock(ctx, bw, bh, fs, d, picture, imgAspect, now, st, opts) {
     const dt = Math.min(1, (now - (st.lastT || now)) / 1000); st.lastT = now;
-    const L = lockState(d), aspect = bw / bh;
+    const L = lockState(fs), aspect = bw / bh;
     const col = L.mode === 'LOCK' ? '#ff4d6d' : L.mode === 'TRACK' ? '#fd4' : '#7fd4ff';
     const blink = Math.floor(now / 350) % 2 === 0;
-    if (cam && d.fovea_cx !== undefined) {
+    if (picture) {
       const ia = imgAspect || aspect;
       const w = ia >= aspect ? bw : bh * ia, h = ia >= aspect ? bw / ia : bh;
       ctx.save(); ctx.translate((bw - w) / 2, (bh - h) / 2);
       ctx.strokeStyle = 'rgba(255, 95, 162, 0.75)'; ctx.lineWidth = 1.5;
-      (prey || []).forEach(b => lockCorners(ctx, b[2] * w, b[3] * h, b[4] * w, b[5] * h, 8));
-      // glide to each new gaze (status arrives about once a second)
-      const k = 1 - Math.pow(0.01, dt), f = d.fovea_fraction || 0.35;
-      st.rx = st.rx == null ? d.fovea_cx : st.rx + (d.fovea_cx - st.rx) * k;
-      st.ry = st.ry == null ? d.fovea_cy : st.ry + (d.fovea_cy - st.ry) * k;
-      st.rs = st.rs == null ? f : st.rs + (f - st.rs) * k;
+      (fs.boxes || []).forEach(b => lockCorners(ctx, b[2] * w, b[3] * h, b[4] * w, b[5] * h, 8));
+      // glide between its gazes (the eye moves between them too); snap when the replay loops
+      if (st.i != null && fs.i < st.i) st.rx = null;
+      st.i = fs.i;
+      const k = 1 - Math.pow(0.0005, dt);
+      st.rx = st.rx == null ? fs.cx : st.rx + (fs.cx - st.rx) * k;
+      st.ry = st.ry == null ? fs.cy : st.ry + (fs.cy - st.ry) * k;
+      st.rs = st.rs == null ? fs.f : st.rs + (fs.f - st.rs) * k;
       const x = st.rx * w, y = st.ry * h, gw = st.rs * w, gh = st.rs * h;
       ctx.strokeStyle = col; ctx.lineWidth = 2;
       lockCorners(ctx, x - gw / 2, y - gh / 2, x + gw / 2, y + gh / 2, Math.min(gw, gh) * 0.16);
@@ -266,11 +297,11 @@ LOCK_HUD_JS = r"""
     const b = d.body_now || d.body || {}, threat = Math.max(0, Math.min(1, b.threat || 0));
     if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
-    const tag = opts && opts.gen ? `LIVE  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : 'LIVE';
+    const tag = opts && opts.gen ? `REPLAY  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : 'REPLAY';
     ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(8, 8, ctx.measureText(tag).width + 26, 20);
     ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
     ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
-    const lines = [L.mode + lockIdText(L.id), d.world_age_s != null ? `gaze ${Number(d.world_age_s).toFixed(1)} s behind live` : 'gaze: latest run'];
+    const lines = [L.mode + lockIdText(L.id), fs.ageS != null ? `this frame: ${fs.ageS.toFixed(0)} s ago` : 'its latest run'];
     ctx.font = 'bold 12px monospace';
     const rw = Math.max(...lines.map(t => ctx.measureText(t).width)) + 16;
     ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(bw - rw - 8, 8, rw, 36);
@@ -279,20 +310,10 @@ LOCK_HUD_JS = r"""
     ctx.font = '11px monospace'; ctx.fillStyle = '#9fb6c6'; ctx.fillText(lines[1], bw - 16, 35);
     ctx.textAlign = 'left';
   }
-  function lockYoutubeId(url) {
-    if (!url) return null;
-    try {
-      const u = new URL(url);
-      if (u.hostname.endsWith('youtu.be')) return u.pathname.slice(1).split('/')[0] || null;
-      if (u.searchParams.get('v')) return u.searchParams.get('v');
-      const m = u.pathname.match(/\/(?:live|embed|shorts)\/([^/?#]+)/);
-      return m ? m[1] : null;
-    } catch (e) { return null; }
-  }
 """
 
-# The client-facing page: only the live picture and the target lock. The
-# viewer ("/") is the operators' view with the organism's insides.
+# The client-facing page: only the picture and the target lock (its latest
+# run, replayed). The viewer ("/") is the operators' view with its insides.
 LIVE_PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Live view</title>
@@ -300,43 +321,32 @@ LIVE_PAGE = r"""<!doctype html>
   html, body { margin: 0; height: 100%; background: #05080c; color: #cfe6f5; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
   #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   #box { position: relative; background: #000; }
-  #box img, #box iframe, #box canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
+  #box img, #box canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
   #box canvas { pointer-events: none; }
 </style></head>
 <body>
-<div id="wrap"><div id="box"><iframe id="stream" style="display:none" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe><img id="cam" alt="" style="display:none"><canvas id="hud"></canvas></div></div>
+<div id="wrap"><div id="box"><img id="cam" alt=""><canvas id="hud"></canvas></div></div>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  let D = null, SEL = null, prey = [], imgAspect = null, streamId = null;
-  const st = {};
+  let D = null;
+  const t0 = performance.now(), st = {}, F = frameLoader($('cam'));
   async function poll() { try { D = await (await fetch('/state')).json(); } catch (e) { } setTimeout(poll, 1000); }
-  async function pollSel() { try { SEL = await (await fetch('/sources')).json(); } catch (e) { } setTimeout(pollSel, 5000); }
-  function wantVideo() { return SEL ? SEL.active : !!(D && D.is_live); }
-  function refresh() {
-    if (wantVideo()) return;
-    $('cam').src = '/camera.jpg?t=' + Date.now();
-    fetch('/camera.json').then(r => r.ok ? r.json() : null).then(j => { prey = (j && j.prey) || []; }).catch(() => { });
-  }
-  $('cam').addEventListener('load', () => { const i = $('cam'); if (i.naturalWidth) imgAspect = i.naturalWidth / i.naturalHeight; });
   function frame(now) {
     requestAnimationFrame(frame);
-    const video = wantVideo();
-    if (!video && !$('cam').getAttribute('src')) refresh();
-    const id = video ? lockYoutubeId((SEL && SEL.selected_url) || (D && D.clip)) : null;
-    $('stream').style.display = id ? 'block' : 'none';
-    $('cam').style.display = video ? 'none' : 'block';
-    if (id !== streamId) { streamId = id; $('stream').src = id ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1` : 'about:blank'; }
-    const aspect = D && D.frame_w && D.frame_h ? D.frame_w / D.frame_h : (imgAspect || 16 / 9);
+    const d = D || {};
+    const aspect = d.frame_w && d.frame_h ? d.frame_w / d.frame_h : (F.aspect || 16 / 9);
     const bw = Math.min(window.innerWidth, window.innerHeight * aspect), bh = bw / aspect;
     const box = $('box'); box.style.width = bw + 'px'; box.style.height = bh + 'px';
     const c = $('hud'), dpr = window.devicePixelRatio || 1, W = Math.round(bw * dpr), H = Math.round(bh * dpr);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, bw, bh);
-    drawLock(ctx, bw, bh, D || {}, prey, !video, imgAspect, now, st, { gen: false });
+    if (d.generation === undefined) return;
+    const R = replayAt(d, now, t0);
+    F.show(R.frame, R.epoch);
+    drawLock(ctx, bw, bh, R, d, F.shown != null, F.aspect, now, st, { gen: false });
   }
-  setInterval(refresh, 1000);
-  poll(); pollSel(); refresh(); requestAnimationFrame(frame);
+  poll(); requestAnimationFrame(frame);
 </script>
 </body></html>
 """.replace("/*LOCK_HUD_JS*/", LOCK_HUD_JS)
@@ -410,7 +420,7 @@ PAGE = r"""<!doctype html>
 <div class="quad">
   <div class="panel" id="live-panel">
     <h2 id="live-title">live view</h2>
-    <div class="video16x9" id="live-box"><iframe id="stream" style="display:none" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe><img id="cam" alt="camera" style="display:none"><canvas id="hud"></canvas></div>
+    <div class="video16x9" id="live-box"><img id="cam" alt="what it saw"><canvas id="hud"></canvas></div>
     <div class="cap" id="live-cap">--</div>
     <div class="cap" id="cam-note" style="margin-top:6px"></div>
     <div class="cap" id="hud-legend" style="margin-top:6px"><label><input type="checkbox" id="hud-on" checked> HUD</label> -- <span id="hud-legend-text"></span></div>
@@ -570,13 +580,10 @@ PAGE = r"""<!doctype html>
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
     drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H);
-    const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx, d.fovea_cy, d.fovea_fraction || 0.35, 0]];
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
-    // time and show whichever gaze is current at that moment.
-    const fps = d.frames_per_second || REPLAY_FPS;
-    const lastIdx = traj[traj.length - 1][3] ?? (traj.length - 1);
-    const cur = Math.floor((now - t0) / 1000 * fps) % (lastIdx + 1);
-    let i = 0; while (i + 1 < traj.length && (traj[i + 1][3] ?? (i + 1)) <= cur) i++;
+    // time and show whichever gaze is current at that moment -- the same
+    // clock as the replayed picture beside it (replayAt, LOCK_HUD_JS).
+    const { traj, fps, lastIdx, cur, i } = replayAt(d, now, t0, REPLAY_FPS);
     const ev = d.field_events && d.field_events[i];
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
@@ -816,50 +823,35 @@ PAGE = r"""<!doctype html>
       return m ? m[1] : null;
     } catch (e) { return null; }
   }
-  // Live view: follows what is SELECTED (dessert video or its camera), so it
-  // switches the moment you click. The organism itself restarts onto the new
-  // source and reports in within about a minute; until then the "watching"
-  // chip says it is switching.
-  let SEL = null, streamId = null, camTimer = null;
+  // The picture panel: what it saw in its latest run (its camera or the
+  // chosen stream), replayed in step with the visual field. The "watching"
+  // chip follows what is SELECTED, so it says it is switching until the
+  // restarted organism reports in (about a minute).
+  let SEL = null;
   function showLive(d) {
     const want = SEL ? (SEL.active ? 'video' : 'camera') : (d && d.is_live ? 'video' : 'camera');
     const id = want === 'video' ? youtubeId((SEL && SEL.selected_url) || (d && d.clip)) : null;
-    $('stream').style.display = id ? 'block' : 'none';
     $('stream-link-row').style.display = id ? 'block' : 'none';
-    $('cam').style.display = want === 'camera' ? 'block' : 'none';
-    $('live-title').textContent = want === 'video' ? 'the stream, live' : 'its camera, live';
-    $('live-cap').textContent = want === 'video'
-      ? 'What the stream shows right now -- your browser’s own connection to YouTube. The organism only gets the 12x12 grid beside it (whose replay lags the live stream by up to a minute).'
-      : 'What its camera sees right now (about one frame a second, kept in RAM only). The organism only gets the 12x12 grid beside it, replayed from its latest run.';
-    if (id !== streamId) {
-      streamId = id;
-      $('stream').src = id ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1` : 'about:blank';
-      $('stream-link').href = id ? `https://www.youtube.com/watch?v=${id}` : '#';
-    }
-    if (want === 'camera' && !camTimer) { camTimer = setInterval(refreshCam, 1000); refreshCam(); }
-    if (want !== 'camera' && camTimer) { clearInterval(camTimer); camTimer = null; $('cam').removeAttribute('src'); $('cam-note').textContent = ''; }
+    if (id) $('stream-link').href = `https://www.youtube.com/watch?v=${id}`;
+    $('live-title').textContent = d && d.is_live ? 'the stream, as it saw it' : 'its camera, as it saw it';
+    $('live-cap').textContent = 'The real frames of its latest run, replayed in step with the visual field beside it -- same run, same clock, same frame rate -- with its gaze as a target lock. The organism itself only gets the 12x12 grids; these frames are kept in RAM only.';
     const running = d && d.generation !== undefined ? (d.is_live ? 'video' : 'camera') : null;
     const switching = running && (running !== want || (want === 'video' && youtubeId(d.clip) !== id));
     $('h-src').textContent = switching
       ? `switching to ${want === 'video' ? 'the video' : 'its camera'}... (restarting, about a minute)`
       : ((d && (d.clip_name || d.clip)) || '--');
   }
-  function refreshCam() {
-    $('cam').src = '/camera.jpg?t=' + Date.now();
-    fetch('/camera.json').then(r => r.ok ? r.json() : null).then(j => { HUD.prey = (j && j.prey) || []; }).catch(() => {});
-  }
 
-  // ---- HUD over the live view: the target lock (LOCK_HUD_JS, shared with /live) ----
-  const HUD = { prey: [], aspect: null, on: true };
+  // ---- The replayed picture with its target lock (LOCK_HUD_JS, shared with /live) ----
+  const HUD = { on: true }, F = frameLoader($('cam'));
   try { HUD.on = localStorage.getItem('hud-on') !== '0'; } catch (e) { }
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('cam').addEventListener('load', () => { const i = $('cam'); if (i.naturalWidth) HUD.aspect = i.naturalWidth / i.naturalHeight; });
+  $('hud-legend-text').textContent = 'the reticle is its gaze (SCAN / TRACK = prey in its gaze / LOCK = prey held in its center: eating -- in a livecam, the moment to take a snapshot), with the ID of what it is on; pink corners: prey the detector found in that frame. The client view (just this, full screen) is at /live.';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');
-    const cam = $('cam').style.display !== 'none';
     // Same shape as the other three displays; the picture is fitted inside.
     const aspect = 1 / quadAspect();
     const bw = fitWidth(panel, 1 / aspect), bh = bw / aspect;
@@ -868,14 +860,13 @@ PAGE = r"""<!doctype html>
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, bw, bh);
-    $('hud-legend-text').textContent = cam
-      ? 'the reticle is its gaze on the newest frame it has (SCAN / TRACK = prey in its gaze / LOCK = prey held in its center: eating -- in a livecam, the moment to take a snapshot), with the ID of what it is on; pink corners: prey the detector sees live. The client view (just this, full screen) is at /live.'
-      : 'on a stream only the readout: this picture runs up to a minute apart from what it sees, so the lock is not drawn on it. The client view is at /live.';
-    if (HUD.on) drawLock(ctx, bw, bh, D || {}, HUD.prey, cam, HUD.aspect, now, HUD, { gen: true });
+    $('cam-note').textContent = F.failed && F.shown == null ? 'no frames to show (a file source, or CAMBRIAN_CAMERA_PREVIEW=0)' : '';
+    if (!D || D.generation === undefined) return;
+    const R = replayAt(D, now, t0, REPLAY_FPS);
+    F.show(R.frame, R.epoch);
+    if (HUD.on) drawLock(ctx, bw, bh, R, D, F.shown != null, F.aspect, now, HUD, { gen: true });
   }
   requestAnimationFrame(drawHud);
-  $('cam').addEventListener('load', () => { $('cam-note').textContent = ''; });
-  $('cam').addEventListener('error', () => { $('cam-note').textContent = 'no camera picture yet -- the organism writes one once its camera is open'; });
 
   async function tick() {
     try {
@@ -983,27 +974,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif self.path.startswith("/camera.jpg"):
+        elif self.path.startswith("/frame?"):
+            # One frame of its recent past, by index (immutable per run and
+            # index -- the page adds the run's epoch -- so cacheable).
+            i = (parse_qs(urlparse(self.path).query).get("i") or [""])[0]
             try:
-                body = CAMERA_PREVIEW_PATH.read_bytes()
+                body = (FRAMES_DIR / f"f{int(i)}.jpg").read_bytes() if i.isdigit() else None
             except OSError:
+                body = None
+            if body is None:
                 self.send_response(404)
                 self.end_headers()
                 return
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        elif self.path.startswith("/camera.json"):
-            try:
-                body = CAMERA_PREVIEW_PATH.with_suffix(".json").read_bytes()
-            except OSError:
-                body = b'{"prey": []}'
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "max-age=600, immutable")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

@@ -22,8 +22,9 @@ The world (World): a live camera or live stream is read continuously
 (video_source.LiveFeed) and each generation is scored on the newest
 ~600 frames, refreshed every few generations; a local file is one fixed
 clip. Raw frames never leave memory -- only 12x12 grids and prey boxes.
-On its own camera it also keeps one small preview JPEG in RAM for the
-viewer's live view (CAMBRIAN_CAMERA_PREVIEW=0 turns it off).
+On a live feed it also keeps a short ring of small JPEG frames in RAM
+for the viewer's replay of its latest run (CAMBRIAN_CAMERA_PREVIEW=0
+turns it off).
 
 Meant to run for years as a BOUNDED process restarted by systemd
 (Restart=always): each run resumes the genome, body and memory from
@@ -38,6 +39,7 @@ import argparse
 import math
 import os
 import random
+import shutil
 import signal
 import subprocess
 import time
@@ -861,6 +863,7 @@ class World:
         self.frames, self.vectors = frames, vectors
         self.colour = colour  # colour frames (memory only), for the gaze's colour receptors
         self.t_newest = None  # arrival time of its newest frame (live feeds only)
+        self.first_index = None  # the feed's index of its first frame (live feeds only)
         self.prey = prey if prey is not None else [[] for _ in frames]  # prey boxes per frame (fishbowl/prey.py)
         # Frozen with the snapshot: parent and candidate must be scored at
         # the SAME rate (audit: reading the live rate per evaluation could
@@ -969,17 +972,19 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         detector = prey_lib.PreyDetector()
         print(f"Prey detector: {'yolov8n loaded' if detector.available else 'MODEL MISSING -- no prey, snacks only'} ({detector.model_path})")
         feed_src = (int(source) if source.isdigit() else source) if _is_device(source) else load_source
-        # Camera preview for the viewer: only on its own camera (a stream
-        # has YouTube's own embed), and only when the runtime dir is in RAM.
-        preview = sandbox.LIVE_STATUS_PATH.with_name("camera.jpg")
+        # Its frames for the viewer's replay (small JPEGs, a short ring):
+        # only when the runtime dir really is in RAM.
+        frames_dir = sandbox.LIVE_STATUS_PATH.with_name("frames")
         in_ram = sandbox.LIVE_STATUS_PATH.parent != sandbox.STATE_DIR
-        use_preview = _is_device(source) and in_ram and os.environ.get("CAMBRIAN_CAMERA_PREVIEW", "1") != "0"
-        if use_preview:
-            preview.parent.mkdir(parents=True, exist_ok=True)
-        elif in_ram:
-            preview.unlink(missing_ok=True)
+        use_frames = in_ram and os.environ.get("CAMBRIAN_CAMERA_PREVIEW", "1") != "0"
+        if in_ram:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            for old in ("camera.jpg", "camera.json"):  # the earlier single preview
+                sandbox.LIVE_STATUS_PATH.with_name(old).unlink(missing_ok=True)
+        if use_frames:
+            frames_dir.mkdir(parents=True, exist_ok=True)
         feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None,
-                                     preview_path=preview if use_preview else None)
+                                     frames_dir=frames_dir if use_frames else None)
         # A slow camera on a busy host (e.g. 8 frames/s on a laptop already
         # running a livecam server) takes minutes to fill the window.
         if not feed.wait_for(600, timeout=600.0):
@@ -1002,6 +1007,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         seen_total = len(frames)
     world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0, prey_boxes, colour_frames)
     world.t_newest = feed.newest_time if feed is not None else None
+    world.first_index = feed.snapshot_first if feed is not None else None
+    # Frame files are per run: the viewer adds this to its frame requests so
+    # a browser never shows a cached frame of an earlier run.
+    feed_epoch = int(time.time())
 
     def _fps() -> float:
         return world.fps
@@ -1145,6 +1154,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             frames, vectors, total, prey_boxes, colour_frames = feed.snapshot()
             world = World(frames, vectors, feed.frames_per_second(), prey_boxes, colour_frames)
             world.t_newest = feed.newest_time
+            world.first_index = feed.snapshot_first
             if total != seen_total:
                 last_new_frame = time.time()
             elif time.time() - last_new_frame > 60:
@@ -1281,6 +1291,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # Its gaze above is on the newest frame of its current snapshot;
             # this is how long ago that frame arrived (the viewer's lock HUD).
             "world_age_s": round(time.time() - world.t_newest, 1) if world.t_newest else None,
+            # Where its frames are, for the viewer's replay of this run.
+            "world_first_index": world.first_index,
+            "world_epoch": feed_epoch,
             "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
             "quota_pct": quota_pct,
             # Gemini's homeostasis: the candidate's body at the end of this
