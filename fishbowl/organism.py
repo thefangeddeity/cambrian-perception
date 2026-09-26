@@ -44,7 +44,9 @@ def _aperture_cost(frac: float, quota_pct: float) -> float:
 
 
 # Per-look compute cost (the brain and tree running once), priced like
-# the aperture: x CPU scarcity. With the waking burn scaling with tempo
+# the aperture: x CPU scarcity, and x the brain's real arithmetic relative
+# to the original 16-unit brain (controller.think_factor) -- a grown brain
+# pays for what it computes. With the waking burn scaling with tempo
 # (state.py), this is what makes a fast pace of life expensive.
 THINK_COST = 2e-5  # per gaze, x scarcity
 # Each colour-opponent channel (receptors + processing) costs energy per
@@ -368,7 +370,7 @@ class Organism:
         colour_in[:len(col)] = col
         if colour_on:
             self.last_colour = col
-        vb = np.concatenate([v, self.prev_v, [self.prev_dx, self.prev_dy], brain.hidden, colour_in])[None, :]
+        vb = np.concatenate([v, self.prev_v, [self.prev_dx, self.prev_dy], brain.tree_view(), colour_in])[None, :]
         response = float(g.evaluate("response", vb)[0])
         # The perception tree's output reaches the brain next gaze; the tree
         # is also graded by its teacher (run_vision.TEACHER_WEIGHT).
@@ -436,7 +438,7 @@ class Organism:
         asleep = p["asleep"]
         gaze_cost = 0.0 if asleep else _aperture_cost(self.state.fraction, self.quota_pct)
         body.update(p["periph_motion"], p["loom"], p["effort"],
-                    gaze_cost + (THINK_COST + COLOUR_COST * p["colour_on"] + CHANNEL_COST * brain.loop_synapses()
+                    gaze_cost + (THINK_COST * brain.think_factor() + COLOUR_COST * p["colour_on"] + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),

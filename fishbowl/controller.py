@@ -33,18 +33,35 @@ weights) or as a blank predictor, always with zero weights on the way back
 in, so a newborn channel changes nothing: it can drift until it is useful.
 Its energy price grows with those feedback weights (run_vision.py): a loop
 that does nothing is free, one that matters has to pay for itself.
+
+Growable hidden layer (Stage B's neural budget, after a design panel with
+Sterling and Laughlin's principles of neural design in mind: a neuron costs
+its wiring and activity, not its existence). A mutation duplicates a hidden
+unit, the way genes duplicate: the copy listens like the original but is
+born unconnected (nothing reads it), so it changes nothing and is kept on a
+tie, free to diverge; another mutation removes one. Thinking is priced by
+the brain's real arithmetic (multiply-adds per step, relative to the
+original 16-unit brain) x CPU scarcity, so a host with cores to spare can
+afford a big brain and a starved one keeps a lean one. The perception tree
+reads the first TREE_HIDDEN units.
+
+Runs on numpy (a matrix step, 10-20x faster than the old Python loops).
 """
 
 import math
 import random
 from typing import Any, NamedTuple
 
+import numpy as np
+
 from .state import MosquitoState
 
 BASE_INPUTS = 28  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
-HIDDEN = 16
+HIDDEN = 16         # a newborn brain's hidden layer
+TREE_HIDDEN = 16    # how many hidden units the perception tree reads (its inputs keep fixed positions)
+MIN_HIDDEN, MAX_HIDDEN = 4, 256  # MAX is a safety bound only; the price is what limits growth
 BASE_OUTPUTS = 6  # [pan, tilt, zoom, alarm, tempo, sleep]
 OUTPUTS = BASE_OUTPUTS
 MAX_CHANNELS = 4
@@ -72,35 +89,28 @@ class Motor(NamedTuple):
     sleep: float
 
 
-def _tanh(x: float) -> float:
-    return math.tanh(x)
+def _macs(n_hidden: int, n_in: int, n_out: int) -> int:
+    """Multiply-adds in one brain step."""
+    return n_hidden * (n_in + n_hidden) + n_out * n_hidden
+
+
+REFERENCE_MACS = _macs(HIDDEN, BASE_INPUTS, BASE_OUTPUTS)  # the original brain: thinking costs its THINK_COST
 
 
 class MosquitoBrain:
-    def __init__(
-        self,
-        weights_ih: list[list[float]],
-        weights_hh: list[list[float]],
-        weights_ho: list[list[float]],
-        bias_h: list[float],
-        bias_o: list[float],
-        channels: list[dict] | None = None,
-    ):
-        self.weights_ih = weights_ih
-        self.weights_hh = weights_hh
-        self.weights_ho = weights_ho
-        self.bias_h = bias_h
-        self.bias_o = bias_o
+    def __init__(self, weights_ih, weights_hh, weights_ho, bias_h, bias_o, channels: list[dict] | None = None):
+        self.weights_ih = np.array(weights_ih, dtype=float)  # (hidden, inputs)
+        self.weights_hh = np.array(weights_hh, dtype=float)  # (hidden, hidden)
+        self.weights_ho = np.array(weights_ho, dtype=float)  # (outputs, hidden)
+        self.bias_h = np.array(bias_h, dtype=float)
+        self.bias_o = np.array(bias_o, dtype=float)
         self.channels = [dict(c) for c in (channels or [])]
         self.reset_hidden()
 
     @classmethod
     def random(cls, rng: random.Random) -> MosquitoBrain:
         def matrix(rows: int, cols: int, scale: float = 0.4) -> list[list[float]]:
-            return [
-                [rng.uniform(-scale, scale) for _ in range(cols)]
-                for _ in range(rows)
-            ]
+            return [[rng.uniform(-scale, scale) for _ in range(cols)] for _ in range(rows)]
 
         return cls(
             weights_ih=matrix(HIDDEN, BASE_INPUTS, scale=0.4),
@@ -110,10 +120,19 @@ class MosquitoBrain:
             bias_o=[rng.uniform(-0.05, 0.05) for _ in range(BASE_OUTPUTS)],
         )
 
+    @property
+    def n_hidden(self) -> int:
+        return len(self.bias_h)
+
     def reset_hidden(self) -> None:
-        self.hidden = [0.0] * HIDDEN
-        self.loop_in = [0.0] * len(self.channels)  # what each channel feeds back this step
-        self._pred = [0.0] * len(self.channels)    # each predictor's last prediction
+        self.hidden = np.zeros(self.n_hidden)
+        self.loop_in = np.zeros(len(self.channels))  # what each channel feeds back this step
+        self._pred = np.zeros(len(self.channels))    # each predictor's last prediction
+
+    def tree_view(self) -> np.ndarray:
+        """The hidden units the perception tree reads (the first TREE_HIDDEN, zero-padded)."""
+        h = self.hidden[:TREE_HIDDEN]
+        return h if len(h) == TREE_HIDDEN else np.concatenate([h, np.zeros(TREE_HIDDEN - len(h))])
 
     def step(
         self,
@@ -137,81 +156,75 @@ class MosquitoBrain:
         prey_dy: float = 0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
-        base = [
-            luminance,
-            motion,
-            flow_x,
-            flow_y,
-            loom,
-            gaze_cx - 0.5,
-            gaze_cy - 0.5,
-            gaze_zoom,
-            state.energy,
-            state.arousal,
-            state.threat,
-            state.search,
-            periph_dx,
-            periph_dy,
-            eye_vx * 2.5,  # terminal eye speed 0.4 -> ~1
-            eye_vy * 2.5,
-            state.hunger,
-            state.curiosity,
-            tree_out,
-            state.gut,
-            state.reserve,
-            state.sleep_pressure,
-            state.asleep,
-            field_light,
-            state.light_trend,
-            prey_scent,
-            prey_dx,
-            prey_dy,
-        ]
+        base = np.array([
+            luminance, motion, flow_x, flow_y, loom,
+            gaze_cx - 0.5, gaze_cy - 0.5, gaze_zoom,
+            state.energy, state.arousal, state.threat, state.search,
+            periph_dx, periph_dy,
+            eye_vx * 2.5, eye_vy * 2.5,  # terminal eye speed 0.4 -> ~1
+            state.hunger, state.curiosity, tree_out,
+            state.gut, state.reserve, state.sleep_pressure, state.asleep,
+            field_light, state.light_trend,
+            prey_scent, prey_dx, prey_dy,
+        ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):
             if ch["kind"] == "predict":
                 self.loop_in[k] = max(-1.0, min(1.0, base[ch["target"]] - self._pred[k]))
-        inputs = base + self.loop_in
-        n_in = len(inputs)
-
-        # Recurrent hidden update: h_t = tanh(W_ih * x + W_hh * h_{t-1} + b_h)
-        new_hidden = []
-        for i in range(HIDDEN):
-            val = self.bias_h[i]
-            row = self.weights_ih[i]
-            for j in range(n_in):
-                val += row[j] * inputs[j]
-            for j in range(HIDDEN):
-                val += self.weights_hh[i][j] * self.hidden[j]
-            new_hidden.append(_tanh(val))
-        self.hidden = new_hidden
-
-        # Motor readout: o_t = tanh(W_ho * h_t + b_o)
-        outputs = []
-        for i in range(len(self.weights_ho)):
-            val = self.bias_o[i]
-            for j in range(HIDDEN):
-                val += self.weights_ho[i][j] * self.hidden[j]
-            outputs.append(_tanh(val))
-
+        x = np.concatenate([base, self.loop_in]) if self.channels else base
+        # Recurrent hidden update h = tanh(W_ih x + W_hh h_prev + b_h); motor readout o = tanh(W_ho h + b_o).
+        self.hidden = np.tanh(self.bias_h + self.weights_ih @ x + self.weights_hh @ self.hidden)
+        outputs = np.tanh(self.bias_o + self.weights_ho @ self.hidden)
         for k, ch in enumerate(self.channels):
             o = outputs[BASE_OUTPUTS + k]
             if ch["kind"] == "predict":
                 self._pred[k] = o
             else:
                 self.loop_in[k] = o
-        return Motor(*outputs[:BASE_OUTPUTS])
+        return Motor(*(float(v) for v in outputs[:BASE_OUTPUTS]))
 
-    # ---- growable channels ------------------------------------------------
-    def prey_synapses(self, level: int) -> float:
-        """Weight on the prey-sense inputs it has (level 1: scent; 2: + direction)."""
-        live = PREY_INPUTS[:1] if level == 1 else PREY_INPUTS if level >= 2 else ()
-        return sum(abs(row[j]) for row in self.weights_ih for j in live)
+    # ---- what it costs to think -------------------------------------------------
+    def think_factor(self) -> float:
+        """This brain's arithmetic per step relative to the original 16-unit brain."""
+        return _macs(self.n_hidden, self.weights_ih.shape[1], self.weights_ho.shape[0]) / REFERENCE_MACS
 
     def loop_synapses(self) -> float:
         """Total weight on the channels' way back in (their energy price)."""
-        return sum(abs(row[BASE_INPUTS + k]) for row in self.weights_ih for k in range(len(self.channels)))
+        return float(np.abs(self.weights_ih[:, BASE_INPUTS:]).sum())
 
+    def prey_synapses(self, level: int) -> float:
+        """Weight on the prey-sense inputs it has (level 1: scent; 2: + direction)."""
+        live = list(PREY_INPUTS[:1] if level == 1 else PREY_INPUTS if level >= 2 else ())
+        return float(np.abs(self.weights_ih[:, live]).sum()) if live else 0.0
+
+    # ---- growable hidden layer ----------------------------------------------------
+    def grow_unit(self, rng: random.Random) -> bool:
+        """A duplicated hidden unit, born unconnected (nothing reads it yet)."""
+        h = self.n_hidden
+        if h >= MAX_HIDDEN:
+            return False
+        src = rng.randrange(h)
+        self.weights_ih = np.vstack([self.weights_ih, self.weights_ih[src]])
+        listens = np.append(self.weights_hh[src], self.weights_hh[src, src])  # as the original, incl. to itself
+        self.weights_hh = np.vstack([np.hstack([self.weights_hh, np.zeros((h, 1))]), listens])
+        self.weights_ho = np.hstack([self.weights_ho, np.zeros((self.weights_ho.shape[0], 1))])
+        self.bias_h = np.append(self.bias_h, self.bias_h[src])
+        self.reset_hidden()
+        return True
+
+    def shrink_unit(self, rng: random.Random) -> bool:
+        h = self.n_hidden
+        if h <= MIN_HIDDEN:
+            return False
+        k = rng.randrange(h)
+        self.weights_ih = np.delete(self.weights_ih, k, axis=0)
+        self.weights_hh = np.delete(np.delete(self.weights_hh, k, axis=0), k, axis=1)
+        self.weights_ho = np.delete(self.weights_ho, k, axis=1)
+        self.bias_h = np.delete(self.bias_h, k)
+        self.reset_hidden()
+        return True
+
+    # ---- growable channels ---------------------------------------------------------
     def grow_channel(self, rng: random.Random, kind: str = "latch") -> bool:
         """A new channel: a latch duplicated from an existing output, or a
         blank predictor of one of its inputs. Zero weights on the way back
@@ -219,16 +232,15 @@ class MosquitoBrain:
         if len(self.channels) >= MAX_CHANNELS:
             return False
         if kind == "predict":
-            self.weights_ho.append([0.0] * HIDDEN)
-            self.bias_o.append(0.0)
+            row, bias = np.zeros(self.n_hidden), 0.0
             ch = {"kind": "predict", "target": rng.randrange(BASE_INPUTS)}
         else:
-            src = rng.randrange(len(self.weights_ho))
-            self.weights_ho.append(list(self.weights_ho[src]))
-            self.bias_o.append(self.bias_o[src])
+            src = rng.randrange(self.weights_ho.shape[0])
+            row, bias = self.weights_ho[src].copy(), float(self.bias_o[src])
             ch = {"kind": "latch", "copy_of": src}
-        for row in self.weights_ih:
-            row.append(0.0)
+        self.weights_ho = np.vstack([self.weights_ho, row])
+        self.bias_o = np.append(self.bias_o, bias)
+        self.weights_ih = np.hstack([self.weights_ih, np.zeros((self.n_hidden, 1))])
         self.channels.append(ch)
         self.reset_hidden()
         return True
@@ -237,54 +249,43 @@ class MosquitoBrain:
         if not self.channels:
             return False
         k = rng.randrange(len(self.channels))
-        del self.weights_ho[BASE_OUTPUTS + k]
-        del self.bias_o[BASE_OUTPUTS + k]
-        for row in self.weights_ih:
-            del row[BASE_INPUTS + k]
+        self.weights_ho = np.delete(self.weights_ho, BASE_OUTPUTS + k, axis=0)
+        self.bias_o = np.delete(self.bias_o, BASE_OUTPUTS + k)
+        self.weights_ih = np.delete(self.weights_ih, BASE_INPUTS + k, axis=1)
         del self.channels[k]
         self.reset_hidden()
         return True
 
     def clone(self) -> MosquitoBrain:
-        return MosquitoBrain(
-            weights_ih=[row[:] for row in self.weights_ih],
-            weights_hh=[row[:] for row in self.weights_hh],
-            weights_ho=[row[:] for row in self.weights_ho],
-            bias_h=self.bias_h[:],
-            bias_o=self.bias_o[:],
-            channels=self.channels,
-        )
+        return MosquitoBrain(self.weights_ih.copy(), self.weights_hh.copy(), self.weights_ho.copy(),
+                             self.bias_h.copy(), self.bias_o.copy(), channels=self.channels)
 
     def mutate(self, rng: random.Random, sigma: float = 0.05) -> int:
         """
-        Nudges 1-3 randomly chosen weights/biases by a small Gaussian step.
-        Audit: the old version changed ~32 of ~650 weights at sigma 0.12 per
-        mutation -- almost never neutral, usually worse, so the brain was
-        effectively never improved. Small steps give selection something
-        it can actually climb.
+        Nudges 1-3 randomly chosen weights/biases (every one equally likely)
+        by a small step -- heavy-tailed, see HEAVY_TAIL_P. Small steps give
+        selection something it can climb; the rare big ones get it off plateaus.
         """
-        slots = [(m, r, j) for m in (self.weights_ih, self.weights_hh, self.weights_ho)
-                 for r in range(len(m)) for j in range(len(m[r]))]
-        slots += [(b, None, i) for b in (self.bias_h, self.bias_o) for i in range(len(b))]
+        arrays = (self.weights_ih, self.weights_hh, self.weights_ho, self.bias_h, self.bias_o)
+        sizes = np.cumsum([a.size for a in arrays])
         k = rng.randint(1, 3)
-        for container, r, j in rng.sample(slots, k):
+        for flat in rng.sample(range(int(sizes[-1])), k):
+            a = int(np.searchsorted(sizes, flat, side="right"))
+            i = flat - (int(sizes[a - 1]) if a else 0)
             if rng.random() < HEAVY_TAIL_P:
                 step = max(-HEAVY_TAIL_MAX, min(HEAVY_TAIL_MAX, HEAVY_TAIL_SCALE * math.tan(math.pi * (rng.random() - 0.5))))
             else:
                 step = rng.gauss(0.0, sigma)
-            if r is None:
-                container[j] += step
-            else:
-                container[r][j] += step
+            arrays[a].flat[i] += step
         return k
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "weights_ih": self.weights_ih,
-            "weights_hh": self.weights_hh,
-            "weights_ho": self.weights_ho,
-            "bias_h": self.bias_h,
-            "bias_o": self.bias_o,
+            "weights_ih": self.weights_ih.tolist(),
+            "weights_hh": self.weights_hh.tolist(),
+            "weights_ho": self.weights_ho.tolist(),
+            "bias_h": self.bias_h.tolist(),
+            "bias_o": self.bias_o.tolist(),
             "channels": self.channels,
             "base_inputs": BASE_INPUTS,
             "base_outputs": BASE_OUTPUTS,
@@ -297,18 +298,12 @@ class MosquitoBrain:
         # the switch; evolution can start using them from there.
         channels = [dict(c) for c in data.get("channels", [])]
         n_ch = len(channels)
+        n_hid = len(data["bias_h"])
         n_in_saved = data.get("base_inputs", len(data["weights_ih"][0]) - n_ch)
         n_out_saved = data.get("base_outputs", len(data["weights_ho"]) - n_ch)
         weights_ih = [list(r[:n_in_saved]) + [0.0] * (BASE_INPUTS - n_in_saved) + list(r[n_in_saved:])
                       for r in data["weights_ih"]]
         ho, bo = [list(r) for r in data["weights_ho"]], list(data["bias_o"])
-        weights_ho = ho[:n_out_saved] + [[0.0] * HIDDEN for _ in range(BASE_OUTPUTS - n_out_saved)] + ho[n_out_saved:]
+        weights_ho = ho[:n_out_saved] + [[0.0] * n_hid for _ in range(BASE_OUTPUTS - n_out_saved)] + ho[n_out_saved:]
         bias_o = bo[:n_out_saved] + [0.0] * (BASE_OUTPUTS - n_out_saved) + bo[n_out_saved:]
-        return cls(
-            weights_ih=weights_ih,
-            weights_hh=data["weights_hh"],
-            weights_ho=weights_ho,
-            bias_h=data["bias_h"],
-            bias_o=bias_o,
-            channels=channels,
-        )
+        return cls(weights_ih, data["weights_hh"], weights_ho, data["bias_h"], bias_o, channels=channels)
