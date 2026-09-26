@@ -48,6 +48,14 @@ ZOOM_STEP = 0.05
 # Smoothness comes from the body, not from forbidding jumps.
 DAMPING = 0.7
 FORCE_GAIN = 0.12
+# The eye sits in elastic tissue that pulls it back toward straight ahead
+# (the oculomotor plant, Robinson): relaxed, the gaze drifts back to the
+# centre; holding it off-centre takes sustained force, which the body pays
+# for (force squared). Without this the eye integrated force, so any steady
+# push, however small, ran it into a wall -- a fresh brain's default was to
+# hug an edge. At this stiffness, holding the gaze at the frame's edge takes
+# ~a third of full force; a small bias settles part-way out, not at the wall.
+SPRING = 0.08
 
 
 @dataclass
@@ -106,8 +114,8 @@ def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: 
     fy = float(np.clip(tilt_output, -1.0, 1.0))
     dz = float(np.clip(zoom_output, -1.0, 1.0)) * ZOOM_STEP
     new_frac = float(np.clip(state.fraction + dz, MIN_FRACTION, MAX_FRACTION))
-    vx = DAMPING * state.vx + FORCE_GAIN * fx
-    vy = DAMPING * state.vy + FORCE_GAIN * fy
+    vx = DAMPING * state.vx + FORCE_GAIN * fx - SPRING * (state.cx - 0.5)
+    vy = DAMPING * state.vy + FORCE_GAIN * fy - SPRING * (state.cy - 0.5)
     raw_cx, raw_cy = state.cx + vx, state.cy + vy
     new_cx = float(np.clip(raw_cx, 0.0, 1.0))
     new_cy = float(np.clip(raw_cy, 0.0, 1.0))
