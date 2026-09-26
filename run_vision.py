@@ -1094,14 +1094,19 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             print(f"The chosen stream is no longer live (it became a recording) -- back to {home_source}.")
             sandbox.clear_selected_source()
             break
-        if dessert is not None and box.generation % 25 == 0 and _dessert() is None:
+        # The video choice, checked every generation (a small file read): any
+        # change -- a video chosen, cleared, or swapped for another -- stops
+        # this run so its supervisor (systemd, or a plain restart loop where
+        # the viewer cannot restart it) brings it back on the new choice.
+        chosen = _dessert()
+        if dessert is not None and chosen is None:
             print(f"Dessert over -- returning to {home_source}.")
             break
-        # And the other way: a video chosen while it is on its camera. Also
-        # stop, so whatever supervises it (systemd, or a plain restart loop
-        # where the viewer cannot restart it) brings it back on the video.
-        if dessert is None and _is_device(home_source) and box.generation % 25 == 0 and _dessert() is not None:
+        if dessert is None and chosen is not None and _is_device(home_source):
             print("Dessert chosen -- restarting onto it.")
+            break
+        if dessert is not None and (chosen.get("url"), chosen.get("until")) != (dessert.get("url"), dessert.get("until")):
+            print("A different video chosen -- restarting onto it.")
             break
         box.generation += 1
         gen_seconds, gen_started = time.time() - gen_started, time.time()
