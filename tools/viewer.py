@@ -110,10 +110,10 @@ def _check_live_url(url: str) -> tuple[bool, str | None]:
         # "--" so the URL can never be read as a yt-dlp option.
         result = subprocess.run(
             [str(yt_dlp), "--skip-download", "--print", "is_live", "--", url],
-            capture_output=True, text=True, timeout=20,
+            capture_output=True, text=True, timeout=60,  # YouTube's challenge solving can take a while
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False, "yt-dlp check failed or timed out"
+        return False, "the live check (yt-dlp) failed or took over a minute -- try again"
     finally:
         _URL_CHECK.release()
     if result.returncode != 0:
@@ -1007,20 +1007,32 @@ PAGE = r"""<!doctype html>
     if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
     return t;
   }
+  // Switch results: in plain words, a refusal in red (it used to be easy to miss).
+  function switchStatus(text, bad) { const el = $('submit-status'); el.textContent = text; el.style.color = bad ? 'var(--red)' : ''; }
+  async function postSelect(query) {
+    const res = await fetch('/select?' + query, { method: 'POST', headers: { 'X-Cambrian': '1' } });
+    let r = null; try { r = await res.json(); } catch (e) { }
+    return r || { ok: false, error: `refused by the viewer (HTTP ${res.status})` };
+  }
   $('custom-url-submit').addEventListener('click', async () => {
     const url = $('custom-url').value.trim(); if (!url) return;
     const until = $('dessert-timed').checked ? nextTime($('dessert-until').value || '07:00') : null;
-    $('submit-status').textContent = 'checking it is really live...';
+    switchStatus('checking it is really live (can take up to a minute)...');
     try {
-      const r = await (await fetch('/select?url=' + encodeURIComponent(url) + (until ? '&until=' + Math.floor(until.getTime() / 1000) : ''), { method: 'POST', headers: { 'X-Cambrian': '1' } })).json();
-      $('submit-status').textContent = r.ok ? ('switching to it' + (until ? ` until ${until.toLocaleString()}` : ' until you switch back') + ' -- restarting (watch "watching" above)') : ('not switched: ' + (r.error || 'unknown'));
+      const r = await postSelect('url=' + encodeURIComponent(url) + (until ? '&until=' + Math.floor(until.getTime() / 1000) : ''));
+      if (r.ok) switchStatus('switching to it' + (until ? ` until ${until.toLocaleString()}` : ' until you switch back') + ' -- restarting (watch "watching" above)');
+      else switchStatus('NOT switched: ' + (r.error || 'unknown reason'), true);
       if (r.ok) $('custom-url').value = '';
       pollDessert();
-    } catch (e) { $('submit-status').textContent = 'failed'; }
+    } catch (e) { switchStatus('NOT switched: the viewer could not be reached', true); }
   });
   $('dessert-cancel').addEventListener('click', async () => {
-    $('submit-status').textContent = 'going back to the camera...';
-    try { await fetch('/select?name=auto', { method: 'POST', headers: { 'X-Cambrian': '1' } }); $('submit-status').textContent = 'back to camera -- the organism restarts onto it within about a minute'; } catch (e) { $('submit-status').textContent = 'failed'; }
+    switchStatus('going back to the camera...');
+    try {
+      const r = await postSelect('name=auto');
+      if (r.ok) switchStatus('back to camera -- the organism restarts onto it within about a minute');
+      else switchStatus('NOT switched back: ' + (r.error || 'unknown reason'), true);
+    } catch (e) { switchStatus('NOT switched back: the viewer could not be reached', true); }
     pollDessert();
   });
   async function pollDessert() {
@@ -1145,11 +1157,13 @@ class Handler(BaseHTTPRequestHandler):
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
         if not self.path.startswith("/select") or self.headers.get("X-Cambrian") != "1":
+            print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
             return
         origin = self.headers.get("Origin")
         if origin and urlparse(origin).netloc != self.headers.get("Host", ""):
+            print(f"select: refused (origin {origin} is not this page's host {self.headers.get('Host', '')})", flush=True)
             self.send_response(403)
             self.end_headers()
             return
@@ -1194,6 +1208,10 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except (OSError, subprocess.TimeoutExpired):
                 pass  # selection is still saved even if the restart trigger itself failed
+        # Every switch attempt is logged (journal): a refused one used to leave
+        # no trace but a line of small print on the page.
+        print(f"select: {'switched to' if ok else 'refused'} {name or url or '(nothing)'}"
+              + (f" -- {error}" if error else ""), flush=True)
         body = json.dumps({"ok": ok, "error": error}).encode("utf-8")
         self.send_response(200 if ok else 400)
         self.send_header("Content-Type", "application/json")
