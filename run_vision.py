@@ -1116,6 +1116,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         if dessert is not None and box.generation % 25 == 0 and _dessert() is None:
             print(f"Dessert over -- returning to {home_source}.")
             break
+        # And the other way: a video chosen while it is on its camera. Also
+        # stop, so whatever supervises it (systemd, or a plain restart loop
+        # where the viewer cannot restart it) brings it back on the video.
+        if dessert is None and _is_device(home_source) and box.generation % 25 == 0 and _dessert() is not None:
+            print("Dessert chosen -- restarting onto it.")
+            break
         box.generation += 1
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
