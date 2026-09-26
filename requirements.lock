@@ -1,0 +1,9 @@
+# Exact versions every host runs (pip install -r requirements.lock into the
+# host's own venv). Hosts may differ in resource budgets and how they are
+# supervised, never in the code or libraries that decide what the organism
+# perceives -- e.g. a different OpenCV major version can decode, resize and
+# detect differently. Update by upgrading one host's venv, testing, then
+# `pip freeze` into this file and reinstalling everywhere.
+numpy==2.5.3
+opencv-python-headless==5.0.0.93
+yt-dlp==2026.8.19
