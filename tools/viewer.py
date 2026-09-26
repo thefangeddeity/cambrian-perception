@@ -206,6 +206,9 @@ LOCK_HUD_JS = r"""
     let cur, delay = null;
     if (d.world_first_index != null && d.world_age_s != null) {
       const key = d.world_epoch + ':' + d.world_first_index + ':' + d.world_age_s + ':' + d.generation;
+      // A new run (the organism restarted, e.g. switching source) starts the
+      // clock afresh: the minute it took to report in is not staleness.
+      if (clk.epoch !== d.world_epoch) { clk.epoch = d.world_epoch; clk.first = null; clk.need = null; clk.lastT = null; }
       if (clk.key !== key) {
         // A new snapshot: how stale its newest gazed-at frame got before it
         // came is the delay that never stalls.
@@ -219,7 +222,7 @@ LOCK_HUD_JS = r"""
       if (clk.need == null) { clk.need = age + 3.0; clk.target = clk.need; }
       // Grow toward the target at most 0.5 s per second (playback slows, never
       // jumps back); ease the target down slowly, to the shortest delay that works.
-      clk.target = Math.max(1.0, clk.target - dt * 0.01);
+      clk.target = Math.max(1.0, clk.target - dt * 0.05);
       clk.need = clk.need < clk.target ? Math.min(clk.target, clk.need + dt * 0.5) : clk.target;
       delay = clk.need;
       const newest = d.world_first_index + lastIdx;
