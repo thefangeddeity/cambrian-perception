@@ -153,6 +153,7 @@ class Sandbox:
         self.limits = limits
         self.start_time = time.perf_counter()
         self.generation = 0
+        self.run_start_generation = 0
         self._ceiling_hits: dict[str, int] = {}
         self._recent_window: list[str] = []  # last 10 generations' ceiling-hit reasons, "" if none
         # Lines in the current log, counted once at start; rotation then
@@ -165,7 +166,10 @@ class Sandbox:
             self._log_lines = 0
 
     def should_continue(self) -> bool:
-        if self.generation >= self.limits.max_generations:
+        # max_generations is PER RUN: the generation counter itself is the
+        # lifetime total restored from the checkpoint (it once hit 200000
+        # and every restart stopped immediately).
+        if self.generation - self.run_start_generation >= self.limits.max_generations:
             return False
         if time.perf_counter() - self.start_time >= self.limits.max_wallclock_seconds:
             return False

@@ -966,6 +966,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     box = sandbox.Sandbox(limits)
     if checkpoint is not None:
         box.generation = int(checkpoint.get("total_generation", 0))
+        box.run_start_generation = box.generation
     margin = 0.05
 
     # Inputs are only ever APPENDED (e.g. the brain's hidden units), so a
