@@ -147,11 +147,15 @@ class LiveFeed:
                 time.sleep(0.05)
                 continue
             done = frame
+            started = time.time()
             try:
                 self._last_prey = self.detector.detect(frame)
             except cv2.error:
                 pass
-            time.sleep(DETECT_INTERVAL_S)
+            # At most a quarter of the time detecting: on a busy host where a
+            # detection takes seconds (3.5 s on a laptop running a livecam
+            # server), back-to-back detection starved everything else.
+            time.sleep(max(DETECT_INTERVAL_S, 3.0 * (time.time() - started)))
 
     def _run(self) -> None:
         if isinstance(self.source, str) and self.source.startswith("rtsp"):

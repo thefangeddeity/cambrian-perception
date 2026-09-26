@@ -1128,8 +1128,9 @@ class _Workers:
 
 
 WORLD_REFRESH_GENERATIONS = 5
-# ...or sooner: a snapshot older than this is refreshed every generation, so
-# on a slow host its gaze stays close to live (and a dead feed is noticed).
+# ...or sooner, once the snapshot is older than this or three generations,
+# whichever is longer: on a slow host its gaze stays close to live (and a
+# dead feed is noticed) without spending most of its time refreshing.
 WORLD_REFRESH_MAX_S = 10.0
 
 
@@ -1390,6 +1391,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     workers = None  # the worker pool, started when more than one child is scored (False = unavailable)
     world_prev = None  # the previous snapshot, for re-checking a winner
     world_time = time.time()  # when the current snapshot was taken
+    gen_seconds, gen_started = 0.0, time.time()  # how long the last generation took
     # A chosen stream is re-checked every LIVE_RECHECK_S in the background.
     stream_ended = {"yes": False}
     if source == "live" and dessert is not None:
@@ -1428,6 +1430,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             print("Dessert chosen -- restarting onto it.")
             break
         box.generation += 1
+        gen_seconds, gen_started = time.time() - gen_started, time.time()
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
         n_children = _n_children(quota_pct)
@@ -1465,7 +1468,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # rebuilding the world's signals costs ~0.65 s, which every
         # generation would nearly double generation time.
         if feed is not None and (box.generation % WORLD_REFRESH_GENERATIONS == 0
-                                 or time.time() - world_time > WORLD_REFRESH_MAX_S):
+                                 or time.time() - world_time > max(WORLD_REFRESH_MAX_S, 3.0 * gen_seconds)):
             world_time = time.time()
             frames, vectors, total, prey_boxes, colour_frames = feed.snapshot()
             world_prev = world
