@@ -87,28 +87,38 @@ def read_frames(source: str, stride: int = 1, max_frames: int | None = None, max
 # Frames kept for the viewer's replay: twice the default window, so the
 # frames of the run it is showing are still there when it shows them.
 FRAME_RING = 1200
+# A camera slower than this is kept at every frame (a 15 fps camera keeps
+# every 2nd, 7.5/s; an 8 fps one would drop to 4/s -- too coarse for motion).
+SLOW_SOURCE_FPS = 12.0
+# Prey detection at most this often (it ran every 3rd kept frame, ~0.4 s).
+DETECT_INTERVAL_S = 0.3
 
 
 class LiveFeed:
     """
     A live camera kept continuously in memory: a background thread reads
-    every frame, keeps every `stride`-th one (15 frames/s from a 30 fps
-    camera), reduces it to its retina grid as it arrives, and holds only
-    the newest `window` of them (about 40 s). Nothing is ever written to
+    every frame, keeps every `stride`-th one (7.5 frames/s from a 15 fps
+    camera) -- or every frame from a slow camera (under SLOW_SOURCE_FPS),
+    whose motion would otherwise be too coarse to follow -- reduces it to
+    its retina grid as it arrives, and holds only the newest `window` of
+    them. Prey detection runs on its own thread (below), so a slow detector
+    on a busy host never makes the camera drop frames. Nothing is ever written to
     disk. Each generation takes a snapshot, so the organism is always
     scored on what the camera is seeing now, not on a clip captured when
     the process started. Reconnects if the device drops.
     """
 
     def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM,
-                 detector=None, detect_every: int = 3, frames_dir=None):
+                 detector=None, frames_dir=None):
         from .retina import frame_to_vector
         self._to_vector = frame_to_vector
-        # Prey (see prey.py): detected on the full-resolution colour frame
-        # every detect_every kept frames; only boxes are kept, and each
-        # result is held until the next detection.
-        self.detector, self.detect_every = detector, detect_every
+        # Prey (see prey.py): detected on its own thread, on the newest
+        # full-resolution colour frame, at most every DETECT_INTERVAL_S;
+        # only boxes are kept, each result is attached to the frames that
+        # arrive until the next one (so boxes trail by one detection).
+        self.detector = detector
         self._last_prey: list = []
+        self._latest_full = None
         self.source, self.stride, self.max_dim = source, stride, max_dim
         # Each kept frame as a small JPEG, for the viewer's replay of its
         # latest run: the last FRAME_RING of them, f<index>.jpg. Only ever
@@ -124,6 +134,22 @@ class LiveFeed:
         self._stop = False
         self._thread = threading.Thread(target=self._run, name="LiveFeed", daemon=True)
         self._thread.start()
+        if detector is not None:
+            threading.Thread(target=self._detect_loop, name="LiveFeed-prey", daemon=True).start()
+
+    def _detect_loop(self) -> None:
+        done = None
+        while not self._stop:
+            frame = self._latest_full
+            if frame is None or frame is done:
+                time.sleep(0.05)
+                continue
+            done = frame
+            try:
+                self._last_prey = self.detector.detect(frame)
+            except cv2.error:
+                pass
+            time.sleep(DETECT_INTERVAL_S)
 
     def _run(self) -> None:
         if isinstance(self.source, str) and self.source.startswith("rtsp"):
@@ -136,16 +162,17 @@ class LiveFeed:
                 time.sleep(2.0)
                 continue
             count = 0
+            rate = cap.get(cv2.CAP_PROP_FPS)
+            stride = 1 if 0 < rate < SLOW_SOURCE_FPS else self.stride
             try:
                 while not self._stop:
                     ok, frame = cap.read()
                     if not ok:
                         break
                     count += 1
-                    if count % self.stride:
+                    if count % stride:
                         continue
-                    if self.detector is not None and (self.total % self.detect_every == 0):
-                        self._last_prey = self.detector.detect(frame)
+                    self._latest_full = frame  # for the prey thread
                     if self.frames_dir is not None:
                         self._write_frame(frame, self.total)
                     h, w = frame.shape[:2]
