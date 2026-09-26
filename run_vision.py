@@ -1262,6 +1262,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             body_clock = now
             start = body_now or MosquitoState().to_dict()
             body_now = {k: start.get(k, v) + (v - start.get(k, v)) * f for k, v in end_body.items()}
+            # Asleep or awake is a state, not a quantity: take where it ended.
+            for k in ("asleep", "sleep_clock"):
+                if k in end_body:
+                    body_now[k] = end_body[k]
 
         # The real, continuous meta-mutation step (see
         # Genome.update_mutation_weights) -- applied to whichever
