@@ -30,6 +30,7 @@ Usage:
 
 import argparse
 import json
+import os
 import subprocess
 import threading
 import time
@@ -45,7 +46,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from run_vision import LIVE_SOURCES  # noqa: E402
 
 STATE_DIR = Path(__file__).resolve().parent.parent / "state"
-LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
+# Same place run_vision writes it: RAM (/dev/shm) where available.
+_RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception"))
+LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR) / "live_status.json"
+EVOLUTION_LOG_PREV_PATH = STATE_DIR / "evolution_log.1.jsonl"
 # Paths defined independently here, not imported from fishbowl.sandbox
 # -- same deliberate independence as everything else in this module
 # (see its own module docstring: this has to work standalone).
@@ -203,7 +207,7 @@ PAGE = r"""<!doctype html>
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
-  .legend span { margin-right: 12px; white-space: nowrap; }
+  .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
   .gauge { display: grid; grid-template-columns: 84px 1fr 44px; align-items: center; gap: 8px; margin: 3px 0; }
   .gauge .track { height: 10px; background: #162029; border-radius: 2px; overflow: hidden; }
   .gauge .fill { height: 10px; }
@@ -244,9 +248,9 @@ PAGE = r"""<!doctype html>
       <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
       <span><b style="color:var(--orange)">&#9633;</b> on an edge</span>
       <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
-      <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion this frame (size = how much) -- its brain gets this location, so it can learn to swing its gaze there</span>
-      <span><b style="color:var(--red)">red frame</b> something dark approaching (a flinch is rewarded if it reacts within 3 frames)</span>
-      <span><b style="color:#ff5fa2">- - -</b> prey: a person or animal (YOLO); <b style="color:#ff5fa2">EATING</b> = prey held in the center of its gaze</span>
+      <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion (size = how much); its brain gets this location</span>
+      <span><b style="color:var(--red)">red frame</b> something dark approaching</span>
+      <span><b style="color:#ff5fa2">- - -</b> prey (person/animal, YOLO); <b style="color:#ff5fa2">EATING</b> = prey in its gaze center</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
@@ -657,7 +661,12 @@ class Handler(BaseHTTPRequestHandler):
             # complexity increases and whether it earns its structural
             # cost." A real tail of evolution_log.jsonl, not the whole
             # (potentially ~20000-line) file.
-            body = json.dumps(_history_summary(_tail_jsonl(EVOLUTION_LOG_PATH))).encode("utf-8")
+            # The log rotates by renaming (evolution_log.1.jsonl holds the
+            # previous chunk): stitch the two so charts keep their history.
+            recs = _tail_jsonl(EVOLUTION_LOG_PATH)
+            if len(recs) < HISTORY_MAX_LINES and EVOLUTION_LOG_PREV_PATH.exists():
+                recs = _tail_jsonl(EVOLUTION_LOG_PREV_PATH, max_lines=HISTORY_MAX_LINES - len(recs)) + recs
+            body = json.dumps(_history_summary(recs)).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))

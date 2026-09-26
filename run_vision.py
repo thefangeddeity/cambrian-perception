@@ -995,22 +995,34 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     load_source = clip_path
     if source == "live":
         print(f"Resolving live stream: {clip_path}")
-        load_source = _resolve_live_url(clip_path)
+        try:
+            load_source = _resolve_live_url(clip_path)
+        except Exception as e:
+            # Audit: a chosen stream that ended used to crash here forever
+            # (Restart=always). Drop the choice and go back to the camera.
+            print(f"Live stream unavailable ({e}) -- clearing the video choice, back to {home_source}.")
+            if dessert is not None:
+                sandbox.clear_selected_source()
+            return
 
     clip_name = _clip_display_name(source, clip_path)
 
-    # A live camera is read continuously (LiveFeed) and every generation
-    # is scored on the newest ~40 s -- the world it is living in now.
-    # Files and YouTube streams keep one fixed clip per run.
+    # A live camera OR a live stream is read continuously (LiveFeed) and
+    # every generation is scored on the newest ~600 frames -- the world it
+    # is living in now (audit: a fixed stream clip reused for an hour let
+    # the organism memorise it). Only local files keep one fixed clip.
     feed = None
-    if _is_device(source):
-        print(f"Opening live feed {source!r} (frames kept in memory only, never written to disk)...")
+    if _is_device(source) or source == "live":
+        print(f"Opening live feed {clip_path!r} (frames kept in memory only, never written to disk)...")
         detector = prey_lib.PreyDetector()
         print(f"Prey detector: {'yolov8n loaded' if detector.available else 'MODEL MISSING -- no prey, snacks only'} ({detector.model_path})")
-        feed = video_source.LiveFeed(int(source) if source.isdigit() else source, detector=detector if detector.available else None)
+        feed_src = (int(source) if source.isdigit() else source) if _is_device(source) else load_source
+        feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None)
         if not feed.wait_for(600):
             print("Live feed never filled its window -- aborting.")
             feed.close()
+            if dessert is not None:
+                sandbox.clear_selected_source()
             return
         frames, vectors, seen_total, prey_boxes = feed.snapshot()
     else:
@@ -1088,6 +1100,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # rate, not 80 s of body-time per 1 s generation.
     body_now = (checkpoint or {}).get("body")
     body_clock = time.time()
+    # Audit: downtime used to be free for the body. Charge the time since
+    # the checkpoint was saved as idle, foodless time.
+    if body_now and checkpoint and checkpoint.get("saved_at"):
+        away = max(0.0, time.time() - float(checkpoint["saved_at"]))
+        b = MosquitoState.from_dict(body_now)
+        b.idle(away)
+        body_now = b.to_dict()
+        print(f"Body: {away / 60:.1f} min since last save charged as idle time (energy now {body_now['energy']:.3f}).")
     # Surprise memory persists too (NaN = never seen, stored as null).
     memory_now = None
     if checkpoint and checkpoint.get("memory"):
@@ -1109,6 +1129,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "n_vars": n_vars,
             "clip_index": (clip_index + 1) % len(clips),
             "total_generation": box.generation,
+            "saved_at": time.time(),
             "body": body_now,
             "memory": {"mean": [[None if np.isnan(x) else round(float(x), 4) for x in row] for row in memory_now[0]],
                        "var": [[round(float(x), 6) for x in row] for row in memory_now[1]]} if memory_now is not None else None,
@@ -1118,6 +1139,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # switch in the viewer) ends the loop cleanly so the checkpoint is
     # saved below -- it used to die mid-loop and lose up to 99 generations.
     stop = {"now": False}
+    _last_status = [0.0]
+    last_new_frame = time.time()
+
+    def _status_due() -> bool:
+        now_s = time.time()
+        if now_s - _last_status[0] < 1.0:
+            return False
+        _last_status[0] = now_s
+        return True
     signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__("now", True))
 
     while box.should_continue() and not stop["now"]:
@@ -1168,6 +1198,17 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             frames, vectors, total, prey_boxes = feed.snapshot()
             world = World(frames, vectors, feed.frames_per_second(), prey_boxes)
             _observe(total - seen_total)
+            if total != seen_total:
+                last_new_frame = time.time()
+            elif time.time() - last_new_frame > 60:
+                # Audit: a stalled feed used to be scored forever on the same
+                # frozen frames. A dead stream goes back to the camera; a
+                # stalled camera restarts the process (reopening the device).
+                print(f"No new frames for {time.time() - last_new_frame:.0f} s -- "
+                      + ("stream ended, back to the camera." if source == "live" else "camera stalled, restarting."))
+                if source == "live" and dessert is not None:
+                    sandbox.clear_selected_source()
+                break
             seen_total = total
         parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(), world.prey, memory_now)
         candidate_fitness, breakdown, live_info = evaluate_genome(
@@ -1281,7 +1322,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # (see HLSLS's own broadcast-api /api/cv-state precedent) --
         # every generation, not just every 100th checkpoint save; this
         # is small and cheap, unlike the full checkpoint.
-        sandbox.save_live_status({
+        # At most once a second (audit: every generation was ~25 GB/day of
+        # writes; it now lives in RAM too -- see sandbox.LIVE_STATUS_PATH).
+        if _status_due(): sandbox.save_live_status({
             "generation": box.generation,
             # No longer a ratchet -- see the B1 fix above. This is the
             # current genome's real fitness, re-scored fresh every

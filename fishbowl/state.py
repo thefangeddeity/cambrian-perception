@@ -137,6 +137,16 @@ class MosquitoState:
         # tempos curiosity could never come down and sat pinned at 1.0).
         self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.25 * _clamp(tracking_quality))
 
+    def idle(self, seconds: float) -> None:
+        """Time passing with no food and nothing seen (e.g. while the
+        process was down): basal burn at its acclimatized rate, and hunger
+        and search following the energy deficit."""
+        self.energy = _clamp(self.energy - BASAL_PER_SECOND * self.metabolic_rate * seconds)
+        self.hunger = _clamp(1.0 - self.energy) if seconds > 60 else self.hunger
+        self.search = self.hunger if seconds > 60 else self.search
+        self.arousal = 0.0 if seconds > 60 else self.arousal
+        self.threat = 0.0 if seconds > 60 else self.threat
+
     def feed_prey(self, amount: float) -> None:
         """A real meal: prey (a person or animal, per YOLO) held in the
         center of the gaze. The scarce, earned food source."""

@@ -11,6 +11,7 @@ filesystem directly.
 import json
 import time
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
 STATE_DIR = Path(__file__).resolve().parents[1] / "state"
@@ -20,10 +21,15 @@ STATE_DIR = Path(__file__).resolve().parents[1] / "state"
 # path needs updating to read one JSON object per line instead.
 EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
 MAX_LOG_LINES = 20000
-_ROTATE_CHECK_INTERVAL = 500
+EVOLUTION_LOG_PREV_PATH = STATE_DIR / "evolution_log.1.jsonl"
 REQUESTS_PATH = STATE_DIR / "requests.json"
 CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
-LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
+# live_status.json is throwaway (rewritten constantly, only for the viewer):
+# kept in RAM (/dev/shm) where available, so it costs no SSD writes (audit:
+# ~25 GB/day when it was written to disk every generation).
+_RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception"))
+LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR) / "live_status.json"
+CHECKPOINT_PREV_PATH = STATE_DIR / "checkpoint.prev.json"
 SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
 HANDLER_STATE_PATH = STATE_DIR / "handler_state.json"
 
@@ -49,7 +55,7 @@ def save_live_status(data: dict) -> None:
     everything else here, and cambrian-perception itself never opens
     a socket to serve this; something else reads the file.
     """
-    _write_json_atomic(LIVE_STATUS_PATH, data)
+    _write_json_atomic(LIVE_STATUS_PATH, data, compact=True)
 
 
 def save_checkpoint(data: dict) -> None:
@@ -63,13 +69,39 @@ def save_checkpoint(data: dict) -> None:
     history, habituation) -- never raw frames, same boundary as
     everything else this module writes.
     """
-    _write_json_atomic(CHECKPOINT_PATH, data)
+    # Keep the previous checkpoint as a fallback (audit: one unreadable
+    # checkpoint used to silently start a brand-new lineage).
+    if CHECKPOINT_PATH.exists():
+        os.replace(CHECKPOINT_PATH, CHECKPOINT_PREV_PATH)
+    _write_json_atomic(CHECKPOINT_PATH, data, durable=True)
+
+
+class CheckpointUnreadable(RuntimeError):
+    pass
 
 
 def load_checkpoint() -> dict | None:
-    if not CHECKPOINT_PATH.exists():
-        return None
-    return _read_json(CHECKPOINT_PATH, None)
+    """The checkpoint, else its previous copy. None only if neither file
+    exists (a genuine first birth). If files exist but none can be read,
+    raise -- never silently start a fresh lineage over a damaged one."""
+    existing = [p for p in (CHECKPOINT_PATH, CHECKPOINT_PREV_PATH) if p.exists()]
+    for p in existing:
+        data = _read_json(p, None)
+        if isinstance(data, dict) and "genome" in data:
+            if p is CHECKPOINT_PREV_PATH:
+                print("checkpoint.json unreadable -- resuming from checkpoint.prev.json")
+            return data
+    if existing:
+        raise CheckpointUnreadable(f"checkpoint(s) exist but none are readable: {[str(p) for p in existing]}")
+    return None
+
+
+def clear_selected_source() -> None:
+    """Drop the video choice (a chosen stream failed): back to the camera."""
+    try:
+        SELECTED_SOURCE_PATH.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def load_selected_source() -> dict | None:
@@ -124,7 +156,14 @@ class Sandbox:
         self.generation = 0
         self._ceiling_hits: dict[str, int] = {}
         self._recent_window: list[str] = []  # last 10 generations' ceiling-hit reasons, "" if none
-        self._gens_since_rotate_check = 0
+        # Lines in the current log, counted once at start; rotation then
+        # just renames the file (audit: the old rotation rewrote the whole
+        # 34 MB log every ~75 s -- ~40 GB/day of SSD writes).
+        try:
+            with EVOLUTION_LOG_PATH.open("rb") as f:
+                self._log_lines = sum(1 for _ in f)
+        except OSError:
+            self._log_lines = 0
 
     def should_continue(self) -> bool:
         if self.generation >= self.limits.max_generations:
@@ -187,25 +226,13 @@ class Sandbox:
         with EVOLUTION_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
 
-        self._gens_since_rotate_check += 1
-        if self._gens_since_rotate_check >= _ROTATE_CHECK_INTERVAL:
-            self._gens_since_rotate_check = 0
-            self._rotate_log_if_needed()
-
-    def _rotate_log_if_needed(self) -> None:
-        # Checked only every _ROTATE_CHECK_INTERVAL generations, not
-        # every one -- an unbounded log file is still a real resource
-        # to cap (same reasoning as every other ceiling here), but the
-        # cap doesn't need enforcing on every single append.
-        if not EVOLUTION_LOG_PATH.exists():
-            return
-        lines = EVOLUTION_LOG_PATH.read_text(encoding="utf-8").splitlines()
-        if len(lines) <= MAX_LOG_LINES:
-            return
-        kept = lines[-MAX_LOG_LINES:]
-        temp = EVOLUTION_LOG_PATH.with_suffix(".tmp")
-        temp.write_text("\n".join(kept) + "\n", encoding="utf-8")
-        temp.replace(EVOLUTION_LOG_PATH)
+        self._log_lines += 1
+        if self._log_lines >= MAX_LOG_LINES:
+            # Rotate by renaming: the current log becomes evolution_log.1
+            # (replacing the older one) and a fresh one starts. No copy, no
+            # rewrite; readers can stitch .1 + current for longer history.
+            os.replace(EVOLUTION_LOG_PATH, EVOLUTION_LOG_PREV_PATH)
+            self._log_lines = 0
 
 
 def _read_json(path: Path, default):
@@ -217,12 +244,18 @@ def _read_json(path: Path, default):
         return default
 
 
-def _write_json_atomic(path: Path, data) -> None:
+def _write_json_atomic(path: Path, data, compact: bool = False, durable: bool = False) -> None:
     # The ONE whitelisted place any brain-influenced value ever
-    # reaches disk from, always inside STATE_DIR, always via a temp
-    # file + atomic replace so a killed process can never leave a
-    # truncated, unparseable state file behind.
+    # reaches disk from (inside STATE_DIR, or the RAM runtime dir for the
+    # live status), always via a temp file + atomic replace so a killed
+    # process can never leave a truncated, unparseable state file behind.
+    # durable=True (checkpoints) also fsyncs before the replace.
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    text = json.dumps(data, separators=(",", ":")) if compact else json.dumps(data, indent=2)
+    with open(temp, "w", encoding="utf-8") as f:
+        f.write(text)
+        if durable:
+            f.flush()
+            os.fsync(f.fileno())
     temp.replace(path)
