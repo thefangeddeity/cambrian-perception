@@ -249,11 +249,11 @@ PAGE = r"""<!doctype html>
 
   <div class="panel">
     <h2>body</h2>
-    <div class="cap">Gemini's homeostasis (fishbowl/state.py) at the end of its latest run.</div>
+    <div class="cap">Gemini's homeostasis (fishbowl/state.py) -- its body <b>right now</b>. It persists through the day and across restarts: hours of stillness really drain it; a rich stream feeds it back up. The traces below are its latest run.</div>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Food = genuinely new visual structure through its gaze, checked against its memory of each spot. A still room starves it; re-looking at what it has already seen does not feed it.</div>
+      <div class="cap">Food = surprise through its gaze: change beyond what each spot usually does (it remembers each spot's usual brightness and how much it usually varies). Sensor noise never feeds it; a swinging fan feeds it only until the swing becomes expected; something new in a still corner is a big meal.</div>
       <div id="food-gauge"></div>
       <canvas id="food-trace" height="60"></canvas>
     </div>
@@ -398,7 +398,7 @@ PAGE = r"""<!doctype html>
     ctx.fillStyle = '#6f8798'; ctx.font = '10px monospace'; ctx.fillText(label + ' over its latest run (0..1, start -> end)', 2, H - 3);
   }
   function drawBody(d) {
-    const b = d.body || {};
+    const b = d.body_now || d.body || {};
     $('gauges').innerHTML =
       gauge('energy', b.energy, '#4fa') + gauge('hunger', b.hunger, '#f6a', 'builds while energy is low') +
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +

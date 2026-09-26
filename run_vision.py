@@ -62,6 +62,7 @@ Usage:
 import argparse
 import math
 import random
+import signal
 import subprocess
 import time
 import sys
@@ -180,7 +181,7 @@ def _edge_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> f
 # its visual field as curiosity wants and resources allow, but shrink
 # as resource hunger limits it."
 REFERENCE_QUOTA_PCT = 150.0
-APERTURE_COST = 0.01
+APERTURE_COST = 1e-4  # per gaze, x area x scarcity (real-clock body: see fishbowl/state.py)
 
 
 def _aperture_cost(frac: float, quota_pct: float) -> float:
@@ -199,7 +200,25 @@ UNSEEN_NOVELTY = 0.25
 FOOD_GAIN = 400.0
 
 
-def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState") -> float:
+# Tuned on synthetic scenes (noise / swinging fan / new object / something
+# crossing): at 4 sigmas with these rates, noise feeds 0, a fan 0.20 while
+# new and 0 once learned, a new object ~0.2 when it appears, something
+# crossing to new places ~0.10 steadily.
+SURPRISE_SIGMAS = 4.0      # change beyond ~4x a spot's usual variation counts as surprise
+NOISE_FLOOR = 0.02         # smallest variation any spot is assumed to have (sensor noise)
+MEAN_RATE, VAR_RATE = 0.1, 0.05
+
+
+def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState", variance: np.ndarray | None = None) -> float:
+    """
+    Food = SURPRISE at each spot the gaze covers: how far what it sees
+    now is beyond that spot's usual variation (a running estimate of
+    both its brightness and how much it varies) -- habituation. Sensor
+    noise never feeds it; a swinging fan feeds it only until its swing
+    becomes expected; something new in a still corner is a big meal.
+    Spots never seen before count as UNSEEN_NOVELTY. Plain running
+    statistics per spot, no learning model needed.
+    """
     x0 = int(round((st.cx - st.fraction / 2) * MEM_W)); x1 = max(x0 + 1, int(round((st.cx + st.fraction / 2) * MEM_W)))
     y0 = int(round((st.cy - st.fraction / 2) * MEM_H)); y1 = max(y0 + 1, int(round((st.cy + st.fraction / 2) * MEM_H)))
     x0, y0, x1, y1 = max(0, x0), max(0, y0), min(MEM_W, x1), min(MEM_H, y1)
@@ -207,9 +226,16 @@ def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState
     patch = grid[np.ix_(np.arange(y1 - y0) * GRID[0] // (y1 - y0), np.arange(x1 - x0) * GRID[1] // (x1 - x0))]
     region = memory[y0:y1, x0:x1]
     seen = ~np.isnan(region)
-    novelty = np.where(seen, np.abs(patch - np.nan_to_num(region)), UNSEEN_NOVELTY)
-    memory[y0:y1, x0:x1] = np.where(seen, 0.7 * np.nan_to_num(region) + 0.3 * patch, patch)
-    return float(min(1.0, novelty.sum() / (MEM_H * MEM_W) * FOOD_GAIN))
+    mean = np.nan_to_num(region)
+    if variance is None:
+        variance = np.full(memory.shape, NOISE_FLOOR ** 2)
+    var = variance[y0:y1, x0:x1]
+    sigma = np.sqrt(np.maximum(var, NOISE_FLOOR ** 2))
+    dev = patch - mean
+    surprise = np.where(seen, np.maximum(0.0, np.abs(dev) - SURPRISE_SIGMAS * sigma), UNSEEN_NOVELTY)
+    memory[y0:y1, x0:x1] = np.where(seen, mean + MEAN_RATE * dev, patch)
+    variance[y0:y1, x0:x1] = np.where(seen, var + VAR_RATE * (dev * dev - var), NOISE_FLOOR ** 2)
+    return float(min(1.0, surprise.sum() / (MEM_H * MEM_W) * FOOD_GAIN))
 
 
 # Scale of the look's own motion/flow readings into the [0, 1]
@@ -247,6 +273,7 @@ def _peripheral_motion_centroid(world_vectors: np.ndarray) -> tuple[np.ndarray, 
 
 
 HOMEOSTASIS_WEIGHT = 3.0
+DRIVE_REDUCTION_WEIGHT = 1.0
 # Gemini's brain has an "alarm" output; it earns fitness by tracking
 # real world loom (never forced to).
 ALARM_WEIGHT = 1.0
@@ -254,7 +281,7 @@ ALARM_WEIGHT = 1.0
 # Per-look compute cost (the brain and tree running once), priced like
 # the aperture: x CPU scarcity. With basal rate scaling by pace (see
 # MosquitoState.update), this is what makes a fast pace of life expensive.
-THINK_COST = 0.001
+THINK_COST = 2e-5  # per gaze, x scarcity
 
 # The flinch, evolved rather than wired: at each onset of a real
 # approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
@@ -542,6 +569,8 @@ def evaluate_genome(
     world_conspec: tuple[np.ndarray, np.ndarray, np.ndarray],
     habituation_discount: float,
     quota_pct: float = REFERENCE_QUOTA_PCT,
+    start_body: dict | None = None,
+    fps: float = 15.0,
 ) -> tuple[float, dict, dict]:
     """
     Returns (fitness, breakdown, live_info). world_signals/world_conspec
@@ -554,14 +583,19 @@ def evaluate_genome(
     any genome's path -- see run()).
     """
     state = fovea.FoveaState(fraction=float(np.clip(g.fovea_fraction, fovea.MIN_FRACTION, fovea.MAX_FRACTION)))
-    body = MosquitoState()
+    # Its body as it actually is right now (carried across generations
+    # by run()), not a fresh full-energy body each window.
+    body = MosquitoState.from_dict(start_body) if start_body else MosquitoState()
     # Pace of life: the caller hands over every pace-th frame (and the
     # world signals at that rate); each look spans `pace` base frames of
     # real time (1/15 s each).
     pace = max(1, int(getattr(g, "pace", 1)))
+    gaze_seconds = pace / max(1.0, fps)  # real time between gazes
+    drive_start = body.drive()
     brain = g.brain
     brain.reset_hidden()
-    memory = np.full((MEM_H, MEM_W), np.nan)  # what the look has seen, per world location
+    memory = np.full((MEM_H, MEM_W), np.nan)  # what the gaze has seen, per world location
+    variance = np.full((MEM_H, MEM_W), NOISE_FLOOR ** 2)  # how much each spot usually varies
     scarcity_cost = lambda frac: _aperture_cost(frac, quota_pct)
     scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
 
@@ -640,8 +674,8 @@ def evaluate_genome(
         movement_costs.append(math.hypot(force_x, force_y))
         periph_active.append(periph_motion)
 
-        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity, dt=pace, pace=pace)
-        food = _feed_on_novelty(memory, fovea.extract(frame, state), state)
+        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity, dt=pace, pace=pace, dt_seconds=gaze_seconds)
+        food = _feed_on_novelty(memory, fovea.extract(frame, state), state, variance)
         body.feed_visual_sustenance(food)
         energies.append(body.energy)
         drives.append(body.drive())
@@ -751,6 +785,15 @@ def evaluate_genome(
 
     mean_drive = float(np.mean(drives)) if drives else 0.0
     fitness -= HOMEOSTASIS_WEIGHT * mean_drive
+    # Keramati & Gutkin (2014) homeostatic reward: drive reduction --
+    # did this window leave its body better or worse off? Parent and
+    # candidate start from the same body, so this is a fair comparison;
+    # scaled to "per 20 minutes" so a slow real-clock body still gives
+    # selection a clear signal.
+    window_seconds = max(1e-6, len(frames) * gaze_seconds)
+    drive_reduction = (drive_start - body.drive()) * (1200.0 / window_seconds)
+    fitness += DRIVE_REDUCTION_WEIGHT * drive_reduction
+    breakdown["drive_reduction"] = drive_reduction
     breakdown["mean_drive"] = mean_drive
     breakdown["mean_energy"] = float(np.mean(energies)) if energies else 0.0
     breakdown["final_energy"] = energies[-1] if energies else 0.0
@@ -904,6 +947,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         seen_total = len(frames)
     world = World(frames, vectors)
 
+    def _fps() -> float:
+        return feed.frames_per_second() if feed is not None and feed.frames_per_second() > 0 else 15.0
+
     # The real source frame's shape -- User: "make foveal rectangle honest."
     frame_h, frame_w = frames[0].shape[:2]
 
@@ -954,7 +1000,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # Real current CPU quota (resource_handler.py's own record), prices
     # the look's size -- refreshed periodically below, never inferred.
     quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
-    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct)
+    # Its body persists across generations (and restarts): every window
+    # starts from how it actually is now, and afterwards the lasting body
+    # moves toward the survivor's end-of-window body in proportion to the
+    # real time that passed -- so hours of stillness drain it at a real
+    # rate, not 80 s of body-time per 1 s generation.
+    body_now = (checkpoint or {}).get("body")
+    body_clock = time.time()
+    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct, body_now, _fps())
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -969,9 +1022,16 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "n_vars": n_vars,
             "clip_index": (clip_index + 1) % len(clips),
             "total_generation": box.generation,
+            "body": body_now,
         })
 
-    while box.should_continue():
+    # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
+    # switch in the viewer) ends the loop cleanly so the checkpoint is
+    # saved below -- it used to die mid-loop and lose up to 99 generations.
+    stop = {"now": False}
+    signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__("now", True))
+
+    while box.should_continue() and not stop["now"]:
         # Dessert over (deadline passed, or cleared in the viewer): stop
         # this run so systemd brings it back on its home camera.
         if dessert is not None and box.generation % 25 == 0 and _dessert() is None:
@@ -1020,9 +1080,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             world = World(frames, vectors)
             _observe(total - seen_total)
             seen_total = total
-        parent_fitness, _, _ = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct)
+        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct, body_now, _fps())
         candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, *world.at_pace(candidate.pace), habituation.discount, quota_pct,
+            candidate, *world.at_pace(candidate.pace), habituation.discount, quota_pct, body_now, _fps(),
         )
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
@@ -1055,6 +1115,18 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             best_fitness = parent_fitness
         if math.isfinite(best_fitness):
             peak_fitness_seen = max(peak_fitness_seen, best_fitness)
+
+        # Advance the lasting body toward the survivor's end-of-window body,
+        # by the fraction of the window's real duration that actually passed.
+        end_body = (live_info if accepted else parent_info).get("body")
+        if end_body:
+            now = time.time()
+            fps_real = feed.frames_per_second() if feed is not None else 15.0
+            window_s = len(world.frames) / max(1.0, fps_real)
+            f = min(1.0, (now - body_clock) / max(1.0, window_s))
+            body_clock = now
+            start = body_now or MosquitoState().to_dict()
+            body_now = {k: start.get(k, v) + (v - start.get(k, v)) * f for k, v in end_body.items()}
 
         # The real, continuous meta-mutation step (see
         # Genome.update_mutation_weights) -- applied to whichever
@@ -1142,6 +1214,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "field_events": live_info.get("field_events"),
             "flinch": live_info.get("flinch"),
             "max_fraction": fovea.MAX_FRACTION,
+            # Its lasting body right now (persists across generations and
+            # restarts), vs "body" = the candidate's at the end of its window.
+            "body_now": {k: round(v, 4) for k, v in body_now.items()} if body_now else None,
             # Pace of life: the accepted genome's, and the one the replay
             # below was recorded at (the candidate's) -- replay speed
             # depends on it (15 / pace looks per second).

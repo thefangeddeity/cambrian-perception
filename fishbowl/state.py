@@ -17,6 +17,15 @@ metabolic constraints:
 from dataclasses import dataclass
 
 
+# Energy on a real clock. Its body persists across generations and
+# restarts (run_vision.py), so these are sized for a life of hours, not
+# the ~1-minute lives Gemini's per-tick numbers implied (measured: with
+# surprise as food every brain starved within one 80 s window).
+BASAL_PER_SECOND = 1.0 / 1200.0  # full energy lasts ~20 min at hummingbird pace with no food, ~2 h at reptile pace
+EFFORT_COST = 1e-4               # per push, x force^2 (a full saccade ~ 0.25 s of basal)
+FOOD_PER_LOOK = 8e-4             # x surprise (0..1): a rich stream refills it in minutes
+
+
 def _clamp(v: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, v))
 
@@ -54,6 +63,7 @@ class MosquitoState:
         aperture_cost: float = 0.0,
         dt: int = 1,
         pace: int = 1,
+        dt_seconds: float | None = None,
     ) -> None:
         """
         One look. dt = real time since the last look, in base frames
@@ -79,9 +89,11 @@ class MosquitoState:
         self.arousal = leak(self.arousal, 0.92, motion)
         self.threat = leak(self.threat, 0.85, loom)
 
-        bmr = 0.25 + 0.75 / max(1, pace)
-        basal_cost = (0.003 + 0.003 * self.arousal) * bmr * dt
-        effort_cost = 0.010 * motor_effort
+        # Basal rate scales with pace: 1 = hummingbird, 6 = reptile at 1/6.
+        bmr = 1.0 / max(1, pace)
+        seconds = dt_seconds if dt_seconds is not None else dt / 15.0
+        basal_cost = BASAL_PER_SECOND * (1.0 + self.arousal) * bmr * seconds
+        effort_cost = EFFORT_COST * motor_effort
         # A wider look processes more pixels: priced per look by the
         # caller (area x real CPU scarcity -- see run_vision.py).
         self.energy = _clamp(self.energy - (basal_cost + effort_cost + aperture_cost))
@@ -104,7 +116,7 @@ class MosquitoState:
         # (measured on real camera frames: 12/12 random brains and the
         # live genome ended at ~0 energy). Now eating well while moving
         # economically can run a surplus; frantic or badly-placed can't.
-        gain = 0.012 * _clamp(tracking_quality)
+        gain = FOOD_PER_LOOK * _clamp(tracking_quality)
         self.energy = _clamp(self.energy + gain)
         # Curiosity: slowly rises every frame, satisfied by real novelty.
         self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.05 * _clamp(tracking_quality))
@@ -115,6 +127,11 @@ class MosquitoState:
         Positive when moving toward health/safety, negative when depleting/panicking.
         """
         return self.previous_drive - self.drive()
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MosquitoState":
+        fields = ("energy", "arousal", "threat", "search", "fatigue", "hunger", "curiosity")
+        return cls(**{k: float(data[k]) for k in fields if k in data})
 
     def to_dict(self) -> dict[str, float]:
         return {
