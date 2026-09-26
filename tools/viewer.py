@@ -143,6 +143,7 @@ def _history_summary(records: list[dict]) -> dict:
             "mv": bd.get("movement"),
             "fovea_fraction": r.get("fovea_fraction"),
             "quota_pct": r.get("quota_pct"),
+            "pace": r.get("pace"),
             "tree_nodes": ts.get("nodes"),
             "tree_depth": ts.get("depth"),
             "accepted_types": sorted({b.get("mutation_type") for b in acc}),
@@ -201,7 +202,8 @@ PAGE = r"""<!doctype html>
   <span class="chip">fitness <b id="h-fit">--</b></span>
   <span class="chip">peak ever <b id="h-peak">--</b></span>
   <span class="chip">watching <b id="h-src">--</b></span>
-  <span class="chip">look size <b id="h-look">--</b></span>
+  <span class="chip">gaze size <b id="h-look">--</b></span>
+  <span class="chip">pace <b id="h-pace">--</b></span>
   <span class="chip">CPU quota <b id="h-quota">--</b></span>
   <span class="chip" id="h-stale"></span>
 </header>
@@ -209,22 +211,22 @@ PAGE = r"""<!doctype html>
 <div class="vision">
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
-    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">look</b>, replayed along its real path over its latest ~40 s run at real speed (15 frames/s), trail = last 3 s.</div>
+    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors (fixed for now -- an evolvable, metabolically priced receptor count is queued) over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b>, replayed along its real path over its latest run (the newest ~600 frames), at real speed, trail = last 3 s.</div>
     <canvas id="field" class="px"></canvas>
     <div class="legend cap" style="margin-top:8px">
-      <span><b style="color:var(--green)">&#9633;</b> look, centered</span>
+      <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
       <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
       <span><b style="color:var(--orange)">&#9633;</b> on an edge</span>
       <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
-      <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion this frame (size = how much) -- its brain gets this location, so it can learn to swing its look there</span>
-      <span><b style="color:var(--red)">red frame</b> something dark approaching (a flinch is rewarded if it reacts within ~200 ms)</span>
+      <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion this frame (size = how much) -- its brain gets this location, so it can learn to swing its gaze there</span>
+      <span><b style="color:var(--red)">red frame</b> something dark approaching (a flinch is rewarded if it reacts within 3 frames)</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
 
   <div class="panel" id="look-panel">
-    <h2>look</h2>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the look sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. View at the end of its latest run.</div>
+    <h2>gaze</h2>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. View at the end of its latest run.</div>
     <canvas id="look" class="px"></canvas>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
@@ -235,7 +237,7 @@ PAGE = r"""<!doctype html>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Food = genuinely new visual structure through its look, checked against its memory of each spot. A still room starves it; re-looking at what it has already seen does not feed it.</div>
+      <div class="cap">Food = genuinely new visual structure through its gaze, checked against its memory of each spot. A still room starves it; re-looking at what it has already seen does not feed it.</div>
       <div id="food-gauge"></div>
       <canvas id="food-trace" height="60"></canvas>
     </div>
@@ -253,12 +255,12 @@ PAGE = r"""<!doctype html>
 <div class="brainrow">
   <div class="panel">
     <h2>its brain</h2>
-    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the look: 18 inputs &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm. Its memory units also feed the perception tree (right). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the gaze: 18 inputs &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm. Its memory units also feed the perception tree (right). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
     <canvas id="brain" height="520"></canvas>
   </div>
   <div class="panel">
     <h2>its perception tree</h2>
-    <div class="cap">The genome's evolved "response" tree: reads the look's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Graded by the hand-written scores below.</div>
+    <div class="cap">The genome's evolved "response" tree: reads the gaze's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Graded by the hand-written scores below.</div>
     <div id="trees"></div>
   </div>
 </div>
@@ -270,15 +272,16 @@ PAGE = r"""<!doctype html>
   <div class="cap">Every pressure currently in the fitness, with its real weight in run_vision.py. <span class="tag body">body</span> = comes from staying alive (the direction this is going: Dennett's "whole iguana"). <span class="tag hand">hand-written</span> = an older score bolted on from outside, to be retired one at a time as the body takes over. Nothing is hard-wired: the old innate escape reflex was removed so the flinch can evolve.</div>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
-    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;. The biggest term. Energy is spent every frame on basal metabolism (0.003 + 0.003 &times; arousal), muscle force (0.010 &times; force&sup2;) and look size (0.01 &times; area &times; 150 / CPU quota, so a wide look costs more when CPU is scarce), and only restored by eating (up to 0.012 per frame).</td></tr>
+    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;. The biggest term. Energy is spent every frame on basal metabolism (0.003 + 0.003 &times; arousal), muscle force (0.010 &times; force&sup2;) and gaze size (0.01 &times; area &times; 150 / CPU quota, so a wide gaze costs more when CPU is scarce), and only restored by eating (up to 0.012 per frame).</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>pace of life</td><td>How often it gazes: every 1st to 6th frame it gets, inherited and evolving. Time passes the same for all -- basal burn, hunger, fatigue run in real time -- but each gaze costs compute (0.001 &times; CPU scarcity) plus the gaze-size cost, and basal metabolism scales with pace (a hummingbird idles hot, a reptile idles cheap). Slow means cheaper, fewer meals per second and slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its look or making a saccade within 3 frames (~200 ms), more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>alarm</td><td>Its brain's alarm output tracking real approaching objects.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+0.5 / +0.75 / +0.75</td><td>luminance_change / motion_energy / directional_motion</td><td>The response tree's output correlating with global brightness change, any change, and which way things move (Hassenstein-Reichardt).</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+2.0</td><td>loom (old detector)</td><td>Response tree correlating with reflexes.loom_score. Known flaw, measured: it scores sideways motion ~10x higher than a real approach. The body uses the corrected expansion detector; this score is first in line for retirement.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.5</td><td>conspec_drive</td><td>Staying engaged with a face-like pattern (Morton &amp; Johnson's CONSPEC), dampened by habituation to familiar harmless presence.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Rate of reaching new gaze positions (5x5 grid). Overlaps with eating novelty now.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0 / +1.0</td><td>optokinetic_pursuit / seek</td><td>Moving the look the way real motion goes; ending up near a detected face-like pattern.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0 / +1.0</td><td>optokinetic_pursuit / seek</td><td>Moving the gaze the way real motion goes; ending up near a detected face-like pattern.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead_field / movement_cost</td><td>Sustained stretches with nothing happening in the world; pushing the eye at all (on top of the body's energy cost for force).</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>corner / edge penalty</td><td>Sitting in a corner, or hard against one edge.</td></tr>
   </table>
@@ -313,7 +316,7 @@ PAGE = r"""<!doctype html>
     return corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#4fa';
   }
 
-  // Visual field + replay of the look's real path, frame by frame, no interpolation.
+  // Visual field + replay of the gaze's real path, frame by frame, no interpolation.
   function drawField(now) {
     requestAnimationFrame(drawField);
     const d = D;
@@ -324,7 +327,8 @@ PAGE = r"""<!doctype html>
     const ctx = c.getContext('2d');
     drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H);
     const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx, d.fovea_cy, d.fovea_fraction || 0.35]];
-    const i = Math.floor((now - t0) / 1000 * REPLAY_FPS) % traj.length;
+    const fps = (d.frames_per_second || REPLAY_FPS) / (d.pace || 1);
+    const i = Math.floor((now - t0) / 1000 * fps) % traj.length;
     const ev = d.field_events && d.field_events[i];
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
@@ -335,14 +339,14 @@ PAGE = r"""<!doctype html>
       if (loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
     }
     ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
-    const k0 = Math.max(0, i - 45);
+    const k0 = Math.max(0, i - Math.round(3 * fps));
     for (let k = k0; k <= i; k++) { const px = traj[k][0] * W, py = traj[k][1] * H; k === k0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
     ctx.stroke();
     const [cx, cy, f] = traj[i];
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
     ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 3;
     ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
-    $('replay-clock').textContent = `replay: frame ${i + 1} / ${traj.length}  (t = ${(i / REPLAY_FPS).toFixed(1)} s of ${(traj.length / REPLAY_FPS).toFixed(0)} s)` + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
+    $('replay-clock').textContent = `replay: gaze ${i + 1} / ${traj.length}  (t = ${(i / fps).toFixed(1)} s of ${(traj.length / fps).toFixed(0)} s, ${fps.toFixed(1)} gazes/s)` + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
   requestAnimationFrame(drawField);
 
@@ -358,10 +362,10 @@ PAGE = r"""<!doctype html>
     const lw = cw * s, lh = ch * s, lx = (W - lw) / 2, ly = (H - lh) / 2;
     drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
     ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
-    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText(`largest possible look (${fmax} of frame)`, 6, 14);
+    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText(`largest possible gaze (${fmax} of frame)`, 6, 14);
     $('look-px').textContent = `${cw}x${ch} real pixels`;
     $('field-px').textContent = `${d.frame_w}x${d.frame_h} real pixels`;
-    $('look-scale').textContent = `Its look is ${(f).toFixed(3)} of the frame -- ${(100 * f / fmax).toFixed(0)}% of the widest it can open (dashed frame). Shown ${s.toFixed(1)}x real size.`;
+    $('look-scale').textContent = `Its gaze is ${(f).toFixed(3)} of the frame -- ${(100 * f / fmax).toFixed(0)}% of the widest it can open (dashed frame). Shown ${s.toFixed(1)}x real size.`;
   }
 
   function gauge(name, v, color, note) {
@@ -388,7 +392,8 @@ PAGE = r"""<!doctype html>
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
       gauge('arousal', b.arousal, '#7fd4ff', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
-      (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / 15 * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
+      `<div class="cap" style="margin-top:4px">pace of life: <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes per second (gazes every ${d.pace || '--'} of the ${(d.frames_per_second || 15).toFixed(1)} frames/s it gets; 1 = hummingbird-fast ... 6 = reptile-slow); basal metabolism scales with it</div>` +
+      (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
     spark('energy-trace', d.energy_series, '#4fa', 'energy');
     $('food-gauge').innerHTML = gauge('food', d.mean_food, '#c8f', 'average per frame over its latest run');
     spark('food-trace', d.food_series, '#c8f', 'food');
@@ -455,15 +460,16 @@ PAGE = r"""<!doctype html>
     { id: 'c-fit', title: 'fitness', cap: 'current genome, re-scored each generation / peak ever', series: [['fitness', '#4fa', r => r.best_fitness], ['peak ever', '#6f8798', r => r.peak_fitness_seen]] },
     { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#4fa', r => r.mean_energy], ['food', '#c8f', r => r.mean_food]] },
     { id: 'c-drive', title: 'homeostatic drive', cap: 'mean drive per run -- lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
-    { id: 'c-look', title: 'look size', cap: 'inherited look size at birth, and mean look size over each run (fraction of frame)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
+    { id: 'c-look', title: 'gaze size', cap: 'inherited gaze size at birth, and mean gaze size over each run (fraction of frame)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
+    { id: 'c-pace', title: 'pace of life', cap: 'gazes every Nth frame (1 = hummingbird-fast, 6 = reptile-slow)', series: [['every Nth frame', '#7fd4ff', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: 'resource_handler: grows with real improvement, shrinks under system strain (%)', series: [['quota %', '#fd4', r => r.quota_pct]] },
     { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#6f8798', r => r.mv && r.mv.fixate], ['glide', '#4fa', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#7fd4ff', r => r.tree_depth]] },
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#4fa', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['mutate_brain', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['mutate_brain', 'mutate_pace', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
       (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +
@@ -515,6 +521,7 @@ PAGE = r"""<!doctype html>
         $('h-peak').textContent = d.peak_fitness_seen;
         $('h-src').textContent = d.clip_name || d.clip || '--';
         $('h-look').textContent = `${d.fovea_fraction_accepted ?? '--'} of frame at birth`;
+        $('h-pace').textContent = d.pace_accepted ? `${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
         $('url-picker').style.display = d.is_live ? 'block' : 'none';

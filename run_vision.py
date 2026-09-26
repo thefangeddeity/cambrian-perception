@@ -250,6 +250,11 @@ HOMEOSTASIS_WEIGHT = 3.0
 # real world loom (never forced to).
 ALARM_WEIGHT = 1.0
 
+# Per-look compute cost (the brain and tree running once), priced like
+# the aperture: x CPU scarcity. With basal rate scaling by pace (see
+# MosquitoState.update), this is what makes a fast pace of life expensive.
+THINK_COST = 0.001
+
 # The flinch, evolved rather than wired: at each onset of a real
 # approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
 # reacting within FLINCH_WINDOW frames (~200 ms at 15 frames/s) by
@@ -260,19 +265,25 @@ FLINCH_THRESHOLD = 0.18
 FLINCH_WINDOW = 3
 
 
-def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float]) -> dict:
+def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float], pace: int = 1) -> dict:
     onsets = [t for t in range(1, len(looms)) if looms[t] > FLINCH_THRESHOLD >= looms[t - 1]]
     latencies = []
     for t in onsets:
         lat = None
-        for k in range(FLINCH_WINDOW + 1):
-            i = t + k
-            if i >= len(speeds):
+        # Looks are `pace` base frames apart, and on average an approach
+        # starts (pace-1)/2 frames before the look that notices it -- so
+        # latency is counted in real frames, and a slow pace pays for it.
+        k = 0
+        while t + k < len(speeds):
+            real = k * pace + (pace - 1) / 2.0
+            if real > FLINCH_WINDOW:
                 break
+            i = t + k
             widened = i + 1 < len(fracs) and fracs[i + 1] - fracs[i] > 0.01
             if widened or speeds[i] >= 0.05:
-                lat = k
+                lat = real
                 break
+            k += 1
         latencies.append(lat)
     reacted = [l for l in latencies if l is not None]
     score = float(np.mean([1.0 - l / (FLINCH_WINDOW + 1) if l is not None else 0.0 for l in latencies])) if latencies else 0.0
@@ -543,10 +554,15 @@ def evaluate_genome(
     """
     state = fovea.FoveaState(fraction=float(np.clip(g.fovea_fraction, fovea.MIN_FRACTION, fovea.MAX_FRACTION)))
     body = MosquitoState()
+    # Pace of life: the caller hands over every pace-th frame (and the
+    # world signals at that rate); each look spans `pace` base frames of
+    # real time (1/15 s each).
+    pace = max(1, int(getattr(g, "pace", 1)))
     brain = g.brain
     brain.reset_hidden()
     memory = np.full((MEM_H, MEM_W), np.nan)  # what the look has seen, per world location
     scarcity_cost = lambda frac: _aperture_cost(frac, quota_pct)
+    scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
 
     responses, alarms = [], []
     positions, fracs = [], []
@@ -623,7 +639,7 @@ def evaluate_genome(
         movement_costs.append(math.hypot(force_x, force_y))
         periph_active.append(periph_motion)
 
-        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction))
+        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity, dt=pace, pace=pace)
         food = _feed_on_novelty(memory, fovea.extract(frame, state), state)
         body.feed_visual_sustenance(food)
         energies.append(body.energy)
@@ -639,7 +655,9 @@ def evaluate_genome(
     # smooth), saccades (fast jumps), and tracking (following where the
     # whole field says something is moving). "Lifelike" as numbers
     # comparable to a real animal, not an impression.
-    speeds = np.hypot(np.array(dxs), np.array(dys)) if dxs else np.zeros(1)
+    # Per base frame (1/15 s), so a slow pace can't look "smooth" just by
+    # moving the same distance in fewer, bigger steps.
+    speeds = (np.hypot(np.array(dxs), np.array(dys)) / pace) if dxs else np.zeros(1)
     active = np.array(periph_active) > 0.2 if periph_active else np.zeros(1, bool)
     tracking = None
     if active.sum() >= 10 and len(dxs) > 2:
@@ -671,7 +689,8 @@ def evaluate_genome(
         "mean_food": round(float(np.mean(foods)), 4) if foods else 0.0,
         "movement": movement,
         "field_events": field_events,
-        "flinch": _flinch([e[3] for e in field_events], speeds, fracs),
+        "flinch": _flinch([e[3] for e in field_events], speeds, fracs, pace),
+        "pace": pace,
         "brain_hidden": [round(h, 3) for h in brain.hidden],
         "reflex_frames": reflex_frames,
         "trajectory": [[round(x, 4), round(y, 4), round(f, 4)] for (x, y), f in zip(positions, fracs)],
@@ -698,7 +717,7 @@ def evaluate_genome(
     breakdown["conspec_drive"] = discounted_drive
     breakdown["loom_max"] = float(signals["loom"].max())
 
-    curiosity = _curiosity_score(positions)
+    curiosity = _curiosity_score(positions) / pace  # per base frame of real time
     fitness += CURIOSITY_WEIGHT * curiosity
     breakdown["curiosity"] = curiosity
 
@@ -762,6 +781,36 @@ NEUTRAL_EPSILON = 0.001
 NEUTRAL_ACCEPT_PROB = 0.1
 
 
+WORLD_REFRESH_GENERATIONS = 5
+
+
+class World:
+    """
+    One snapshot of the world (frames + their retina vectors), with the
+    world signals every genome is graded on computed on demand at each
+    pace of life actually in use, then cached. Parent and candidate are
+    always scored on the same World within a generation.
+    """
+
+    def __init__(self, frames: list[np.ndarray], vectors: np.ndarray):
+        self.frames, self.vectors = frames, vectors
+        self._cache: dict[int, tuple] = {}
+
+    def at_pace(self, pace: int):
+        pace = max(1, int(pace))
+        if pace not in self._cache:
+            wv = self.vectors[::pace]
+            ws = reflexes.all_signals(wv)
+            ws["expansion"] = reflexes.expansion_score(wv)
+            ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv)
+            self._cache[pace] = (self.frames[::pace], ws, conspec.conspec_signal(wv))
+        return self._cache[pace]
+
+
+def _is_device(source: str) -> bool:
+    return source.startswith("/dev/video") or source.isdigit()
+
+
 def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRAIN_HIDDEN) -> None:
     clips = _list_clips(source)
 
@@ -808,36 +857,31 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
 
     clip_name = _clip_display_name(source, clip_path)
 
-    print(f"Loading real frames from {clip_path!r} into memory (never written to disk)...")
-    frames = list(video_source.read_frames(load_source, stride=2, max_frames=600))
-    print(f"  {len(frames)} frames loaded (clip {clip_index + 1}/{len(clips)}).")
-    if len(frames) < 10:
-        print("Not enough real frames to evolve against -- aborting.")
-        return
+    # A live camera is read continuously (LiveFeed) and every generation
+    # is scored on the newest ~40 s -- the world it is living in now.
+    # Files and YouTube streams keep one fixed clip per run.
+    feed = None
+    if _is_device(source):
+        print(f"Opening live feed {source!r} (frames kept in memory only, never written to disk)...")
+        feed = video_source.LiveFeed(int(source) if source.isdigit() else source)
+        if not feed.wait_for(600):
+            print("Live feed never filled its window -- aborting.")
+            feed.close()
+            return
+        frames, vectors, seen_total = feed.snapshot()
+    else:
+        print(f"Loading real frames from {clip_path!r} into memory (never written to disk)...")
+        frames = list(video_source.read_frames(load_source, stride=2, max_frames=600))
+        print(f"  {len(frames)} frames loaded (clip {clip_index + 1}/{len(clips)}).")
+        if len(frames) < 10:
+            print("Not enough real frames to evolve against -- aborting.")
+            return
+        vectors = _world_vectors(frames)
+        seen_total = len(frames)
+    world = World(frames, vectors)
 
-    # The real source frame's own shape -- User: "make foveal rectangle
-    # honest." The viewer's fovea-position box used to be drawn on a
-    # hardcoded 4:3 canvas regardless of the real video's actual aspect
-    # ratio (typically 16:9 after video_source.py's aspect-preserving
-    # resize), so its shape was arbitrary, not a real representation of
-    # what fovea.py actually crops (which IS shaped like the real
-    # frame -- FOVEA_FRACTION applies equally to real width and real
-    # height). Same for every frame in this run, so captured once here.
+    # The real source frame's shape -- User: "make foveal rectangle honest."
     frame_h, frame_w = frames[0].shape[:2]
-
-    # Computed ONCE per run, independent of any genome (see
-    # _world_vectors's docstring for the self-stimulation loophole this
-    # closes). Every generation's fitness grades against these SAME
-    # arrays -- only the organism's own response changes generation to
-    # generation, never what it's being compared against.
-    world_vectors = _world_vectors(frames)
-    world_signals = reflexes.all_signals(world_vectors)
-    world_signals["expansion"] = reflexes.expansion_score(world_vectors)
-    world_signals["motion_cx"], world_signals["motion_cy"] = _peripheral_motion_centroid(world_vectors)
-    # (strength, peak_cx, peak_cy) -- see conspec.conspec_signal and
-    # evaluate_genome's own docstring for what the peak location is for.
-    world_conspec = conspec.conspec_signal(world_vectors)
-    world_conspec_strength = world_conspec[0]
 
     box = sandbox.Sandbox(limits)
     if checkpoint is not None:
@@ -866,8 +910,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # so a long dry spell (exactly what B1 was causing) meant
     # habituation silently stopped updating for thousands of
     # generations even while real exposure was happening on screen.
-    for c, l in zip(world_conspec_strength, world_signals["loom"]):
-        habituation.observe(conspec_present=c > 0.05, loom_value=l)
+    def _observe(new_count: int) -> None:
+        _, ws1, wc1 = world.at_pace(1)
+        n = min(new_count, len(ws1["loom"]))
+        for c, l in zip(wc1[0][-n:], ws1["loom"][-n:]):
+            habituation.observe(conspec_present=c > 0.05, loom_value=l)
+
+    _observe(len(frames))
 
     # NEVER trust a best_fitness carried over from a different clip or
     # a different habituation state (external audit finding: this was
@@ -881,7 +930,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # Real current CPU quota (resource_handler.py's own record), prices
     # the look's size -- refreshed periodically below, never inferred.
     quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
-    best_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount, quota_pct)
+    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -931,9 +980,20 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # generations is habituation.discount; re-scoring both parent
         # and candidate under the SAME current discount on the SAME
         # frames keeps every single accept/reject decision honest.
-        parent_fitness, _, _ = evaluate_genome(genome, frames, world_signals, world_conspec, habituation.discount, quota_pct)
+        # Live camera: refresh to the newest window every generation. Fair
+        # by construction -- parent and candidate are both scored on this
+        # same snapshot just below.
+        # Every WORLD_REFRESH_GENERATIONS generations (a few seconds):
+        # rebuilding the world's signals costs ~0.65 s, which every
+        # generation would nearly double generation time.
+        if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
+            frames, vectors, total = feed.snapshot()
+            world = World(frames, vectors)
+            _observe(total - seen_total)
+            seen_total = total
+        parent_fitness, _, _ = evaluate_genome(genome, *world.at_pace(genome.pace), habituation.discount, quota_pct)
         candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, frames, world_signals, world_conspec, habituation.discount, quota_pct,
+            candidate, *world.at_pace(candidate.pace), habituation.discount, quota_pct,
         )
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
@@ -1014,6 +1074,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "fitness_delta": (candidate_fitness - parent_fitness) if both_finite else None,
             "fovea_fraction": genome.fovea_fraction,
             "quota_pct": quota_pct,
+            "pace": genome.pace,
             "tree_stats": {
                 name: {"nodes": tree.node_count(), "depth": tree.depth()}
                 for name, tree in genome.trees.items()
@@ -1052,6 +1113,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "field_events": live_info.get("field_events"),
             "flinch": live_info.get("flinch"),
             "max_fraction": fovea.MAX_FRACTION,
+            # Pace of life: the accepted genome's, and the one the replay
+            # below was recorded at (the candidate's) -- replay speed
+            # depends on it (15 / pace looks per second).
+            "pace_accepted": genome.pace,
+            "pace": live_info.get("pace"),
+            # Real analyzed frames per second (a live camera's rate varies
+            # with light; files are treated as 15). The viewer derives
+            # gazes/s, replay speed and real times from this.
+            "frames_per_second": round(feed.frames_per_second(), 2) if feed is not None else 15.0,
             # The accepted genome's whole recurrent brain (Gemini's
             # MosquitoBrain) for the viewer's brain diagram, plus the
             # candidate's hidden state at the end of its run.
@@ -1083,7 +1153,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # draw the fovea box on a REAL pixel dump instead of a
             # third-party video embed -- no YouTube dependency, no
             # embedding restrictions, no autoplay/play-state games.
-            "world_grid": [round(x, 4) for x in world_vectors[-1]],
+            "world_grid": [round(x, 4) for x in world.vectors[-1]],
             "world_grid_shape": list(GRID),
             # The CURRENT ACCEPTED genome's own tree structure (not
             # the just-tried candidate's, even on a rejected
@@ -1115,6 +1185,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             _save()
 
     _save()
+    if feed is not None:
+        feed.close()
     print(f"Stopped after {box.generation} generations, {round(__import__('time').perf_counter() - box.start_time, 1)}s.")
     print(f"Final best_fitness: {best_fitness:.4f} -- checkpoint saved, next restart resumes from here.")
 

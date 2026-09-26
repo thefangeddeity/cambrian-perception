@@ -52,29 +52,47 @@ class MosquitoState:
         loom: float,
         motor_effort: float,
         aperture_cost: float = 0.0,
+        dt: int = 1,
+        pace: int = 1,
     ) -> None:
+        """
+        One look. dt = real time since the last look, in base frames
+        (1/15 s); pace = its pace of life (look every pace-th frame).
+        Everything that happens in real time (basal burn, and the decay
+        and build-up of arousal, threat, fatigue, hunger, search) is
+        scaled by dt, so looking less often doesn't slow its metabolism
+        down. Things that happen per look (the motor push, the cost of
+        processing a look of this size) are charged once per look.
+
+        Basal metabolic rate scales with pace (User: a hummingbird "needs
+        to eat constantly or it'll crash out", while some reptiles "can
+        afford to take it easy... and eat very seldom"): a fast-paced
+        organism idles hot, a slow one idles cheap -- otherwise a slow
+        pace could never eat enough to survive at all.
+        """
         self.previous_drive = self.drive()
 
-        # Arousal: fast excitation from motion, steady decay
-        self.arousal = _clamp(0.92 * self.arousal + 0.08 * motion)
+        def leak(old: float, decay: float, target: float) -> float:
+            k = decay ** dt
+            return _clamp(k * old + (1.0 - k) * target)
 
-        # Threat: sensitive to loom (approaching shadow/swatter)
-        self.threat = _clamp(0.85 * self.threat + 0.15 * loom)
+        self.arousal = leak(self.arousal, 0.92, motion)
+        self.threat = leak(self.threat, 0.85, loom)
 
-        # Basal metabolism: existing costs energy; high arousal burns faster
-        basal_cost = 0.003 + 0.003 * self.arousal
+        bmr = 0.25 + 0.75 / max(1, pace)
+        basal_cost = (0.003 + 0.003 * self.arousal) * bmr * dt
         effort_cost = 0.010 * motor_effort
-
-        # A wider look processes more pixels: priced per tick by the
+        # A wider look processes more pixels: priced per look by the
         # caller (area x real CPU scarcity -- see run_vision.py).
         self.energy = _clamp(self.energy - (basal_cost + effort_cost + aperture_cost))
 
-        # Fatigue: accumulates with violent saccades, recovers when still
-        self.fatigue = _clamp(0.95 * self.fatigue + 0.08 * motor_effort)
+        # Fatigue: each push adds wear; wear recovers in real time.
+        self.fatigue = _clamp(0.95 ** dt * self.fatigue + 0.08 * motor_effort)
 
         # Hunger tracks energy deficit; search pressure follows hunger.
-        self.hunger = _clamp(0.97 * self.hunger + 0.03 * (1.0 - self.energy))
-        self.search = _clamp(0.96 * self.search + 0.04 * self.hunger)
+        self.hunger = leak(self.hunger, 0.97, 1.0 - self.energy)
+        self.search = leak(self.search, 0.96, self.hunger)
+        self._dt = dt
 
     def feed_visual_sustenance(self, tracking_quality: float) -> None:
         """
@@ -89,7 +107,7 @@ class MosquitoState:
         gain = 0.012 * _clamp(tracking_quality)
         self.energy = _clamp(self.energy + gain)
         # Curiosity: slowly rises every frame, satisfied by real novelty.
-        self.curiosity = _clamp(self.curiosity + 0.01 - 0.05 * _clamp(tracking_quality))
+        self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.05 * _clamp(tracking_quality))
 
     def drive_reduction(self) -> float:
         """

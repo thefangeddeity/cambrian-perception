@@ -32,7 +32,9 @@ from .controller import MosquitoBrain
 # touching a tree -- same fitness gate, same operator-weight learning,
 # so how often resizing gets TRIED is itself learned from evidence.
 # mutate_brain perturbs the recurrent motor brain (controller.py).
-TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain")
+# mutate_pace changes its pace of life (how often it looks; see run_vision.py).
+TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace")
+MIN_PACE, MAX_PACE = 1, 6  # look every 1st (15/s) .. 6th (2.5/s) frame
 FOVEA_MUTATION_SIGMA = 0.03
 
 # Motor control (pan/tilt/zoom) moved to the recurrent brain; the tree
@@ -99,6 +101,7 @@ class Genome:
         op_success: dict[str, float] | None = None,
         fovea_fraction: float = fovea.FOVEA_FRACTION,
         brain: MosquitoBrain | None = None,
+        pace: int = 1,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -106,6 +109,7 @@ class Genome:
         self.n_vars = n_vars
         self.fovea_fraction = float(fovea_fraction)
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
+        self.pace = int(pace)
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
         # mutation_weights toward. Defaults to a neutral 0.5 prior for
@@ -126,6 +130,7 @@ class Genome:
             dict(self.op_success),
             self.fovea_fraction,
             self.brain.clone(),
+            self.pace,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
@@ -280,6 +285,10 @@ class Genome:
                 old + rng.gauss(0.0, FOVEA_MUTATION_SIGMA), fovea.MIN_FRACTION, fovea.MAX_FRACTION,
             ))
             return "fovea", (choice if self.fovea_fraction != old else "noop_inapplicable")
+        if choice == "mutate_pace":
+            old = self.pace
+            self.pace = int(np.clip(old + rng.choice((-1, 1)), MIN_PACE, MAX_PACE))
+            return "pace", (choice if self.pace != old else "noop_inapplicable")
         if choice == "mutate_brain":
             return "brain", (choice if self.brain.mutate(rng) > 0 else "noop_inapplicable")
         if choice == "grow":
@@ -372,6 +381,7 @@ class Genome:
             "op_success": self.op_success,
             "fovea_fraction": self.fovea_fraction,
             "brain": self.brain.to_dict(),
+            "pace": self.pace,
         }
 
     @staticmethod
@@ -399,4 +409,5 @@ class Genome:
             op_success=op_success,
             fovea_fraction=float(np.clip(data.get("fovea_fraction", fovea.FOVEA_FRACTION), fovea.MIN_FRACTION, fovea.MAX_FRACTION)),
             brain=brain,
+            pace=int(np.clip(data.get("pace", 1), MIN_PACE, MAX_PACE)),
         )

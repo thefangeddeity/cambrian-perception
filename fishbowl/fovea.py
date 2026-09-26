@@ -32,7 +32,9 @@ FOVEA_FRACTION = 0.35  # DEFAULT look size (fraction of the full
 # or narrow the look every frame (a zoom motor), within these bounds.
 # genome.fovea_fraction is only the aperture at birth.
 MIN_FRACTION = 0.15
-MAX_FRACTION = 0.60
+MAX_FRACTION = 0.60  # Gemini's bound, kept for a measured reason: at 0.9 the gaze snapped wide open,
+# could barely move (0.1 of travel left) and fitness collapsed 1.31 -> 0.00 -- past ~0.6 it stops being a
+# gaze (a part of the field it moves around) and becomes the field itself.
 ZOOM_STEP = 0.05
 
 # Real correction, User: "Curiosity and large saccades should evolve,

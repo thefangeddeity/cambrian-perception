@@ -10,6 +10,9 @@ one at a time -- nothing here ever writes a frame to disk. See
 README's fishbowl boundary.
 """
 
+import collections
+import threading
+import time
 from typing import Iterator
 
 import cv2
@@ -78,3 +81,81 @@ def read_frames(source: str, stride: int = 1, max_frames: int | None = None, max
             count += 1
     finally:
         cap.release()
+
+
+class LiveFeed:
+    """
+    A live camera kept continuously in memory: a background thread reads
+    every frame, keeps every `stride`-th one (15 frames/s from a 30 fps
+    camera), reduces it to its retina grid as it arrives, and holds only
+    the newest `window` of them (about 40 s). Nothing is ever written to
+    disk. Each generation takes a snapshot, so the organism is always
+    scored on what the camera is seeing now, not on a clip captured when
+    the process started. Reconnects if the device drops.
+    """
+
+    def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM):
+        from .retina import frame_to_vector
+        self._to_vector = frame_to_vector
+        self.source, self.stride, self.max_dim = source, stride, max_dim
+        self._buf: collections.deque = collections.deque(maxlen=window)
+        self._lock = threading.Lock()
+        self.total = 0  # frames ever kept -- lets callers find what's new since their last look
+        self._times: collections.deque = collections.deque(maxlen=window)
+        self._stop = False
+        self._thread = threading.Thread(target=self._run, name="LiveFeed", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop:
+            cap = cv2.VideoCapture(self.source)
+            if not cap.isOpened():
+                time.sleep(2.0)
+                continue
+            count = 0
+            try:
+                while not self._stop:
+                    ok, frame = cap.read()
+                    if not ok:
+                        break
+                    count += 1
+                    if count % self.stride:
+                        continue
+                    h, w = frame.shape[:2]
+                    if max(h, w) > self.max_dim:
+                        scale = self.max_dim / max(h, w)
+                        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    vec = self._to_vector(gray)
+                    with self._lock:
+                        self._buf.append((gray, vec))
+                        self._times.append(time.time())
+                        self.total += 1
+            finally:
+                cap.release()
+            time.sleep(1.0)
+
+    def wait_for(self, n: int, timeout: float = 180.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self._lock:
+                if len(self._buf) >= n:
+                    return True
+            time.sleep(0.2)
+        return False
+
+    def snapshot(self) -> tuple[list[np.ndarray], np.ndarray, int]:
+        """(frames, their retina vectors, total frames ever kept) -- a consistent copy of the current window."""
+        with self._lock:
+            items = list(self._buf)
+            total = self.total
+        return [f for f, _ in items], np.array([v for _, v in items]), total
+
+    def frames_per_second(self) -> float:
+        """Real rate of kept frames (the camera's own rate varies with light)."""
+        with self._lock:
+            t = list(self._times)
+        return (len(t) - 1) / (t[-1] - t[0]) if len(t) > 1 and t[-1] > t[0] else 0.0
+
+    def close(self) -> None:
+        self._stop = True
