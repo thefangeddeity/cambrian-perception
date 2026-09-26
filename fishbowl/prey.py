@@ -32,8 +32,13 @@ DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL", "/srv/cambrian/models
 # COCO classes that are living things: prey.
 PREY_CLASSES = {0: "person", 14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep",
                 19: "cow", 20: "elephant", 21: "bear", 22: "zebra", 23: "giraffe"}
-MIN_CONFIDENCE = 0.4
+# The detector's own calibration (Ultralytics' shipped defaults for YOLOv8
+# prediction), not a hand-picked cut: confidence 0.25, NMS IoU 0.7. Food is
+# weighted by confidence anyway, so a 0.3 bird counts, just less than a sure one.
+MIN_CONFIDENCE = 0.25
+NMS_IOU = 0.7
 INPUT_SIZE = 640  # this export only accepts 640x640
+LETTERBOX_GREY = 114  # the pad value YOLO's letterbox uses in training
 
 
 class PreyDetector:
@@ -58,7 +63,15 @@ class PreyDetector:
         if self.net is None or bgr is None or bgr.ndim != 3:
             return []
         h, w = bgr.shape[:2]
-        blob = cv2.dnn.blobFromImage(bgr, 1 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True)
+        # Letterboxed, as YOLO was trained: scaled to fit with its aspect kept,
+        # centred, padded grey. (Stretching a 16:9 frame to a square distorted
+        # every shape -- small ones like birds most.)
+        scale = INPUT_SIZE / max(h, w)
+        nw, nh = int(round(w * scale)), int(round(h * scale))
+        px, py = (INPUT_SIZE - nw) // 2, (INPUT_SIZE - nh) // 2
+        canvas = np.full((INPUT_SIZE, INPUT_SIZE, 3), LETTERBOX_GREY, dtype=np.uint8)
+        canvas[py:py + nh, px:px + nw] = cv2.resize(bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        blob = cv2.dnn.blobFromImage(canvas, 1 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True)
         self.net.setInput(blob)
         out = self.net.forward()[0].T  # (8400, 84): cx, cy, w, h, then 80 class scores
         scores = out[:, 4:]
@@ -67,11 +80,13 @@ class PreyDetector:
         keep = (conf >= MIN_CONFIDENCE) & np.isin(cls, list(PREY_CLASSES))
         if not keep.any():
             return []
-        b = out[keep, :4] / INPUT_SIZE  # normalized: the blob stretches the whole frame to 640x640
+        raw = out[keep, :4]
         cls, conf = cls[keep], conf[keep]
+        # From the letterboxed square back to the frame, normalized to [0, 1].
+        b = np.stack([(raw[:, 0] - px) / (nw), (raw[:, 1] - py) / (nh), raw[:, 2] / nw, raw[:, 3] / nh], axis=1)
         x0, y0 = b[:, 0] - b[:, 2] / 2, b[:, 1] - b[:, 3] / 2
         boxes_px = [[float(x * w), float(y * h), float(bw * w), float(bh * h)] for x, y, bw, bh in zip(x0, y0, b[:, 2], b[:, 3])]
-        idx = cv2.dnn.NMSBoxes(boxes_px, conf.astype(float).tolist(), MIN_CONFIDENCE, 0.45)
+        idx = cv2.dnn.NMSBoxes(boxes_px, conf.astype(float).tolist(), MIN_CONFIDENCE, NMS_IOU)
         result = []
         for i in np.array(idx).reshape(-1):
             result.append([int(cls[i]), round(float(conf[i]), 3),
