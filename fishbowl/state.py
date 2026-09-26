@@ -81,6 +81,14 @@ COLLAPSE_RELEASE_S = 0.8  # ...and holds it until pressure is back below this
 HUNGER_WAKE_G = 0.15    # blood sugar that forces waking -- with an empty gut AND an empty
 HUNGER_WAKE_R = 0.05    # reserve: while the reserve can still carry sleep, a hungry animal may sleep
 EMPTY_G = 0.1           # below this the body degrades
+# Sleep needs sleep pressure (Borbely's two thresholds, both lowered by the
+# dark -- the circadian part, from its sense of the field's light): it can
+# fall asleep only above the upper one and wakes by itself below the lower
+# one. A rested animal can't sleep through a busy room, and sleep ends once
+# it has done its work.
+SLEEP_ONSET_DARK, SLEEP_ONSET_DAY = 0.15, 0.45
+SLEEP_END_DARK, SLEEP_END_DAY = 0.01, 0.04
+NIGHT_LIGHT, DAY_LIGHT = 0.15, 0.5  # field light (~20 min average) that counts as night / day
 
 
 def _clamp(v: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -127,6 +135,10 @@ class MosquitoState:
         return max(-1.0, min(1.0, 4.0 * (self.light_fast - self.light_slow)))
 
     @property
+    def daylight(self) -> float:
+        return _clamp((self.light_slow - NIGHT_LIGHT) / (DAY_LIGHT - NIGHT_LIGHT))
+
+    @property
     def efficiency(self) -> float:
         return 1.0 - TIRED_EFFICIENCY * self.sleep_pressure
 
@@ -141,6 +153,11 @@ class MosquitoState:
         asleep = self.asleep >= 0.5
         want = wants_sleep
         starving = self.energy < HUNGER_WAKE_G and self.gut < 0.02 and self.reserve < HUNGER_WAKE_R
+        day = self.daylight
+        if want and not asleep and self.sleep_pressure < SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * day:
+            want = False  # not tired enough to fall asleep
+        if asleep and self.sleep_pressure < SLEEP_END_DARK + (SLEEP_END_DAY - SLEEP_END_DARK) * day:
+            want = False  # slept enough: wakes by itself
         # Exhaustion: collapse, and no waking by choice until it has recovered
         # -- unless it is starving, which keeps even an exhausted animal up.
         if not starving and ((not asleep and self.sleep_pressure > COLLAPSE_S)
@@ -233,7 +250,8 @@ class MosquitoState:
             load = 0.5 + 0.5 * _clamp(self.metabolic_rate)
             self.sleep_pressure = 1.0 - (1.0 - self.sleep_pressure) * math.exp(-seconds * load / S_RISE_S)
 
-        self.fatigue = _clamp(0.95 ** dt * self.fatigue + 0.08 * motor_effort)
+        # Muscle fatigue recovers with rest, twice as fast asleep.
+        self.fatigue = _clamp((0.9 if asleep else 0.95) ** dt * self.fatigue + 0.08 * motor_effort)
         self.hunger = _clamp(1.0 - min(1.0, self.energy + 0.5 * self.gut))
         self.search = leak(self.search, 0.96, self.hunger)
         self._dt = dt

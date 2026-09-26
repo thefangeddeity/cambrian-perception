@@ -41,7 +41,8 @@ from typing import Any, NamedTuple
 
 from .state import MosquitoState
 
-BASE_INPUTS = 25  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend
+BASE_INPUTS = 28  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y
+PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
 HIDDEN = 16
 BASE_OUTPUTS = 6  # [pan, tilt, zoom, alarm, tempo, sleep]
@@ -49,7 +50,8 @@ OUTPUTS = BASE_OUTPUTS
 MAX_CHANNELS = 4
 INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "zoom", "blood sugar",
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
-               "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend")
+               "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
+               "prey scent", "prey dir x", "prey dir y")
 OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
 
 
@@ -122,6 +124,9 @@ class MosquitoBrain:
         eye_vy: float = 0.0,
         tree_out: float = 0.0,
         field_light: float = 0.5,
+        prey_scent: float = 0.0,
+        prey_dx: float = 0.0,
+        prey_dy: float = 0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = [
@@ -150,6 +155,9 @@ class MosquitoBrain:
             state.asleep,
             field_light,
             state.light_trend,
+            prey_scent,
+            prey_dx,
+            prey_dy,
         ]
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):
@@ -187,6 +195,11 @@ class MosquitoBrain:
         return Motor(*outputs[:BASE_OUTPUTS])
 
     # ---- growable channels ------------------------------------------------
+    def prey_synapses(self, level: int) -> float:
+        """Weight on the prey-sense inputs it has (level 1: scent; 2: + direction)."""
+        live = PREY_INPUTS[:1] if level == 1 else PREY_INPUTS if level >= 2 else ()
+        return sum(abs(row[j]) for row in self.weights_ih for j in live)
+
     def loop_synapses(self) -> float:
         """Total weight on the channels' way back in (their energy price)."""
         return sum(abs(row[BASE_INPUTS + k]) for row in self.weights_ih for k in range(len(self.channels)))

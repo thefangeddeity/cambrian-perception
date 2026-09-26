@@ -80,6 +80,26 @@ class PreyDetector:
         return result
 
 
+def prey_in_window(boxes: list[list[float]], cx: float, cy: float, fraction: float) -> float:
+    """How much of the WHOLE gaze window prey covers, 0..1, confidence-
+    weighted: the teacher's label the perception tree learns to predict from
+    its own pixels (run_vision.py) -- "is there food in what I'm looking at".
+    """
+    return _coverage(boxes, cx, cy, fraction / 2.0)
+
+
+def _coverage(boxes: list[list[float]], cx: float, cy: float, half: float) -> float:
+    if not boxes or half <= 0:
+        return 0.0
+    area = (2 * half) ** 2
+    total = 0.0
+    for _, conf, x0, y0, x1, y1 in boxes:
+        ix = max(0.0, min(x1, cx + half) - max(x0, cx - half))
+        iy = max(0.0, min(y1, cy + half) - max(y0, cy - half))
+        total += conf * min(1.0, ix * iy / area)
+    return float(min(1.0, total))
+
+
 def prey_in_gaze(boxes: list[list[float]], cx: float, cy: float, fraction: float) -> float:
     """
     How much prey is in the CENTER of the gaze (its central half), 0..1:

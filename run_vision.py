@@ -112,7 +112,11 @@ PURSUIT_WEIGHT = 1.0  # retired from fitness with the other correlation scores; 
 # pan/tilt while already pinned against a wall is still "trying" every
 # frame, real motor effort even though the wall zeroes out its net
 # movement.
-MOVEMENT_COST_WEIGHT = 0.5
+# Retired from fitness 2026-09-26, measured only: the body now pays for
+# muscle force itself (force squared) and the eye has a spring back to
+# centre, so this charged twice for exactly the sustained hold needed to
+# watch someone off-centre (a design-panel call).
+MOVEMENT_COST_WEIGHT = 0.5  # retired, kept for the record
 
 # Corner penalty: genomes kept hiding in corners. Soft, not a hard constraint -- real reward can
 # still outweigh it if a corner is ever genuinely the right place to
@@ -298,6 +302,33 @@ CONSOLIDATE_RATE = 3.0
 # the reflex can never follow an object -- pursuing prey stays the brain's
 # job. Priced like any receptor, x gain.
 STABILIZER_COST = 1e-5  # per gaze at gain 1, x scarcity
+# Prey sense (genome.prey_sense; after a design panel): 1 = scent, prey
+# somewhere in its whole field and how much, without where -- "go look";
+# 2 = + a coarse direction from its gaze to the strongest prey (left/right,
+# up/down, or none within 5% of centre). It still has to centre prey with
+# its eyes to eat. Like a grown brain channel, a new sense changes nothing
+# until the brain wires it up, and its price grows with that wiring
+# (synaptic cost), so it is kept on a tie and spreads only if it pays.
+PREY_SENSE_COST = 2e-5  # per unit of weight on its inputs, per gaze, x scarcity
+# The perception tree's teacher (the teacher-student plan: YOLO is the
+# shortcut, the tree is to become its own detector): the tree is graded on
+# predicting, from its own pixels, how much prey fills its gaze window --
+# confidence-weighted YOLO boxes as soft labels, error balanced between
+# frames with and without prey so "never prey" can't score well. Its
+# prediction also reaches the brain (the "tree" input), so a tree that sees
+# food lets the brain steer to it.
+TEACHER_WEIGHT = 3.0
+
+
+def _prey_sense(boxes: list, cx: float, cy: float, level: int) -> tuple[float, float, float]:
+    if level <= 0 or not boxes:
+        return 0.0, 0.0, 0.0
+    scent = min(1.0, sum(conf * min(1.0, (x1 - x0) * (y1 - y0) / 0.02) for _, conf, x0, y0, x1, y1 in boxes))
+    if level < 2:
+        return scent, 0.0, 0.0
+    best = max(boxes, key=lambda b: b[1] * (b[4] - b[2]) * (b[5] - b[3]))
+    coarse = lambda v: 0.0 if abs(v) < 0.05 else (1.0 if v > 0 else -1.0)
+    return scent, coarse((best[2] + best[4]) / 2 - cx), coarse((best[3] + best[5]) / 2 - cy)
 SHIFT_WIDTH = 160
 SHIFT_MIN_RESPONSE = 0.2
 SHIFT_MAX = 0.08  # of the frame, per frame
@@ -663,6 +694,8 @@ def evaluate_genome(
     energies, drives, foods = [], [], []
     asleeps = []
     stab = float(getattr(g, "stabilizer", 0.0))
+    prey_level = int(getattr(g, "prey_sense", 0)) if world_prey is not None else 0
+    teacher_p, teacher_y = [], []
     stab_dx = stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
     periph_active = []
     field_events = []  # per frame: where the whole field saw motion, how much, loom, reflex
@@ -716,9 +749,11 @@ def evaluate_genome(
         periph_dy = float(world_signals["motion_cy"][t_idx]) - state.cy
 
         field_light = float(world_signals["field_light"][t_idx])
+        boxes_now = world_prey[t] if world_prey is not None and t < len(world_prey) else []
+        scent, prey_dx, prey_dy = _prey_sense(boxes_now, state.cx, state.cy, prey_level)
         out = brain.step(
             lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
-            periph_dx, periph_dy, state.vx, state.vy, prev_response, field_light,
+            periph_dx, periph_dy, state.vx, state.vy, prev_response, field_light, scent, prey_dx, prey_dy,
         )
         pan, tilt, zoom, alarm, tempo = out.pan, out.tilt, out.zoom, out.alarm, out.tempo
         # Sleep is its own choice (its sleep output); the body adds only the
@@ -742,6 +777,9 @@ def evaluate_genome(
         # the hand-written correlation scores retired, the tree only matters
         # if what it perceives helps the body.
         prev_response = float(np.tanh(response)) if math.isfinite(response) else 0.0
+        if not was_asleep:
+            teacher_p.append(0.5 * (1.0 + prev_response))
+            teacher_y.append(prey_lib.prey_in_window(boxes_now, state.cx, state.cy, state.fraction))
         responses.append(response)
         alarms.append(alarm)
         last_grid = v
@@ -791,7 +829,8 @@ def evaluate_genome(
         gaze_cost = 0.0 if asleep else scarcity_cost(state.fraction)
         body.update(periph_motion, loom, effort,
                     gaze_cost + (THINK_COST + COLOUR_COST * colour_on + CHANNEL_COST * brain.loop_synapses()
-                                 + (0.0 if asleep else STABILIZER_COST * stab)) * scarcity,
+                                 + (0.0 if asleep else STABILIZER_COST * stab)
+                                 + PREY_SENSE_COST * brain.prey_synapses(prey_level)) * scarcity,
                     dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps), field_light=field_light)
         cleared = body.take_cleared()
         if cleared > 0.0:
@@ -914,7 +953,6 @@ def evaluate_genome(
     breakdown["optokinetic_pursuit"] = pursuit  # retired from fitness (correlation score); measured only
 
     movement_cost = float(np.mean(movement_costs)) if movement_costs else 0.0
-    fitness -= MOVEMENT_COST_WEIGHT * movement_cost
     breakdown["movement_cost"] = movement_cost
 
     corner = _corner_penalty([(q[0], q[1]) for q in fp], list(fp[:, 2]))
@@ -935,6 +973,17 @@ def evaluate_genome(
     window_seconds = max(1e-6, float(iv.sum()) / max(1.0, fps))
     drive_reduction = (drive_start - body.drive()) * (1200.0 / window_seconds)
     fitness += DRIVE_REDUCTION_WEIGHT * drive_reduction
+
+    # The perception tree's teacher (see TEACHER_WEIGHT).
+    teacher_error = None
+    if teacher_y:
+        ty, tp = np.array(teacher_y), np.array(teacher_p)
+        with_prey = ty > 0.05
+        parts = [float(np.mean((tp[m] - ty[m]) ** 2)) for m in (with_prey, ~with_prey) if m.any()]
+        teacher_error = float(np.mean(parts))
+        fitness -= TEACHER_WEIGHT * teacher_error
+    breakdown["teacher_error"] = teacher_error
+    breakdown["prey_sense"] = prey_level
     breakdown["drive_reduction"] = drive_reduction
     breakdown["mean_drive"] = mean_drive
     breakdown["mean_energy"] = float(np.mean(energies)) if energies else 0.0
@@ -1621,6 +1670,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "colour_grid": live_info.get("colour_grid"),
             "colour_channels": genome.colour_channels,
             "stabilizer": genome.stabilizer,
+            "prey_sense": genome.prey_sense,
             # Its lasting body right now (persists across generations and
             # restarts), vs "body" = the candidate's at the end of its window.
             "body_now": {k: round(v, 4) for k, v in body_now.items()} if body_now else None,

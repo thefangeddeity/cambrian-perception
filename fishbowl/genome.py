@@ -37,11 +37,15 @@ from .controller import MosquitoBrain
 # duplicated from an existing output, or a predictor of one of its inputs.
 # mutate_stabilizer changes its image-stabilization reflex gain (run_vision.py).
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace",
-            "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer")
+            "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
+            "mutate_prey_sense")
 STABILIZER_SIGMA = 0.1
+# Prey sense (run_vision.py): 0 = eyes only, 1 = scent (prey somewhere in
+# view), 2 = + a coarse direction to it. mutate_prey_sense steps it by one.
+MAX_PREY_SENSE = 2
 # Structural additions that change nothing at birth (run_vision.py keeps
 # them on a tie, so they can drift until they are useful).
-NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction")
+NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense")
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
 BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
@@ -114,6 +118,7 @@ class Genome:
         pace: int = 1,
         colour_channels: int = 0,
         stabilizer: float = 0.0,
+        prey_sense: int = 0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -124,6 +129,7 @@ class Genome:
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
         self.stabilizer = float(np.clip(stabilizer, 0.0, 1.0))
+        self.prey_sense = int(np.clip(prey_sense, 0, MAX_PREY_SENSE))
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
         # mutation_weights toward. Defaults to a neutral 0.5 prior for
@@ -147,6 +153,7 @@ class Genome:
             self.pace,
             self.colour_channels,
             self.stabilizer,
+            self.prey_sense,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
@@ -314,6 +321,10 @@ class Genome:
             old = self.colour_channels
             self.colour_channels = int(np.clip(old + rng.choice((-1, 1)), 0, MAX_COLOUR_CHANNELS))
             return "colour", (choice if self.colour_channels != old else "noop_inapplicable")
+        if choice == "mutate_prey_sense":
+            old = self.prey_sense
+            self.prey_sense = int(np.clip(old + rng.choice((-1, 1)), 0, MAX_PREY_SENSE))
+            return "prey_sense", (choice if self.prey_sense != old else "noop_inapplicable")
         if choice == "mutate_stabilizer":
             old = self.stabilizer
             self.stabilizer = float(np.clip(old + rng.gauss(0.0, STABILIZER_SIGMA), 0.0, 1.0))
@@ -419,6 +430,7 @@ class Genome:
             "pace": self.pace,
             "colour_channels": self.colour_channels,
             "stabilizer": self.stabilizer,
+            "prey_sense": self.prey_sense,
         }
 
     @staticmethod
@@ -449,4 +461,5 @@ class Genome:
             pace=int(np.clip(data.get("pace", 1), MIN_PACE, MAX_PACE)),
             colour_channels=int(np.clip(data.get("colour_channels", 0), 0, MAX_COLOUR_CHANNELS)),
             stabilizer=float(np.clip(data.get("stabilizer", 0.0), 0.0, 1.0)),
+            prey_sense=int(np.clip(data.get("prey_sense", 0), 0, MAX_PREY_SENSE)),
         )
