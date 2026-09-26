@@ -32,7 +32,14 @@ from .controller import MosquitoBrain
 # mutate_brain perturbs the recurrent motor brain (controller.py).
 # mutate_pace changes its pace of life (how often it looks; see run_vision.py).
 # mutate_colour adds or removes a colour-opponent channel in the gaze (see retina.py).
-TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace", "mutate_colour")
+# grow_channel / add_prediction / shrink_channel add or remove a brain
+# channel -- an output wired back in as an input (controller.py): a latch
+# duplicated from an existing output, or a predictor of one of its inputs.
+TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace",
+            "mutate_colour", "grow_channel", "add_prediction", "shrink_channel")
+# Structural additions that change nothing at birth (run_vision.py keeps
+# them on a tie, so they can drift until they are useful).
+NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction")
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
 BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
@@ -304,6 +311,12 @@ class Genome:
             return "colour", (choice if self.colour_channels != old else "noop_inapplicable")
         if choice == "mutate_brain":
             return "brain", (choice if self.brain.mutate(rng) > 0 else "noop_inapplicable")
+        if choice == "grow_channel":
+            return "brain", (choice if self.brain.grow_channel(rng, "latch") else "noop_inapplicable")
+        if choice == "add_prediction":
+            return "brain", (choice if self.brain.grow_channel(rng, "predict") else "noop_inapplicable")
+        if choice == "shrink_channel":
+            return "brain", (choice if self.brain.shrink_channel(rng) else "noop_inapplicable")
         if choice == "grow":
             applied, hit_ceiling = self._grow(rng, channel, max_nodes, max_depth)
         else:

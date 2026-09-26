@@ -481,7 +481,7 @@ PAGE = r"""<!doctype html>
   <div class="panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the gaze: 19 inputs (incl. the perception tree's output) &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm / tempo. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <div class="cap">The recurrent network that moves the gaze (fishbowl/controller.py): 25 inputs (senses, body, sleep, the day's light, the perception tree's output) &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm / tempo / sleep, plus any <b>channels</b> it has grown: an extra output wired back in as an input -- a <em>loop</em> (duplicated from an existing output, a working memory or a signal to itself) or a <em>predictor</em> (it guesses one of its inputs and gets back how wrong it was). A newborn channel changes nothing; its loop costs energy only once evolution wires it up. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
@@ -514,7 +514,7 @@ PAGE = r"""<!doctype html>
 
   <div class="panel">
     <h2>body</h2>
-    <div class="cap">Gemini's homeostasis (fishbowl/state.py) -- its body <b>right now</b>. It persists through the day and across restarts: hours of stillness really drain it; a rich stream feeds it back up. The traces below are its latest run.</div>
+    <div class="cap">Its body <b>right now</b> (fishbowl/state.py): food goes gut &rarr; blood sugar &rarr; reserve. Awake with nothing to eat it gets hungry within half an hour; asleep, its reserve carries it for hours -- so sleep, its own choice, is how it gets through a quiet room. It persists through the day and across restarts. The traces below are its latest run.</div>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
@@ -538,10 +538,11 @@ PAGE = r"""<!doctype html>
   <div class="cap">Every pressure currently in the fitness, with its real weight in run_vision.py. <span class="tag body">body</span> = comes from staying alive (the direction this is going: Dennett's "whole iguana"). <span class="tag hand">hand-written</span> = an older score bolted on from outside, to be retired one at a time as the body takes over. Nothing is hard-wired: the old innate escape reflex was removed so the flinch can evolve.</div>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
-    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). Energy runs on a real clock: basal burn (full energy lasts ~20 min at hummingbird tempo with no food, hours when slow and acclimatized), muscle force&sup2; every frame it pushes, and a per-gaze cost for thinking and for gaze size (x CPU scarcity). Restored only by eating: prey held in the gaze center (real meals) plus small surprise snacks.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of hunger&sup2; (blood sugar plus half the gut, like a full stomach calming hunger before it is absorbed) + 0.3 (1-reserve)&sup2; + threat&sup2; + fatigue&sup2; + 0.3 sleep pressure&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). On a real clock: being awake costs a fixed amount plus a share that follows its tempo; asleep it burns a third as much. Also muscle force&sup2; every frame it pushes, and per gaze: thinking, gaze size, colour and any wired brain loops (x CPU scarcity). Restored only by eating (prey held in the gaze center, plus small surprise snacks), through the gut. No death: an empty body degrades (colour off, narrow eye, slower gazing) and burns less.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>colour vision</td><td>0, 1 or 2 colour-opponent channels in its gaze (red-green, then blue-yellow), inherited and evolving. Each channel costs energy every gaze (x CPU scarcity), so colour vision only spreads if seeing colour pays -- e.g. telling prey from background.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while blood sugar and gut are low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>motor</td><td>sleep</td><td>Its own choice (a brain output), with three physiological overrides: it collapses when sleep pressure maxes out (and can't wake by choice until it has recovered), starving wakes it (and keeps even an exhausted animal up), and a big change in the field wakes it. Asleep: eyes shut, no eating, slow sampling of the field, a third of the waking burn -- the reserve can cover sleep but not waking, so sleep is how to get through a quiet room. Sleep also pays back tiredness (at full pressure it gets only half of what it catches) and consolidates its habituation memory. Falling asleep takes a moment to settle; waking, it is groggy for a few seconds and can't eat. Its sense of day and night is the field's light and its trend.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
     <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores</td><td>luminance_change, motion_energy, directional_motion, loom (old detector), conspec_drive, alarm, optokinetic_pursuit, and seek toward CONSPEC face-template detections (CONSPEC fired on almost every frame; finding living things is now YOLO's job -- itself a stand-in until it grows its own prey detector). Retired 2026-09-26 after two independent audits: they carried 80-95% of selection while moving nothing in the body (the perception tree memorised clips to satisfy them). Still measured and logged, not scored.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Rate of reaching new gaze positions (5x5 grid). Overlaps with eating novelty now.</td></tr>
@@ -553,8 +554,15 @@ PAGE = r"""<!doctype html>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'energy', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree'];
-  const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend'];
+  const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
+  // Grown channels (controller.py): a latch feeds its output back; a
+  // predictor feeds back how wrong it was about one of its inputs.
+  function channelName(br, k, side) {
+    const c = (br.channels || [])[k]; if (!c) return (side === 'in' ? 'in ' : 'out ') + k;
+    if (c.kind === 'predict') return side === 'in' ? `err ${INPUT_NAMES[c.target]}` : `predict ${INPUT_NAMES[c.target]}`;
+    return side === 'in' ? `loop ${k + 1} (back)` : `loop ${k + 1}` + (c.copy_of !== undefined ? ` (from ${OUTPUT_NAMES[c.copy_of] || 'loop'})` : '');
+  }
   const PREY_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
   const REPLAY_FPS = 15;
   let D = null, t0 = performance.now();
@@ -679,12 +687,16 @@ PAGE = r"""<!doctype html>
     const x = Math.max(0, Math.min(1, v || 0));
     return `<div class="gauge"><span>${name}</span><div class="track"><div class="fill" style="width:${(x * 100).toFixed(1)}%;background:${color}"></div></div><span class="v">${(v || 0).toFixed(2)}</span></div>` + (note ? `<div class="note">${note}</div>` : '');
   }
-  function spark(id, series, color, label) {
+  function spark(id, series, color, label, band) {
     const c = $(id); if (!c) return;
     c.width = Math.max(200, Math.floor(innerWidth(c.parentElement)));
     const ctx = c.getContext('2d'), W = c.width, H = c.height;
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     ctx.strokeStyle = '#1c2a36'; [0, 0.5, 1].forEach(v => { const y = (1 - v) * (H - 16) + 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); });
+    if (band && band.length > 1) {
+      ctx.fillStyle = 'rgba(200, 136, 255, 0.22)';
+      band.forEach((v, k) => { if (v >= 0.5) { const x = k / (band.length - 1) * W; ctx.fillRect(x - W / (band.length - 1) / 2, 0, W / (band.length - 1) + 1, H - 14); } });
+    }
     if (series && series.length > 1) {
       ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
       series.forEach((v, k) => { const x = k / (series.length - 1) * W, y = (1 - Math.max(0, Math.min(1, v))) * (H - 16) + 2; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
@@ -695,14 +707,19 @@ PAGE = r"""<!doctype html>
   function drawBody(d) {
     const b = d.body_now || d.body || {};
     $('gauges').innerHTML =
-      gauge('energy', b.energy, '#4fa') + gauge('hunger', b.hunger, '#f6a', 'builds while energy is low') +
+      `<div class="cap" style="margin:0 0 4px">${(b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b> -- eyes shut, not eating, sampling the field slowly' : '<b style="color:var(--green)">awake</b>'}</div>` +
+      gauge('blood sugar', b.energy, '#4fa', 'pays for everything; ~10 min of waking burn') +
+      gauge('gut', b.gut, '#e8c170', 'what it ate, digesting into blood sugar over minutes; full = cannot eat more') +
+      gauge('reserve', b.reserve, '#2c9', '~6 h; surplus is stored, and it can refill blood sugar only fast enough for sleep') +
+      gauge('sleep pressure', b.sleep_pressure, '#c8f', 'builds while awake, clears asleep; tiredness costs it half of what it catches at full pressure') +
+      gauge('hunger', b.hunger, '#f6a', 'blood sugar and gut together') +
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
       gauge('arousal', b.arousal, '#7fd4ff', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
       `<div class="cap" style="margin-top:4px">tempo: <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes/s on average in its latest run (resting: ${d.pace_accepted ? ((d.frames_per_second || 15) / d.pace_accepted).toFixed(1) : '--'}). It can speed up or slow down 3x either way, any time -- a continuum, like a bear sluggish in winter and hyper in spring.</div>` +
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
-    spark('energy-trace', d.energy_series, '#4fa', 'energy');
+    spark('energy-trace', d.energy_series, '#4fa', 'blood sugar (purple band: asleep)', d.sleep_series);
     $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'a person or animal held in the center of its gaze (YOLO) -- its real food');
     spark('prey-trace', d.prey_series, '#ff5fa2', 'prey eaten');
     $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', 'genuinely new structure in the gaze center -- too little to live on alone');
@@ -732,11 +749,11 @@ PAGE = r"""<!doctype html>
     const edge = (x1, y1, x2, y2, w) => { const a = Math.min(1, Math.abs(w) / maxW); ctx.strokeStyle = w >= 0 ? `rgba(127,212,255,${0.08 + 0.8 * a})` : `rgba(255,153,0,${0.08 + 0.8 * a})`; ctx.lineWidth = 0.5 + 2 * a; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
     for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edge(xin, yAt(i, nIn), xh, yAt(h, nH), br.weights_ih[h][i]);
     for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edge(xh, yAt(h, nH), xout, yAt(o, nOut) , br.weights_ho[o][h]);
-    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
-    for (let i = 0; i < nIn; i++) { ctx.fillStyle = '#1a2a38'; ctx.beginPath(); ctx.arc(xin, yAt(i, nIn), 6, 0, 7); ctx.fill(); ctx.fillStyle = '#9fb6c6'; ctx.textAlign = 'right'; ctx.fillText(INPUT_NAMES[i] || ('in ' + i), xin - 10, yAt(i, nIn)); }
+    ctx.font = (nIn > 26 ? '10px' : '11px') + ' monospace'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < nIn; i++) { ctx.fillStyle = '#1a2a38'; ctx.beginPath(); ctx.arc(xin, yAt(i, nIn), 6, 0, 7); ctx.fill(); ctx.fillStyle = '#9fb6c6'; ctx.textAlign = 'right'; ctx.fillText(i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in'), xin - 10, yAt(i, nIn)); }
     const hid = d.brain_hidden || [];
     for (let h = 0; h < nH; h++) { const a = hid[h] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.arc(xh, yAt(h, nH), 9, 0, 7); ctx.fill(); ctx.stroke(); }
-    for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#4fa'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#4fa'; ctx.textAlign = 'left'; ctx.fillText(OUTPUT_NAMES[o] || ('out ' + o), xout + 16, yAt(o, nOut)); }
+    for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#4fa'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#4fa'; ctx.textAlign = 'left'; ctx.fillText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out'), xout + 16, yAt(o, nOut)); }
     const hx = W - hm - 10, hy = 30, cell = hm / nH;
     let mh = 1e-9; br.weights_hh.forEach(r => r.forEach(v => mh = Math.max(mh, Math.abs(v))));
     for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) { const v = br.weights_hh[r][q], a = Math.abs(v) / mh; ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${a})` : `rgba(255,153,0,${a})`; ctx.fillRect(hx + q * cell, hy + r * cell, cell - 1, cell - 1); }

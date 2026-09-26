@@ -273,6 +273,14 @@ THINK_COST = 2e-5  # per gaze, x scarcity
 # gaze, priced by CPU scarcity like everything else: colour vision only
 # evolves if seeing colour pays for itself.
 COLOUR_COST = 1e-5
+# A brain channel's loop (controller.py) costs energy in proportion to the
+# weight on its way back in: a loop that does nothing is free, one that
+# matters has to pay for itself (a synaptic cost, like any real circuit).
+CHANNEL_COST = 2e-5  # per unit of loop weight, per gaze, x scarcity
+# Sleep consolidates its habituation memory: clearing sleep pressure tightens
+# each spot's remembered variation toward the sensor-noise floor, so after a
+# night real change stands out more sharply (and "boring" stays learned).
+CONSOLIDATE_RATE = 3.0
 
 # The flinch, evolved rather than wired: at each onset of a real
 # approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
@@ -583,6 +591,7 @@ def evaluate_genome(
     dxs, dys = [], []  # real (post-clamp) look movement per frame
     movement_costs = []  # pre-clamp motor intent per frame
     energies, drives, foods = [], [], []
+    asleeps = []
     periph_active = []
     field_events = []  # per frame: where the whole field saw motion, how much, loom, reflex
     last_grid = None
@@ -597,7 +606,11 @@ def evaluate_genome(
     prev_response = 0.0
     while t < len(frames):
         frame = frames[t]
-        v = fovea.extract(frame, state)
+        # Asleep, its eyes are shut: the gaze sees nothing. The whole field
+        # still reaches it (light and movement through closed eyes), so a
+        # big enough change can wake it.
+        was_asleep = body.asleep >= 0.5
+        v = np.zeros(N_CELLS) if was_asleep else fovea.extract(frame, state)
         positions.append((state.cx, state.cy))
         fracs.append(state.fraction)
         frame_path.append((state.cx, state.cy, state.fraction))
@@ -606,13 +619,13 @@ def evaluate_genome(
         # out (corollary discharge): the previous frame sampled at
         # the look's CURRENT position, so a saccade across a still scene
         # doesn't register as motion, threat, or loom.
-        h1 = fovea.extract(prev_frame, state) if prev_frame is not None else v
+        h1 = fovea.extract(prev_frame, state) if prev_frame is not None and not was_asleep else v
         hist = np.array([h1, v])
         lum = float(v.mean())
         # Only real history counts: on the first frame there's no older
         # sample to compare against.
         motion = flow_x = flow_y = 0.0
-        if prev_frame is not None:
+        if prev_frame is not None and not was_asleep:
             motion = min(1.0, float(np.abs(v - h1).mean()) * MOTION_GAIN)
             mx, my = reflexes.directional_motion(hist)
             flow_x = float(np.clip(mx[-1] * FLOW_GAIN, -1.0, 1.0))
@@ -627,17 +640,26 @@ def evaluate_genome(
         periph_dx = float(world_signals["motion_cx"][t_idx]) - state.cx
         periph_dy = float(world_signals["motion_cy"][t_idx]) - state.cy
 
-        pan, tilt, zoom, alarm, tempo, is_reflex = brain.step(
+        field_light = float(world_signals["field_light"][t_idx])
+        out = brain.step(
             lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
-            periph_dx, periph_dy, state.vx, state.vy, prev_response,
+            periph_dx, periph_dy, state.vx, state.vy, prev_response, field_light,
         )
+        pan, tilt, zoom, alarm, tempo = out.pan, out.tilt, out.zoom, out.alarm, out.tempo
+        # Sleep is its own choice (its sleep output); the body adds only the
+        # physiological overrides -- collapse, hunger, a big change (state.py).
+        body.set_sleep(out.sleep > 0.0, loom, periph_motion)
+        asleep = body.asleep >= 0.5
+        # An empty body runs on less (soft floor): colour off, a narrow eye,
+        # slower gazing. Asleep, the eye is shut: no colour either.
+        colour_on = colour_n if not (asleep or body.degraded) else 0
         # The brain's recurrent memory (its 16 hidden units, updated just
         # above) feeds the perception tree as extra inputs x290-x305, after
         # the look (x0-143), previous look (x144-287) and own movement.
-        col = fovea.extract_colour(world_colour[t], state, colour_n) if colour_n else np.zeros(0)
+        col = fovea.extract_colour(world_colour[t], state, colour_on) if colour_on else np.zeros(0)
         colour_in = colour_pad.copy()
         colour_in[:len(col)] = col
-        if colour_n:
+        if colour_on:
             last_colour = col
         vb = np.concatenate([v, prev_v, [prev_dx, prev_dy], brain.hidden, colour_in])[None, :]
         response = float(g.evaluate("response", vb)[0])
@@ -652,12 +674,19 @@ def evaluate_genome(
 
         # Eating happens at the gaze: prey held in the gaze center is a
         # meal; genuinely new structure there is a small snack.
-        gaze_state = state
-        prey_now = prey_lib.prey_in_gaze(world_prey[t] if world_prey is not None and t < len(world_prey) else [],
-                                         state.cx, state.cy, state.fraction)
-        snack = _feed_on_novelty(memory, v, gaze_state, variance)
-
-        interval = int(np.clip(round(pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
+        if asleep:
+            # Asleep: no eating, no gazing, slow coarse sampling of the field.
+            pan = tilt = zoom = 0.0
+            prey_now = snack = 0.0
+            interval = MAX_INTERVAL
+        else:
+            prey_now = prey_lib.prey_in_gaze(world_prey[t] if world_prey is not None and t < len(world_prey) else [],
+                                             state.cx, state.cy, state.fraction)
+            snack = _feed_on_novelty(memory, v, state, variance)
+            interval = int(np.clip(round(pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
+            if body.degraded:
+                interval = min(MAX_INTERVAL, interval * 2)
+                zoom = -1.0
         idxs.append(t)
         intervals.append(interval)
 
@@ -677,15 +706,21 @@ def evaluate_genome(
         dys.append(prev_dy)
         movement_costs.append(math.hypot(force_x, force_y))
         periph_active.append(periph_motion)
+        gaze_cost = 0.0 if asleep else scarcity_cost(state.fraction)
         body.update(periph_motion, loom, effort,
-                    scarcity_cost(state.fraction) + (THINK_COST + COLOUR_COST * colour_n) * scarcity,
-                    dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps))
+                    gaze_cost + (THINK_COST + COLOUR_COST * colour_on + CHANNEL_COST * brain.loop_synapses()) * scarcity,
+                    dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps), field_light=field_light)
+        cleared = body.take_cleared()
+        if cleared > 0.0:
+            floor = NOISE_FLOOR ** 2
+            variance[...] = floor + (variance - floor) * math.exp(-CONSOLIDATE_RATE * cleared)
         body.feed_visual_sustenance(snack)
         body.feed_prey(prey_now)
         prey_eaten.append(prey_now)
         food = snack
         energies.append(body.energy)
         drives.append(body.drive())
+        asleeps.append(body.asleep)
         foods.append(food)
 
         prev_frame = frame
@@ -739,6 +774,7 @@ def evaluate_genome(
         "colour_grid": [round(float(x), 4) for x in last_colour] if last_colour is not None else [],
         "body": body.to_dict(),
         "energy_series": [round(e, 4) for e in energies[::step_n]],
+        "sleep_series": [round(float(a), 2) for a in asleeps[::step_n]],
         # What it's eating: genuinely new visual structure per frame
         # (see _feed_on_novelty), sampled like energy.
         "food_series": [round(float(np.mean(foods[k:k + step_n])), 4) for k in range(0, len(foods), step_n)],
@@ -819,6 +855,8 @@ def evaluate_genome(
     breakdown["drive_reduction"] = drive_reduction
     breakdown["mean_drive"] = mean_drive
     breakdown["mean_energy"] = float(np.mean(energies)) if energies else 0.0
+    breakdown["asleep_share"] = float(np.mean(asleeps)) if asleeps else 0.0
+    breakdown["loop_weight"] = brain.loop_synapses()
     breakdown["final_energy"] = energies[-1] if energies else 0.0
     breakdown["mean_food"] = float(np.mean(foods)) if foods else 0.0
     breakdown["mean_prey"] = float(np.mean(prey_eaten)) if prey_eaten else 0.0
@@ -877,6 +915,7 @@ class World:
             ws = reflexes.all_signals(wv)
             ws["expansion"] = reflexes.expansion_score(wv)
             ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv)
+            ws["field_light"] = np.asarray(wv).mean(axis=1)
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
 
@@ -1184,7 +1223,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # plateau -- equal-fitness moves used to always be
             # rejected). A small, fixed chance to take a roughly-tied
             # step sideways; never a worse one.
-            accepted = rng.random() < NEUTRAL_ACCEPT_PROB
+            # A newborn brain channel changes nothing yet (controller.py):
+            # kept on a tie, so it can drift until it is useful.
+            accepted = rng.random() < (1.0 if applied in G.NEUTRAL_GROWTH_OPS else NEUTRAL_ACCEPT_PROB)
 
         if accepted:
             # Evolution just chose to pay for a bigger look -- a real,
@@ -1307,6 +1348,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # instead of showing one end-point per generation.
             "body": live_info.get("body"),
             "energy_series": live_info.get("energy_series"),
+            "sleep_series": live_info.get("sleep_series"),
             "trajectory": live_info.get("trajectory"),
             "food_series": live_info.get("food_series"),
             "mean_food": live_info.get("mean_food"),
