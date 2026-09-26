@@ -879,7 +879,9 @@ class World:
 
 
 def _is_device(source: str) -> bool:
-    return source.startswith("/dev/video") or source.isdigit()
+    """Its own camera: a local device, or a network camera's stream (e.g.
+    rtsp://127.0.0.1:8554/cam, a livecam server's output on the same host)."""
+    return source.startswith(("/dev/video", "rtsp://", "rtsps://", "srt://")) or source.isdigit()
 
 
 def _dessert() -> dict | None:
