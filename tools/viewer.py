@@ -200,6 +200,8 @@ PAGE = r"""<!doctype html>
   /* Tap/click a panel to fill the screen with it; tap again (or Esc) to put it back. */
   .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; cursor: zoom-out; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
   body.has-max { overflow: hidden; }
+  .video16x9 { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+  .video16x9 iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(340px, 0.95fr); gap: 16px; }
@@ -255,6 +257,12 @@ PAGE = r"""<!doctype html>
       <span><b style="color:#ff5fa2">- - -</b> prey (person/animal, YOLO); <b style="color:#ff5fa2">EATING</b> = prey in its gaze center</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
+    <div id="stream-wrap" style="display:none; margin-top:12px">
+      <h2>the stream, live</h2>
+      <div class="cap">What the camera of that stream shows right now, for context -- your browser's own connection to YouTube. The organism never sees this; it only gets the 12x12 grid above (and the replay there lags the live stream by up to a minute).</div>
+      <div class="video16x9"><iframe id="stream" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+      <div class="cap" style="margin-top:6px"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a> (some streams don't allow embedding)</div>
+    </div>
   </div>
 
   <div class="stack">
@@ -587,7 +595,7 @@ PAGE = r"""<!doctype html>
     requestAnimationFrame(redrawAll);
   }
   document.addEventListener('click', e => {
-    if (e.target.closest('input, button, label, a, select, textarea')) return;
+    if (e.target.closest('input, button, label, a, select, textarea, iframe')) return;
     const p = e.target.closest('.panel');
     if (p) setMax(p);
   });
@@ -607,6 +615,28 @@ PAGE = r"""<!doctype html>
   }
   fetchHistory();
 
+  // YouTube video id from watch?v=, /live/, /embed/, /shorts/ or youtu.be links.
+  function youtubeId(url) {
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      if (u.hostname.endsWith('youtu.be')) return u.pathname.slice(1).split('/')[0] || null;
+      if (u.searchParams.get('v')) return u.searchParams.get('v');
+      const m = u.pathname.match(/\/(?:live|embed|shorts)\/([^/?#]+)/);
+      return m ? m[1] : null;
+    } catch (e) { return null; }
+  }
+  let streamId = null;
+  function showStream(d) {
+    const id = d.is_live ? youtubeId(d.clip) : null;
+    $('stream-wrap').style.display = id ? 'block' : 'none';
+    if (id !== streamId) {
+      streamId = id;
+      $('stream').src = id ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1` : 'about:blank';
+      $('stream-link').href = id ? `https://www.youtube.com/watch?v=${id}` : '#';
+    }
+  }
+
   async function tick() {
     try {
       const d = await (await fetch('/state')).json();
@@ -621,7 +651,7 @@ PAGE = r"""<!doctype html>
         $('h-pace').textContent = d.pace_accepted ? `resting ${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
-        drawLook(d); drawBody(d); drawBrain(d);
+        drawLook(d); drawBody(d); drawBrain(d); showStream(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
     } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }
