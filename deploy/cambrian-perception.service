@@ -4,12 +4,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=ron
-WorkingDirectory=/home/ron/cambrian-perception
-ExecStart=/home/ron/cambrian-perception/.venv/bin/python run_vision.py live --generations 200000 --seconds 3600
+User=cambrian
+WorkingDirectory=/srv/cambrian/cambrian-perception
+ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/video0 --generations 200000 --seconds 3600
 
-# Real, hard resource caps -- the user's own constraint: this must not
-# interfere with orbital-organism's own use of Tanzania. Conservative
+# Real, hard resource caps: this must not interfere with other
+# workloads sharing the host. Conservative
 # on purpose (8 real cores, ~7.6GB RAM total, other real workloads
 # share this box) -- loosen only after watching real headroom over
 # time, not upfront.

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 """
-The external "handler" (the user's own word -- "its tube") that decides how
+The external "handler" (its feeding tube) that decides how
 much real compute cambrian-perception.service gets, adjusted live via
 systemd (`systemctl set-property ... CPUQuota=`). This is deliberately
 OUTSIDE the sandboxed brain -- same status as any other tools/ script,
@@ -16,9 +16,8 @@ Three real, distinct mechanisms, not one knob:
 
   HARD CEILING (never negotiable) -- MIN_QUOTA_PCT/MAX_QUOTA_PCT
     below. Nothing here can push past them regardless of any other
-    signal. the user's own framing: "a relatively permissive feeder circuit
-    that nevertheless ruthlessly cuts off food when it's bad for it,
-    regardless of how hungry it is."
+    signal: a permissive feeder that still cuts off food when it's bad
+    for the host, however hungry the organism is.
 
   HUNGER (reward for real, demonstrated cognition) -- quota moves UP,
     within the ceiling, when evolution_log.json shows real recent
@@ -30,13 +29,11 @@ Three real, distinct mechanisms, not one knob:
     strain. Never based on anything the organism reports about
     itself -- unfakeable from inside the sandbox.
 
-  HUNGER EXTINCTION (this pass's addition) -- User: "I don't want an
-    eternally hungry, unhappy organism... if its resource hunger gets
-    out of line and it's constantly biting at its handler, [the
-    handler] should have some sort of long-term antagonist feedback
-    such as making it less hungry the more it uselessly attempts to
-    eat resources... only gets hungrier when it detects new food."
-    Exactly conspec.Habituation's own shape, reapplied here: repeated
+  HUNGER EXTINCTION -- not an eternally hungry organism: if it keeps
+    requesting resources without real improvement, the handler's
+    responsiveness decays (it gets less hungry the more it uselessly
+    asks), and only real new "food" (fitness improvement) resets it.
+    Habituation's shape, applied to requests: repeated
     ceiling-hit requests (state/requests.json) with NO accompanying
     real fitness gain progressively dampen how much this handler
     responds to further requests -- an unreinforced "give me more"
@@ -77,7 +74,7 @@ LOAD_STRAIN_PER_CORE = 1.3   # loadavg / nproc above this = real strain
 FREE_MEM_STRAIN_MB = 800     # system-wide free memory below this = real strain
 
 HUNGER_DECAY = 0.85  # EMA decay for the extinction/satiation signal --
-# tuned faster than conspec.Habituation's 0.98 since this runs far
+# tuned fast since this runs far
 # less often (per-invocation of this script, not per-video-frame).
 
 
@@ -209,7 +206,7 @@ def run(dry_run: bool = False) -> None:
     request_count = _recent_request_count()
     strained = _load_average_strain() or _free_memory_strain()
 
-    # Hunger extinction -- the user's own addition this pass. Real new food
+    # Hunger extinction. Real new food
     # resets it sharply; repeated unaccompanied requesting decays it
     # toward full satiation (low responsiveness) instead of staying
     # perpetually agitated.

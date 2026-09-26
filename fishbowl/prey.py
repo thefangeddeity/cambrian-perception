@@ -4,7 +4,7 @@ from __future__ import annotations
 Prey -- what the organism can eat. Fixed, human-written, never evolved,
 same category as retina.py and reflexes.py.
 
-YOLO (yolov8n, the model already used by the user's HLS livecam) plays the
+YOLO (yolov8n, the model the HLS livecam project already uses) plays the
 role of the world's physics of food, NOT the organism's eyes: it decides
 where living things (people, animals) are, and the organism eats only
 when one of them is inside the center of its gaze. The organism itself
@@ -12,6 +12,13 @@ still sees nothing but its 12x12 grids, so its perception stays
 self-built. Detection runs on the full-resolution colour frame at
 capture time; only the resulting boxes (class, confidence, normalized
 position) are kept -- the frame itself is never stored or sent anywhere.
+
+YOLO is a SHORTCUT. The goal was always for the organism to grow its own
+prey detector. Planned next step: its own perception learns "prey in my
+gaze center or not" from its 12x12 grids with YOLO as the teacher (a
+student running in parallel), scored on agreement; once it is reliable,
+YOLO is weaned off and it eats by its own judgement. It only ever needs
+people and animals -- not the 80 COCO classes.
 """
 
 import os

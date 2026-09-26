@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 Real frame capture -- a video file (curated curriculum clip) or a
 live device (Tanzania's own /dev/video*). Fixed, human-written, never
-evolved, same category as retina.py/reflexes.py/conspec.py: the
+evolved, same category as retina.py/reflexes.py/prey.py: the
 genome never touches this code, it only ever sees frame_to_vector()'s
 already-reduced output. Frames are streamed and handed to the caller
 one at a time -- nothing here ever writes a frame to disk. See

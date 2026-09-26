@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 """
-A tiny, dependency-free local viewer -- "garbage that over millions of
-iterations becomes vision" (the user's own framing). Serves ONE page that
+A tiny, dependency-free local viewer -- watching noise that, over
+millions of iterations, is meant to become vision. Serves ONE page that
 polls state/live_status.json and renders two blocky, pixelated
 canvases from real backend-computed retina.py reductions -- genuinely
 what it's seeing, not a reconstruction, since a 144-value luminance
@@ -13,11 +13,10 @@ the no-raw-frames rule): the RETINA (the fovea's own cropped view) and
 the WORLD RETINA (the same reduction run on the full frame, i.e. what
 run_vision.py's fitness grading itself sees), with the FOVEA's own box
 (cx/cy/fraction, fovea.py's real pan/tilt window) drawn on top of the
-world retina to show where it's currently pointed. User: "Screw the
-video. What is a pixel dump of what it's seeing?" -- replaced an
+world retina to show where it's currently pointed. This replaced an
 earlier YouTube-embed crop-preview that kept hitting real, unfixable
 constraints (embedding restrictions, cross-origin pixel access, URL
-format parsing). "Don't get retina and fovea confused."
+format parsing).
 
 Deliberately NOT built into the HLSLS stack -- this has to work
 whether or not broadcast-api/mediamtx are up (see the coordination
@@ -58,11 +57,10 @@ HISTORY_MAX_LINES = 5000
 HISTORY_MAX_BYTES = 12_000_000  # real tail, not a full-file read -- the
 # log can grow to ~20000 lines/rotation; this stays cheap regardless.
 
-# User: "put a list of training videos I can pick from the viewer."
 # Human-only control -- this is the first thing this viewer ever
 # WRITES (everything else is read-only). Written here, read by
 # sandbox.load_selected_source() in run_vision.py. Only ever a name
-# from LIVE_SOURCES's own fixed whitelist -- never an arbitrary URL,
+# from LIVE_SOURCES, or a verified-live https YouTube link -- never an arbitrary URL,
 # since this viewer has no auth (a known, documented gap) and
 # accepting free-text URLs here would hand anyone on the LAN control
 # over what real content the organism trains against.
@@ -319,9 +317,8 @@ PAGE = r"""<!doctype html>
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
-    <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores</td><td>luminance_change, motion_energy, directional_motion, loom (old detector), conspec_drive, alarm, optokinetic_pursuit. Retired 2026-09-26 after two independent audits: they carried 80-95% of selection while moving nothing in the body (the perception tree memorised clips to satisfy them). Still measured and logged, not scored.</td></tr>
+    <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores</td><td>luminance_change, motion_energy, directional_motion, loom (old detector), conspec_drive, alarm, optokinetic_pursuit, and seek toward CONSPEC face-template detections (CONSPEC fired on almost every frame; finding living things is now YOLO's job -- itself a stand-in until it grows its own prey detector). Retired 2026-09-26 after two independent audits: they carried 80-95% of selection while moving nothing in the body (the perception tree memorised clips to satisfy them). Still measured and logged, not scored.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Rate of reaching new gaze positions (5x5 grid). Overlaps with eating novelty now.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>seek</td><td>Ending up near a detected face-like pattern.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead_field / movement_cost</td><td>Sustained stretches with nothing happening in the world; pushing the eye at all (on top of the body's energy cost for force).</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>corner / edge penalty</td><td>Sitting in a corner, or hard against one edge.</td></tr>
   </table>
@@ -655,11 +652,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/history":
-            # Real structural-growth telemetry -- User: "plot fitness,
-            # total nodes, nodes per channel, tree depth, accepted
-            # mutation type, fitness delta... show exactly when
-            # complexity increases and whether it earns its structural
-            # cost." A real tail of evolution_log.jsonl, not the whole
+            # Real structural-growth telemetry: when complexity increases
+            # and whether it earns its structural cost. A real tail of evolution_log.jsonl, not the whole
             # (potentially ~20000-line) file.
             # The log rotates by renaming (evolution_log.1.jsonl holds the
             # previous chunk): stitch the two so charts keep their history.
@@ -726,8 +720,7 @@ class Handler(BaseHTTPRequestHandler):
         # A whitelisted name is fine as-is. Free-text "url" has no
         # whitelist to fall back on, so it's validated for real
         # against yt-dlp (see _check_live_url) before being
-        # accepted -- User: "add a field I can input the video to
-        # be watched." Still human-only; the organism never
+        # accepted. Still human-only; the organism never
         # reaches this endpoint or picks its own source.
         qs = parse_qs(urlparse(self.path).query)
         name = (qs.get("name") or [""])[0]
@@ -750,8 +743,8 @@ class Handler(BaseHTTPRequestHandler):
                 # back to its camera by itself (run_vision.py _dessert).
                 _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url, **({"until": until} if until else {})})
         if ok:
-            # User: "'Submit' should trigger a restart of
-            # cambrian-perception.service" -- without this the
+            # Submitting restarts cambrian-perception.service --
+            # without this the
             # selection only took effect on whatever restart
             # happened to come next (up to an hour away), which is
             # exactly what caused the real "still watching the

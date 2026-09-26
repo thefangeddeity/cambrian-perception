@@ -106,11 +106,10 @@ def clear_selected_source() -> None:
 
 def load_selected_source() -> dict | None:
     """
-    Human-only control, User: "put a list of training videos I can pick
-    from the viewer." Written by tools/viewer.py itself (its own
+    Human-only control: which video it watches. Written by tools/viewer.py itself (its own
     independent writer, not through this module -- same file-is-the-
     contract pattern as live_status.json), read here. The organism
-    never touches this; the viewer only ever offers a fixed whitelist.
+    never touches this; the viewer only accepts verified-live YouTube links.
     """
     if not SELECTED_SOURCE_PATH.exists():
         return None
@@ -121,8 +120,8 @@ def load_selected_source() -> dict | None:
 class Limits:
     max_generations: int = 5000
     max_wallclock_seconds: float = 1800.0
-    # Raised from 60/10 -- User: "with 5GB we can be generous with its
-    # nodes and depth." Worth being precise about what this actually
+    # Raised from 60/10 (plenty of memory to be generous with nodes and
+    # depth). Worth being precise about what this actually
     # trades off, though: a Node is a small Python object, so even a
     # tree of several hundred nodes is a few hundred KB at most --
     # memory was never really the constraint on tree SIZE (it was the
@@ -134,8 +133,8 @@ class Limits:
     # raising this is safe to do generously; the resource handler is
     # what actually keeps real runtime cost in check, not this number.
     #
-    # Raised again 300/20 -> 1000/30, User: "please raise the tree
-    # ceiling" (prompted by a real accepted genome still being tiny --
+    # Raised again 300/20 -> 1000/30 (prompted by a real accepted genome
+    # still being tiny --
     # response was a single leaf node -- after ~18k generations). Worth
     # being honest here too: checked live (evolution_log.json), the
     # actual accepted trees were nowhere near 300 nodes when this was

@@ -11,10 +11,8 @@ regress.
 
 Multiple named trees (not one) as of the foveated-vision design: the
 organism needs more than one output per frame -- a response magnitude
-(scored against the reflex/conspec signals) AND where to move its
-fovea next (pan, tilt) -- see fovea.py. the user's own framing: "we take a
-small frame of Tanzania's feed, a fovea, and replicate pan/tilt
-digitally, so the reflexes can train." All channels share the exact
+AND where to move its
+fovea next (pan, tilt) -- see fovea.py. All channels share the exact
 same safe block-tree language and mutation machinery; there's no
 separate, less-safe code path for "the action-producing tree" versus
 "the perception tree."

@@ -36,9 +36,8 @@ the real reflex is:
     signed, directional motion. This is what run_vision.py's new
     optokinetic-pursuit reward is graded against -- added specifically
     because nothing previously rewarded the pan/tilt actuator for
-    actually tracking real motion (the user, watching a real deployed kitten
-    cam: "this cat's been there the whole time, but the fovea's too
-    primitive to evolve to lock on it").
+    actually tracking real motion (observed on a live kitten cam: a cat
+    in view the whole time, and the fovea never locked on).
 
   loom -- local expansion of a change-region, a real approximation of
     tau (time-to-contact from expansion rate) -- the reflex behind

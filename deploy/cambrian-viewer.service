@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=ron
-WorkingDirectory=/home/ron/cambrian-perception
-ExecStart=/home/ron/cambrian-perception/.venv/bin/python tools/viewer.py --port 8090
+User=cambrian
+WorkingDirectory=/srv/cambrian/cambrian-perception
+ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python tools/viewer.py --port 8090
 Restart=always
 RestartSec=5
 

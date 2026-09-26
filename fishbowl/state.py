@@ -44,11 +44,10 @@ class MosquitoState:
     hunger: float = 0.0        # builds while energy is low (visual-organism's form)
     curiosity: float = 0.0     # appetite for novelty: grows while nothing new comes in, drops when fed
     # Metabolic rate, acclimatizing: drifts toward the rate its current
-    # tempo implies over ~2 minutes (User: animals "habituate to differing
-    # metabolic environments... like how bears get sluggish in winter,
-    # hyper in spring"). 1.0 = gazing every frame; slower tempo -> lower.
+    # tempo implies over ~2 minutes -- animals acclimatize to different
+    # metabolic conditions (a bear is sluggish in winter, active in
+    # spring). 1.0 = gazing every frame; slower tempo -> lower.
     metabolic_rate: float = 1.0
-    previous_drive: float = 0.0
 
     def drive(self) -> float:
         """
@@ -73,21 +72,20 @@ class MosquitoState:
         dt_seconds: float | None = None,
     ) -> None:
         """
-        One look. dt = real time since the last look, in base frames
-        (1/15 s); pace = its pace of life (look every pace-th frame).
+        One gaze. dt = frames since the last gaze (for the fast-decaying
+        signals); dt_seconds = the same interval in real seconds; pace =
+        the gaze interval it is using right now.
         Everything that happens in real time (basal burn, and the decay
         and build-up of arousal, threat, fatigue, hunger, search) is
         scaled by dt, so looking less often doesn't slow its metabolism
         down. Things that happen per look (the motor push, the cost of
         processing a look of this size) are charged once per look.
 
-        Basal metabolic rate scales with pace (User: a hummingbird "needs
-        to eat constantly or it'll crash out", while some reptiles "can
-        afford to take it easy... and eat very seldom"): a fast-paced
+        Basal metabolic rate scales with pace (a hummingbird must eat
+        almost constantly; many reptiles eat rarely): a fast-paced
         organism idles hot, a slow one idles cheap -- otherwise a slow
         pace could never eat enough to survive at all.
         """
-        self.previous_drive = self.drive()
 
         def leak(old: float, decay: float, target: float) -> float:
             k = decay ** dt
@@ -124,11 +122,7 @@ class MosquitoState:
         Tracking salient visual structure provides cognitive sustenance,
         offsetting some basal decay (information foraging / active engagement).
         """
-        # 0.012, not 0.004: at 0.004 the best possible meal was below
-        # basal burn alone, so every organism starved whatever it did
-        # (measured on real camera frames: 12/12 random brains and the
-        # live genome ended at ~0 energy). Now eating well while moving
-        # economically can run a surplus; frantic or badly-placed can't.
+        # A small snack (FOOD_PER_LOOK); real meals are prey (feed_prey).
         gain = FOOD_PER_LOOK * _clamp(tracking_quality)
         self.energy = _clamp(self.energy + gain)
         # Curiosity: slowly rises every frame, satisfied by real novelty.
@@ -151,13 +145,6 @@ class MosquitoState:
         """A real meal: prey (a person or animal, per YOLO) held in the
         center of the gaze. The scarce, earned food source."""
         self.energy = _clamp(self.energy + PREY_FOOD_PER_LOOK * _clamp(amount))
-
-    def drive_reduction(self) -> float:
-        """
-        Homeostatic reward = D(t-1) - D(t).
-        Positive when moving toward health/safety, negative when depleting/panicking.
-        """
-        return self.previous_drive - self.drive()
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":

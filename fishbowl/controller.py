@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 """
-Mosquito Visual Controller -- Recurrent Central Complex with Giant Fiber Reflex.
+Visual controller -- a small recurrent network that moves the gaze.
 
 Modeled on insect neurobiology (e.g. Diptera / mosquito):
   - Optic Lobe Inputs:
-      12 ommatidia/optic channels: luminance, motion, optic flow (dx, dy), loom,
-      current gaze (cx, cy, zoom), and homeostatic interoception (energy, arousal,
-      threat, search).
+      the gaze's luminance, motion and optic flow (dx, dy); loom and where
+      motion is (dx, dy) from the whole field; current gaze (cx, cy, zoom) and
+      eye velocity; interoception (energy, arousal, threat, search, hunger,
+      curiosity); and the perception tree's output.
   - Central Complex (Recurrent Ring):
       A 16-unit recurrent neural circuit (RNN) with temporal hidden memory.
       Maintains smooth gaze stabilization, pursuit, and active visual casting.
-  - Giant Fiber Evasion Reflex (Subcortical Override):
-      High looming stimulus triggers an immediate emergency escape saccade
-      and fovea expansion, bypassing deliberative processing.
+  - Outputs: pan, tilt, zoom, alarm, tempo. There is no hard-wired escape
+    reflex: a fast reaction to looming is rewarded instead (run_vision.py),
+    so the flinch has to evolve.
 """
 
 import math
@@ -87,11 +88,9 @@ class MosquitoBrain:
         Runs one tick of the mosquito brain.
         Returns: (pan_dx, tilt_dy, d_zoom, alarm_response, tempo, is_reflex)
         """
-        # No hard-wired escape reflex (User: "No hard-wired flinch. A fast
-        # reaction to looming gets rewarded so it can evolve."). Gemini's
-        # giant-fiber override lived here; run_vision.py now rewards a
-        # fast reaction to real approach instead, and this network has to
-        # evolve the flinch itself from its loom/threat inputs.
+        # No hard-wired escape reflex (an override used to live here): a
+        # fast reaction to real approach is rewarded in run_vision.py, and
+        # this network has to evolve the flinch from its loom/threat inputs.
 
         # -------------------------------------------------------------
         # 2. Central Complex: Recurrent Processing

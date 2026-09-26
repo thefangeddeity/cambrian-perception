@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 """
-Digital pan/tilt -- the user's own solution to there being no real
-motorized camera: "we take a small frame of Tanzania's feed, a fovea,
-and that's what it sees, so we replicate pan/tilt digitally. So the
-reflexes can train." Same shape as foveated/active-vision models in
+Digital pan/tilt -- there is no motorized camera, so a small window
+of the camera frame (the fovea / gaze) is what it sees, and moving that
+window replicates pan/tilt digitally. Same shape as foveated/active-vision models in
 both biology (the eye doesn't process its whole visual field at high
 resolution at once) and machine learning (Mnih et al.'s "Recurrent
 Models of Visual Attention" -- a small glimpse window, and CHOOSING
-where to look next is itself a real, trainable action). The genome's
-own "pan"/"tilt" output trees (see genome.py's DEFAULT_CHANNELS)
-control that choice; this module only ever applies a bounded step and
-clamps the result inside the real frame -- it never decides WHERE to
-look, only enforces that wherever the genome decides, it can't step
-further than max_step per frame or off the edge of the real image.
+where to look next is itself a real, trainable action). The brain
+(controller.py) chooses; this module only applies its force to a damped
+eye and keeps the gaze inside the real frame -- it never decides WHERE
+to look.
 """
 
 from dataclasses import dataclass
@@ -26,8 +23,8 @@ FOVEA_FRACTION = 0.35  # DEFAULT look size (fraction of the full
 # frame's width/height) for a newborn genome. The live value is a
 # heritable trait, genome.fovea_fraction, evolved within the bounds
 # below and priced by real compute scarcity (see run_vision.py's
-# field cost) -- User: "grow its visual field as curiosity wants and
-# resources allow, but shrink as resource hunger limits it."
+# field cost): it can grow when seeing more pays off and resources
+# allow, and shrinks when resources are scarce.
 # Gemini's aperture range and per-frame zoom rate: the brain can widen
 # or narrow the look every frame (a zoom motor), within these bounds.
 # genome.fovea_fraction is only the aperture at birth.
@@ -36,25 +33,6 @@ MAX_FRACTION = 0.60  # Gemini's bound, kept for a measured reason: at 0.9 the ga
 # could barely move (0.1 of travel left) and fitness collapsed 1.31 -> 0.00 -- past ~0.6 it stops being a
 # gaze (a part of the field it moves around) and becomes the field itself.
 ZOOM_STEP = 0.05
-
-# Real correction, User: "Curiosity and large saccades should evolve,
-# not be forced." MAX_STEP used to be 0.12 -- small enough that NO
-# possible pan/tilt tree output could ever produce a real saccade (a
-# large, fast, ballistic jump, as opposed to smooth pursuit -- both
-# real eye-movement modes, which one gets used is real behavior, not
-# something to hand-pick). Because step() below already squashes the
-# raw tree output through tanh before scaling by MAX_STEP, the OLD
-# small constant meant every possible genome, no matter how it
-# evolved, was structurally capped at the same tiny step -- the
-# genome had no path to ever discover large movements, regardless of
-# whether that would have been fitness-beneficial. Raised to exceed
-# the full reachable range in one step (reachable width is 1 -
-# FOVEA_FRACTION); the REAL constraint that remains is step()'s own
-# final clip to stay inside the frame -- a genuine physical
-# necessity, not a behavioral-style choice. Whether movement ends up
-# smooth-small or saccade-large is now something the pan/tilt trees'
-# OWN evolved output magnitude actually determines.
-MAX_STEP = 1.0  # legacy (pre-physics); kept for reference in older docs
 
 # Eye physics: the brain applies a FORCE; the look has velocity, with
 # damping -- an eyeball (or a jumping spider's retinal tube) on muscles.

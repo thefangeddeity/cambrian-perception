@@ -4,9 +4,9 @@ After=cambrian-perception.service
 
 [Service]
 Type=oneshot
-User=ron
-WorkingDirectory=/home/ron/cambrian-perception
-ExecStart=/home/ron/cambrian-perception/.venv/bin/python tools/resource_handler.py
+User=root
+WorkingDirectory=/srv/cambrian/cambrian-perception
+ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python tools/resource_handler.py
 
 # Needs to call `systemctl set-property` on cambrian-perception.service
 # -- real, minimal privilege for exactly that, via sudoers (see deploy

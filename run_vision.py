@@ -2,61 +2,34 @@
 from __future__ import annotations
 
 """
-Entry point: evolves a genome against real curated clips, using the
-innate reflex/conspec signals purely to grade fitness -- never as
-genome input (see README's fishbowl boundary). Frames are loaded into
-memory once per run (never written to disk -- see video_source.py),
-and every generation replays the SAME in-memory clip from the SAME
-starting fovea position, so accept/reject comparisons are fair.
+Entry point: evolves an organism (fishbowl/) that lives on a real camera
+or live stream. Each generation, the current genome (parent) and one
+mutated child are scored on the SAME world snapshot, starting from the
+SAME body and memory; the child replaces the parent only if it does
+strictly better (plus a small chance of accepting a tie).
 
-Rewritten 2026-09-24 after an independent external audit found the
-~18k-generation plateau wasn't a mutation-strategy problem at all --
-three structural bugs made real progress nearly impossible regardless
-of how mutation was tuned:
-  - `best_fitness` used to be carried across restarts (different
-    clips) and across habituation-discount drift within a run, so
-    candidates were compared against a STALE, incomparable number.
-    Fixed: the parent is re-evaluated fresh, on the SAME frames and
-    SAME habituation_discount as the candidate, every single
-    generation -- see the main loop below.
-  - The response tree only ever saw the CURRENT frame, but is graded
-    against frame-DIFFERENCE reflex signals -- structurally incapable
-    of representing what it's scored on. Fixed: it now also gets the
-    PREVIOUS frame's fovea vector as input (n_vars doubled), giving it
-    the raw material to compute a difference itself if that helps.
-  - Reflex/conspec signals used to be computed on the fovea's OWN
-    cropped view, which means simply PANNING the fovea across a static
-    scene manufactured apparent luminance-change/motion/loom (the same
-    way a real eye's saccades look like the world moved without
-    corollary-discharge correction) -- a self-stimulation loophole,
-    confirmed empirically (a static scene with the fovea held still
-    scored fitness -0.91). Fixed: all grading signals are now computed
-    ONCE per run on the FULL, un-foveated frame -- independent of
-    whatever the organism's own pan/tilt choices were.
+What it is scored on (evaluate_genome):
+  - its body (fishbowl/state.py): homeostatic drive and drive reduction
+    on a real clock -- energy spent on basal metabolism, muscle force,
+    thinking and gaze size, restored only by eating;
+  - food: prey (people/animals found by fishbowl/prey.py) held in the
+    center of its gaze, plus small surprise snacks (habituating memory);
+  - a few remaining hand-written pressures (curiosity, dead field,
+    movement cost, corner/edge, flinch), to be retired over time.
+Older correlation scores are still measured and logged, not scored.
 
-Meant to run for YEARS (the user's own framing), not one sitting -- so this
-is intentionally still a BOUNDED process (sandbox.Limits, checked
-before each generation, same "never trust an unbounded loop"
-discipline as everything else here), meant to be restarted repeatedly
-by an outer supervisor (systemd, Restart=always -- see deploy/
-cambrian-perception.service). Each restart:
-  - resumes the genome/habituation/fitness state from state/
-    checkpoint.json rather than starting from a fresh random genome
-    (fishbowl/sandbox.py's save/load_checkpoint -- real long-term
-    memory, leveraging Tanzania's disk instead of trying to keep years
-    of state in RAM or re-discovering everything each time).
-  - picks the NEXT source in rotation (persisted in the checkpoint
-    too) -- one clip per bounded run keeps each run's own accept/
-    reject comparisons fair, while rotating across runs gives real
-    variety over a long lifetime instead of plateauing against one
-    90-second loop forever. In "live" mode (source == "live") this
-    rotates across LIVE_SOURCES and RE-RESOLVES the real live stream
-    fresh each run (see _resolve_live_url) -- genuinely new real
-    content every restart, never a cached/downloaded file, matching
-    the user's own "watch actual live feed, not local cache" correction.
+The world (World): a live camera or live stream is read continuously
+(video_source.LiveFeed) and each generation is scored on the newest
+~600 frames, refreshed every few generations; a local file is one fixed
+clip. Raw frames never leave memory -- only 12x12 grids and prey boxes.
+
+Meant to run for years as a BOUNDED process restarted by systemd
+(Restart=always): each run resumes the genome, body and memory from
+state/checkpoint.json (fishbowl/sandbox.py), and time spent down is
+charged to the body.
 
 Usage:
-    python3 run_vision.py <media_dir_or_single_file> [--generations N] [--seconds S]
+    python3 run_vision.py <camera device | "live" | video file> [--generations N] [--seconds S]
 """
 
 import argparse
@@ -70,7 +43,7 @@ from pathlib import Path
 
 import numpy as np
 
-from fishbowl import conspec, fovea, genome as G, reflexes, sandbox, video_source
+from fishbowl import fovea, genome as G, reflexes, sandbox, video_source
 from fishbowl.state import MosquitoState
 from fishbowl import prey as prey_lib
 from fishbowl.controller import HIDDEN as BRAIN_HIDDEN
@@ -85,11 +58,18 @@ from fishbowl.retina import GRID, N_CELLS, frame_to_vector
 # module docstring); "directional_motion" is the real thing, added the
 # same day, correlated against response the same way as the others.
 SIGNAL_WEIGHTS = {"luminance_change": 0.5, "motion_energy": 0.75, "directional_motion": 0.75, "loom": 2.0}
-CONSPEC_WEIGHT = 1.5
 
-# Real orienting pressure, added 2026-09-24 -- the user, watching a real
-# deployed kitten cam: "this cat's been there the whole time, but the
-# fovea's too primitive to evolve to lock on it." Confirmed by design
+# CONSPEC (a hand-built face-template detector, after Morton & Johnson's
+# newborn face-orienting theory) and its "seek" reward are RETIRED: on
+# real frames the template fired on almost everything, so seek just
+# pulled the gaze toward any dark triangle. Finding living things is now
+# prey.py's job -- and YOLO there is itself a SHORTCUT: the goal is for
+# the organism to grow its own prey detector (planned: its own perception
+# learns "prey or not" from its 12x12 grids with YOLO as the teacher, then
+# YOLO is weaned off). It only ever needs people and animals, not pencils.
+
+# Real orienting pressure, added 2026-09-24 -- on a live kitten cam a
+# cat was in view the whole time and the fovea never locked on. Confirmed by design
 # review: nothing previously rewarded pan/tilt for actually moving
 # TOWARD anything -- curiosity rewards coverage, dead_field penalizes
 # staying put, but neither one cares whether the fovea is near a real
@@ -101,26 +81,18 @@ CONSPEC_WEIGHT = 1.5
 #   directional_motion)? This is what a real optokinetic/smooth-
 #   pursuit reflex does: track whole-field or object motion to
 #   stabilize gaze, found across nearly all motile visual animals.
-#   seek -- when CONSPEC detects a being-like pattern strongly enough,
-#   is the fovea actually near where it is? Makes conspec.py's own
-#   "seek" drive literal instead of a documented "honest limitation"
-#   (there IS a real pan/tilt actuator now) -- and matches the real
-#   CONSPEC/CONLERN literature more closely too: real newborns
-#   orient head/eyes toward face-like stimuli, not just look longer.
-PURSUIT_WEIGHT = 1.0
-SEEK_WEIGHT = 1.0
-SEEK_STRENGTH_THRESHOLD = 0.05  # only scored when something's actually there -- never penalizes absence
+#   (seek, toward CONSPEC detections, is retired -- see above.)
+PURSUIT_WEIGHT = 1.0  # retired from fitness with the other correlation scores; kept for the record
 
-# Real movement-cost PENALTY, added 2026-09-24 after the user watched a
-# real deployed genome corner-pin the fovea (land on one saturated
+# Real movement-cost PENALTY, added 2026-09-24 after a real deployed
+# genome was seen to corner-pin the fovea (land on one saturated
 # jump, then stay there for the rest of the run) instead of gliding.
 # Real animals pay genuine metabolic cost for large/fast eye or head
 # movements -- nothing here cost anything before, so a big, mostly-
-# unjustified jump was exactly as "free" as a small graded one, no
-# counterweight to the tanh/MAX_STEP saturation bias measured
-# empirically in fovea.py's own docstring (39% of random genomes
-# produce a near-maximal step vs. 7% a small one). This does NOT cap
-# or forbid large jumps -- PURSUIT_WEIGHT/SEEK_WEIGHT above can still
+# unjustified jump was exactly as "free" as a small graded one (then,
+# 39% of random genomes produced a near-maximal step vs. 7% a small one).
+# This does NOT cap
+# or forbid large jumps -- real food at the gaze center can still
 # justify a big move when it's genuinely worth it; it just means an
 # UNJUSTIFIED one no longer costs nothing. Costed on INTENT (the
 # pre-clamp tanh output, see fovea.step's own docstring), not net
@@ -130,13 +102,12 @@ SEEK_STRENGTH_THRESHOLD = 0.05  # only scored when something's actually there --
 # movement.
 MOVEMENT_COST_WEIGHT = 0.5
 
-# Corner penalty, User: "It's obsessed with corners... A corner
-# penalty, of sorts." Soft, not a hard constraint -- real reward can
+# Corner penalty: genomes kept hiding in corners. Soft, not a hard constraint -- real reward can
 # still outweigh it if a corner is ever genuinely the right place to
 # be. Fixed constant, outside the genome's reach (same reasoning as
 # _HEAD_SIZE: this grades behavior, it isn't a perception trait, so
 # it doesn't evolve).
-CORNER_PENALTY_WEIGHT = 1.0  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
+CORNER_PENALTY_WEIGHT = 1.0  # doubled 2026-09-24
 
 
 def _corner_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> float:
@@ -155,12 +126,12 @@ def _corner_penalty(positions: list[tuple[float, float]], fracs: list[float]) ->
     return float(np.mean(scores))
 
 
-# User: "I want it to shun edges unless they're worth it." Real,
+# Shun edges unless they're worth it. Real,
 # separate, LESSER cost than corner_penalty -- a single edge (one axis
 # extreme, the other centered) is genuinely less wasteful than a true
 # corner, so it costs less, not nothing. Still soft: seek/pursuit can
 # outweigh it when an edge really is where the subject is.
-EDGE_PENALTY_WEIGHT = 0.5  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
+EDGE_PENALTY_WEIGHT = 0.5  # doubled 2026-09-24
 
 
 def _edge_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> float:
@@ -178,9 +149,8 @@ def _edge_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> f
 #
 # The body pays per frame: basal metabolism, motor effort, and the
 # look's aperture. Aperture cost = area x scarcity (REFERENCE_QUOTA_PCT
-# / the real CPU quota resource_handler.py has granted) -- User: "grow
-# its visual field as curiosity wants and resources allow, but shrink
-# as resource hunger limits it."
+# / the real CPU quota resource_handler.py has granted): the gaze can
+# grow when resources allow and shrinks when they are scarce.
 REFERENCE_QUOTA_PCT = 150.0
 APERTURE_COST = 1e-4  # per gaze, x area x scarcity (real-clock body: see fishbowl/state.py)
 
@@ -253,7 +223,7 @@ FLOW_GAIN = 20.0
 
 # Fitness from staying viable: mean homeostatic drive over the run
 # (energy deficit, threat, fatigue -- MosquitoState.drive()). Mean, not
-# summed drive_reduction(): a sum of per-frame reductions telescopes to
+# a summed per-frame drive reduction: such a sum telescopes to
 # D(start) - D(end) and ignores everything in between.
 # The WHOLE visual field (the fixed camera's coarse 12x12 view -- a
 # jumping spider's wide-field secondary eyes, or a locust's LGMD/DCMD
@@ -327,7 +297,7 @@ def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float], interval
             "mean_latency_frames": round(float(np.mean(reacted)), 2) if reacted else None, "score": round(score, 3)}
 
 
-# The other boundary of the corridor -- the user's own framing: a deep-sea
+# The other boundary of the corridor -- like a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
 # drifting into the freezing water behind it. loom is the "scalding"
 # side (big, sudden, real threat -- weighted heaviest above,
@@ -347,8 +317,7 @@ DEAD_FIELD_WINDOW = 10
 DEAD_FIELD_PENALTY_WEIGHT = 1.0
 
 
-# Curiosity -- User: "I don't see it 'looking' sideways, no curiosity
-# yet?" Confirmed by real data (evolution_log.json's own breakdown
+# Curiosity -- it wasn't looking around at all. Confirmed by real data (evolution_log.json's own breakdown
 # keys): nothing in the fitness function ever rewarded WHERE the
 # fovea goes, only how well the response correlates with reflex
 # signals wherever it already happened to be sitting. This is
@@ -371,8 +340,8 @@ CURIOSITY_WEIGHT = 18.0
 
 def _curiosity_score(positions: list[tuple[float, float]]) -> float:
     """
-    Real bug fix, User: "I think definition of curiosity is making
-    fovea hopscotch instead of saccading; check definition." Verified
+    Real bug fix: the old definition made the fovea hopscotch instead of
+    saccading. Verified
     empirically before fixing: the OLD formula (final fraction of
     distinct cells ever visited) let a genome hop through all 25 cells
     in the first 25 of 600 frames, then coast idle for the remaining
@@ -423,34 +392,10 @@ def _dead_field_penalty(signals: dict[str, np.ndarray]) -> float:
     return float(worst_run - DEAD_FIELD_WINDOW + 1) / len(dead)
 
 
-def _seek_reward(
-    positions: list[tuple[float, float]],
-    peak_cx: np.ndarray,
-    peak_cy: np.ndarray,
-    strength: np.ndarray,
-) -> float:
-    """
-    Real orienting reward -- see PURSUIT_WEIGHT/SEEK_WEIGHT's own
-    comment for why this exists. Only scored on frames where CONSPEC
-    actually detected something (strength > threshold) -- this can
-    only ever reward genuine proximity to a real detection, never
-    penalize the fovea for where it is when nothing's there, same
-    reward-not-force discipline as every other drive here.
-    """
-    scores = []
-    for (cx, cy), pcx, pcy, s in zip(positions, peak_cx, peak_cy, strength):
-        if s <= SEEK_STRENGTH_THRESHOLD:
-            continue
-        dist = math.hypot(cx - pcx, cy - pcy)
-        # Normalized: 1.0 = fovea centered exactly on the detection,
-        # 0.0 = as far as possible (opposite corners of the frame).
-        scores.append(max(0.0, 1.0 - dist / math.sqrt(2.0)))
-    return float(np.mean(scores)) if scores else 0.0
-
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi")
 
-# User: "Change training feed to this actual live feed with no people
-# or picture-in-picture" (2026-09-24, replacing the earlier
+# Training feed chosen for no people or picture-in-picture (2026-09-24,
+# replacing the earlier
 # cat_livestream/pixcams_wildlife pair). Confirmed live via yt-dlp
 # metadata before wiring in (title: "Kitten Rescue Cat Cam powered by
 # EXPLORE.org", is_live=True) -- a real, established source, no
@@ -459,7 +404,7 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".webm", ".avi")
 # Watched LIVE (resolved fresh every run via _resolve_live_url below),
 # never downloaded -- genuinely different real content every restart.
 #
-# User: "Switch to this training feed" -- kitten_rescue_baby_kittens_cam
+# kitten_rescue_baby_kittens_cam
 # now the sole source (previously the backup entry, added earlier the
 # same day; already confirmed live via yt-dlp metadata then).
 LIVE_SOURCES = [
@@ -470,8 +415,7 @@ LIVE_SOURCES = [
 def _clip_display_name(source: str, clip_path: str) -> str:
     """
     A short, human-readable label for whatever's actually being
-    watched right now -- User: "make sure display page shows what it's
-    watching." For live mode this is the curated name from
+    watched right now, for the viewer. For live mode this is the curated name from
     LIVE_SOURCES (e.g. "cat_livestream"), not the raw URL; for a local
     file it's the filename without extension.
     """
@@ -575,8 +519,6 @@ def evaluate_genome(
     g: G.Genome,
     frames: list[np.ndarray],
     world_signals: dict[str, np.ndarray],
-    world_conspec: tuple[np.ndarray, np.ndarray, np.ndarray],
-    habituation_discount: float,
     quota_pct: float = REFERENCE_QUOTA_PCT,
     start_body: dict | None = None,
     fps: float = 15.0,
@@ -584,26 +526,20 @@ def evaluate_genome(
     start_memory: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> tuple[float, dict, dict]:
     """
-    Returns (fitness, breakdown, live_info). world_signals/world_conspec
-    are precomputed ONCE per run by the caller (see run()) -- see
-    _world_vectors's own docstring for why grading is independent of
-    this genome's own fovea path. world_conspec is (strength, peak_cx,
-    peak_cy) -- see conspec.conspec_signal. habituation_discount is
-    read-only here, never mutated by this function (habituation itself
-    is now observed once per run, from the real world signal, not from
-    any genome's path -- see run()).
+    Returns (fitness, breakdown, live_info). world_signals are the
+    world's own signals (whole field, computed per snapshot by World),
+    independent of this genome's gaze. world_prey holds prey boxes per
+    frame; start_body / start_memory are the organism's current body and
+    surprise memory (shared by parent and candidate).
     """
     state = fovea.FoveaState(fraction=float(np.clip(g.fovea_fraction, fovea.MIN_FRACTION, fovea.MAX_FRACTION)))
     # Its body as it actually is right now (carried across generations
     # by run()), not a fresh full-energy body each window.
     body = MosquitoState.from_dict(start_body) if start_body else MosquitoState()
-    # Pace of life: the caller hands over every pace-th frame (and the
-    # world signals at that rate); each look spans `pace` base frames of
-    # real time (1/15 s each).
     # Tempo: the genome's pace is its RESTING gaze interval (temperament);
     # the brain's tempo output speeds it up or slows it down up to
     # TEMPO_RANGE-fold either way, gaze by gaze -- a continuum, not a
-    # fixed hummingbird/reptile type (the user). The body's metabolic rate
+    # fixed hummingbird/reptile type. The body's metabolic rate
     # acclimatizes to it slowly (MosquitoState.metabolic_rate).
     pace = max(1, int(getattr(g, "pace", 1)))
     drive_start = body.drive()
@@ -629,7 +565,6 @@ def evaluate_genome(
     energies, drives, foods = [], [], []
     periph_active = []
     field_events = []  # per frame: where the whole field saw motion, how much, loom, reflex
-    reflex_frames = 0
     last_grid = None
     prev_v = np.zeros(N_CELLS)
     # Response tree's motor-efference input (its old pan/tilt feedback):
@@ -685,7 +620,6 @@ def evaluate_genome(
         # the hand-written correlation scores retired, the tree only matters
         # if what it perceives helps the body.
         prev_response = float(np.tanh(response)) if math.isfinite(response) else 0.0
-        reflex_frames += int(is_reflex)
         responses.append(response)
         alarms.append(alarm)
         last_grid = v
@@ -795,7 +729,6 @@ def evaluate_genome(
         "pace": round(float(iv.mean()), 2),  # mean gaze interval actually used this run
         "tempo_series": [round(float(np.mean(intervals[k:k + step_n])), 2) for k in range(0, len(intervals), step_n)],
         "brain_hidden": [round(h, 3) for h in brain.hidden],
-        "reflex_frames": reflex_frames,
         # (cx, cy, aperture, frame index): gazes are unevenly spaced now,
         # so the viewer replays each at its real moment.
         "trajectory": [[round(float(x), 4), round(float(y), 4), round(float(f), 4), i] for i, (x, y, f) in enumerate(fp)],
@@ -807,20 +740,16 @@ def evaluate_genome(
         return float("-inf"), {}, live_info
 
     signals = sel
-    cs, conspec_peak_cx, conspec_peak_cy = (np.asarray(a)[idxs] for a in world_conspec)
 
     fitness = 0.0
     breakdown = {}
-    # RETIRED from fitness (the user, after both audits: the correlation block
+    # RETIRED from fitness (after two independent audits: the correlation block
     # carried 80-95% of selection while moving nothing in the body, and
     # its heaviest term graded the discredited loom detector). Still
     # measured, for the record.
     for name in SIGNAL_WEIGHTS:
         breakdown[name] = _correlate(signals[name], responses)
 
-    drive = conspec.drive_fitness(cs, responses)
-    discounted_drive = drive * habituation_discount
-    breakdown["conspec_drive"] = discounted_drive  # retired from fitness (correlation score); measured only
     breakdown["loom_max"] = float(signals["loom"].max())
 
     curiosity = _curiosity_score([(q[0], q[1]) for q in fp])  # per real frame, on the per-frame path
@@ -831,16 +760,10 @@ def evaluate_genome(
     fitness -= DEAD_FIELD_PENALTY_WEIGHT * dead_field
     breakdown["dead_field_penalty"] = dead_field
 
-    # Real orienting pressure (see PURSUIT_WEIGHT/SEEK_WEIGHT's own
-    # comment) -- does pan/tilt's real movement track real motion
-    # direction, and does the fovea end up near a real detection?
+    # Does pan/tilt's real movement track real motion direction? (retired
+    # from fitness, measured only)
     pursuit = (_correlate(signals["motion_x"], np.array(dxs)) + _correlate(signals["motion_y"], np.array(dys))) / 2.0
     breakdown["optokinetic_pursuit"] = pursuit  # retired from fitness (correlation score); measured only
-
-    wcs = [np.asarray(a)[:nf] for a in world_conspec]
-    seek = _seek_reward([(q[0], q[1]) for q in fp], wcs[1], wcs[2], wcs[0])
-    fitness += SEEK_WEIGHT * seek
-    breakdown["seek_reward"] = seek
 
     movement_cost = float(np.mean(movement_costs)) if movement_costs else 0.0
     fitness -= MOVEMENT_COST_WEIGHT * movement_cost
@@ -871,7 +794,6 @@ def evaluate_genome(
     breakdown["mean_food"] = float(np.mean(foods)) if foods else 0.0
     breakdown["mean_prey"] = float(np.mean(prey_eaten)) if prey_eaten else 0.0
     breakdown["mean_aperture"] = float(np.mean(fracs)) if fracs else 0.0
-    breakdown["reflex_frames"] = reflex_frames
     breakdown["movement"] = live_info["movement"]
 
     flinch = live_info["flinch"]
@@ -922,7 +844,7 @@ class World:
             ws = reflexes.all_signals(wv)
             ws["expansion"] = reflexes.expansion_score(wv)
             ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv)
-            self._cache[pace] = (self.frames[::pace], ws, conspec.conspec_signal(wv))
+            self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
 
 
@@ -932,8 +854,7 @@ def _is_device(source: str) -> bool:
 
 def _dessert() -> dict | None:
     """
-    User: "submit a live YT video it can watch overnight when everything
-    is sleeping... like feeding it dessert." A human-chosen live stream
+    A human-chosen live stream
     with a deadline ("until", unix seconds), written by the viewer.
     Active while the deadline is in the future; None otherwise.
     """
@@ -965,9 +886,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     clip_index = clip_index % len(clips)
     clip_path = clips[clip_index]
 
-    # Human-only override, User: "put a list of training videos I can
-    # pick from the viewer" / "add a field I can input the video to be
-    # watched." Written by tools/viewer.py, never by the organism --
+    # Human-only override (which video it watches). Written by tools/viewer.py, never by the organism --
     # only takes effect for live-mode sources. A "name" must match
     # LIVE_SOURCES; a free-text "url" is only ever accepted by the
     # viewer after it's already confirmed live via a real yt-dlp
@@ -1041,13 +960,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     def _fps() -> float:
         return world.fps
 
-    # The real source frame's shape -- User: "make foveal rectangle honest."
+    # The real source frame's shape (the gaze box is drawn at its real aspect ratio).
     frame_h, frame_w = frames[0].shape[:2]
 
     box = sandbox.Sandbox(limits)
     if checkpoint is not None:
         box.generation = int(checkpoint.get("total_generation", 0))
-    habituation = conspec.Habituation()
     margin = 0.05
 
     # Inputs are only ever APPENDED (e.g. the brain's hidden units), so a
@@ -1058,31 +976,18 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         genome = G.Genome.from_dict(checkpoint["genome"])
         genome.n_vars = n_vars
         margin = float(checkpoint.get("margin", margin))
-        habituation.exposure = float(checkpoint.get("habituation_exposure", 0.0))
+    elif checkpoint is not None:
+        # Audit: this used to silently start a brand-new lineage and
+        # overwrite the checkpoint. A checkpoint with MORE inputs than this
+        # code expects means the code is older than the lineage -- stop.
+        raise SystemExit(f"Checkpoint has n_vars={checkpoint.get('n_vars')} but this code expects {n_vars}; "
+                         "refusing to overwrite the lineage with a fresh genome.")
     else:
-        if checkpoint is not None:
-            print("Checkpoint found but n_vars mismatch (retina/fovea shape changed) -- starting fresh.")
         genome = G.random_genome(rng, n_vars=n_vars)
 
-    # Habituation is now observed ONCE per run, straight from the
-    # real world signal -- it no longer depends on any genome's path
-    # (see module docstring). This also fixes a real related bug: it
-    # used to only advance on an ACCEPTED generation's real trajectory,
-    # so a long dry spell (exactly what B1 was causing) meant
-    # habituation silently stopped updating for thousands of
-    # generations even while real exposure was happening on screen.
-    def _observe(new_count: int) -> None:
-        if new_count <= 0:
-            return  # audit: [-0:] is the WHOLE array -- a stalled camera re-counted everything
-        _, ws1, wc1 = world.at_pace(1)
-        n = min(new_count, len(ws1["loom"]))
-        for c, l in zip(wc1[0][-n:], ws1["loom"][-n:]):
-            habituation.observe(conspec_present=c > 0.05, loom_value=l)
 
-    _observe(len(frames))
-
-    # NEVER trust a best_fitness carried over from a different clip or
-    # a different habituation state (external audit finding: this was
+    # NEVER trust a best_fitness carried over from a different world
+    # snapshot or body state (external audit finding: this was
     # the actual root cause of the plateau, not mutation strategy) --
     # always re-derive it fresh, on THIS run's real frames, before
     # anything is compared against it. peak_fitness_seen is a separate,
@@ -1114,7 +1019,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         m = checkpoint["memory"]
         memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
                       np.array(m["var"], dtype=float))
-    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(), world.prey, memory_now)
+    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -1125,7 +1030,6 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "best_fitness": best_fitness,
             "peak_fitness_seen": peak_fitness_seen,
             "margin": margin,
-            "habituation_exposure": habituation.exposure,
             "n_vars": n_vars,
             "clip_index": (clip_index + 1) % len(clips),
             "total_generation": box.generation,
@@ -1184,20 +1088,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # Re-evaluate the PARENT fresh, right here, right now -- never
         # compare against a stored best_fitness that might be stale
         # (external audit finding B1, the actual root cause of the
-        # plateau). The only thing that can legitimately drift between
-        # generations is habituation.discount; re-scoring both parent
-        # and candidate under the SAME current discount on the SAME
-        # frames keeps every single accept/reject decision honest.
-        # Live camera: refresh to the newest window every generation. Fair
-        # by construction -- parent and candidate are both scored on this
-        # same snapshot just below.
+        # plateau). The world, body and memory drift between
+        # generations; scoring parent and candidate from the SAME
+        # snapshot, body and memory keeps every decision honest.
         # Every WORLD_REFRESH_GENERATIONS generations (a few seconds):
         # rebuilding the world's signals costs ~0.65 s, which every
         # generation would nearly double generation time.
         if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
             frames, vectors, total, prey_boxes = feed.snapshot()
             world = World(frames, vectors, feed.frames_per_second(), prey_boxes)
-            _observe(total - seen_total)
             if total != seen_total:
                 last_new_frame = time.time()
             elif time.time() - last_new_frame > 60:
@@ -1210,9 +1109,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
                     sandbox.clear_selected_source()
                 break
             seen_total = total
-        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(), world.prey, memory_now)
+        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now)
         candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps(), world.prey, memory_now,
+            candidate, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now,
         )
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
@@ -1295,14 +1194,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "mutation_weights": dict(genome.mutation_weights),
             "meta_mutation_rate": genome.meta_mutation_rate,
             "margin": margin,
-            "habituation_exposure": round(habituation.exposure, 4),
-            "habituation_discount": round(habituation.discount, 4),
             "clip": clip_path,
-            # Structural growth telemetry, added 2026-09-24 -- User:
-            # "plot fitness, total nodes, nodes per channel, tree
-            # depth, accepted mutation type, fitness delta... show
-            # exactly when complexity increases and whether it earns
-            # its structural cost." channel/applied were already
+            # Structural growth telemetry, added 2026-09-24: shows when
+            # complexity increases and whether it earns its structural
+            # cost. channel/applied were already
             # computed above for this generation's real mutation
             # attempt; tree_stats reflects the CURRENT (persisting)
             # genome, same as live_status.json's own tree_stats.
@@ -1339,12 +1234,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "quota_pct": quota_pct,
             # Gemini's homeostasis: the candidate's body at the end of this
             # generation's run, its energy over time, how many frames the
-            # giant-fiber reflex took over, and the look's real path
+            # flinch, and the gaze's real path
             # (cx, cy, aperture) -- so the viewer can replay movement
             # instead of showing one end-point per generation.
             "body": live_info.get("body"),
             "energy_series": live_info.get("energy_series"),
-            "reflex_frames": live_info.get("reflex_frames"),
             "trajectory": live_info.get("trajectory"),
             "food_series": live_info.get("food_series"),
             "mean_food": live_info.get("mean_food"),
@@ -1375,24 +1269,19 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # candidate's hidden state at the end of its run.
             "brain": genome.brain.to_dict(),
             "brain_hidden": live_info.get("brain_hidden"),
-            # Real source frame shape -- User: "make foveal rectangle
-            # honest." Lets the viewer draw the box at the REAL aspect
+            # Real source frame shape. Lets the viewer draw the box at the REAL aspect
             # ratio instead of a hardcoded one.
             "frame_w": frame_w,
             "frame_h": frame_h,
             "response": round(live_info["last_response"], 4),
-            "habituation_exposure": round(habituation.exposure, 4),
             "clip": clip_path,
             # Human-readable label + whether it's a real live stream
-            # right now, for the viewer -- User: "make sure display
-            # page shows what it's watching."
+            # right now, for the viewer.
             "clip_name": clip_name,
             "is_live": source == "live",
             "grid": [round(x, 4) for x in live_info["grid"]],
             "grid_shape": live_info["grid_shape"],
-            # User: "Why can't fovea rectangle display what the PROGRAM
-            # is seeing. Screw the video. What is a pixel dump of what
-            # it's seeing?" The WORLD's own 12x12 grid (same reduction
+            # The WORLD's own 12x12 grid (same reduction
             # already used for reflex grading, never transmitted
             # before) -- same no-raw-frames justification the fovea
             # grid above already has (already reduced far past
@@ -1412,8 +1301,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # rather than gating it.
             "trees": genome.to_dict()["trees"],
             # Real node_count()/depth() per channel plus the real
-            # ceiling, alongside the tree itself -- User: "make display
-            # an accurate representation of growth." A small tree
+            # ceiling, alongside the tree itself. A small tree
             # drawn next to its real budget (e.g. "12 / 1000 nodes")
             # is honest about how much headroom is actually left,
             # instead of just looking small with no context for why.
@@ -1427,7 +1315,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         if box.generation % 25 == 0:
             print(
                 f"  gen {box.generation:>5} best_fitness={best_fitness:.4f} "
-                f"margin={margin:.4f} habituation={habituation.exposure:.3f}"
+                f"margin={margin:.4f}"
             )
         if box.generation % 100 == 0:
             _save()
