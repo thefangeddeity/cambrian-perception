@@ -117,7 +117,10 @@ class MosquitoState:
 
     @property
     def degraded(self) -> bool:
-        return self.energy < EMPTY_G
+        # Truly empty: blood sugar AND reserve. A hungry body with food in
+        # reserve forages at full strength (degrading it made hunger a trap:
+        # a narrow, slow eye catches less).
+        return self.energy < EMPTY_G and self.reserve < HUNGER_WAKE_R
 
     @property
     def light_trend(self) -> float:
