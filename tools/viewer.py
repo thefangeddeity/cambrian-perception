@@ -236,7 +236,7 @@ LOCK_HUD_JS = r"""
     return {
       traj, fps, lastIdx, cur, i, cx: traj[i][0], cy: traj[i][1], f: traj[i][2] || 0.35,
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
-      guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null,
+      guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null, snack: at(d.snacks) || 0,
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
       delay,
     };
@@ -340,9 +340,7 @@ LOCK_HUD_JS = r"""
       if (L.mode !== 'LOCK' || blink) {
         ctx.font = 'bold 12px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         const label = L.mode + lockIdText(L.id), ly = Math.min(h - 18, y + gh / 2 + 6);
-        const tw = ctx.measureText(label).width + 10;
-        ctx.fillStyle = 'rgba(10, 14, 20, 0.7)'; ctx.fillRect(x - tw / 2, ly - 2, tw, 17);
-        ctx.fillStyle = col; ctx.fillText(label, x, ly);
+        lockShadow(ctx, true); ctx.fillStyle = col; ctx.fillText(label, x, ly); lockShadow(ctx, false);
         ctx.textAlign = 'left';
       }
       ctx.restore();
@@ -354,24 +352,39 @@ LOCK_HUD_JS = r"""
     st.mode = L.mode;
     const b = d.body_now || d.body || {}, threat = Math.max(0, Math.min(1, b.threat || 0));
     if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
+    // Meals and snacks it had, counted as the feed plays (since this page
+    // opened): a meal = prey coming into its gaze centre (in a livecam, a
+    // snapshot); a snack = a burst of surprise.
+    if (fs.frame != null && fs.frame !== st.lastFrame) {
+      const eating = fs.eat > 0.01, snacking = (fs.snack || 0) > 0.05;
+      if (eating && !st.wasEating) st.meals = (st.meals || 0) + 1;
+      if (snacking && !st.wasSnacking) st.snacks = (st.snacks || 0) + 1;
+      st.wasEating = eating; st.wasSnacking = snacking; st.lastFrame = fs.frame;
+    }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
     const tag = (fs.delay != null ? 'DELAYED' : 'REPLAY') + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(8, 8, ctx.measureText(tag).width + 26, 20);
+    lockShadow(ctx, true);
     ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
     ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
+    ctx.fillStyle = '#ff9fb8'; ctx.fillText(`meals ${st.meals || 0}`, 27, 34);
+    ctx.fillStyle = '#d8b4ff'; ctx.fillText(`snacks ${st.snacks || 0}`, 27, 49);
     const lines = [L.mode + lockIdText(L.id), fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped'];
     // Operators only: its perception tree's own guess at how much prey fills
     // its gaze, next to the teacher's (YOLO's) -- green when they agree.
     const own = opts && opts.internals && fs.guess != null && fs.label != null;
     if (own) lines.push(`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`);
     ctx.font = 'bold 12px monospace';
-    const rw = Math.max(...lines.map(t => ctx.measureText(t).width)) + 16;
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.65)'; ctx.fillRect(bw - rw - 8, 8, rw, own ? 52 : 36);
     ctx.textAlign = 'right';
     ctx.fillStyle = col; ctx.fillText(lines[0], bw - 16, 18);
     ctx.font = '11px monospace'; ctx.fillStyle = '#9fb6c6'; ctx.fillText(lines[1], bw - 16, 35);
     if (own) { ctx.fillStyle = Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4'; ctx.fillText(lines[2], bw - 16, 51); }
+    lockShadow(ctx, false);
     ctx.textAlign = 'left';
+  }
+  // Text stands out by a soft drop shadow, not a dark box over the picture.
+  function lockShadow(ctx, on) {
+    ctx.shadowColor = on ? 'rgba(0, 0, 0, 0.95)' : 'transparent';
+    ctx.shadowBlur = on ? 3 : 0; ctx.shadowOffsetX = on ? 1 : 0; ctx.shadowOffsetY = on ? 1 : 0;
   }
 """
 

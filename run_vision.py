@@ -914,6 +914,7 @@ def evaluate_genome(
         "eating": [round(float(prey_eaten[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]), 3) if prey_eaten else 0.0 for k in range(nf)],
         # Per frame: its perception tree's own guess at how much prey fills
         # its gaze, next to the teacher's (YOLO's) label -- for the viewer.
+        "snacks": [round(float(foods[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]), 3) if foods else 0.0 for k in range(nf)],
         "tree_guess": [_round2(teacher_p[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_p else None for k in range(nf)],
         "teacher_label": [_round2(teacher_y[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_y else None for k in range(nf)],
         "_memory": (memory, variance),
@@ -1200,6 +1201,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     clips = _list_clips(source)
 
     checkpoint = sandbox.load_checkpoint()
+    # Experiments done to this lineage (tools/reset_mind.py, tools/stroke.py):
+    # carried through every save, and the stroke shown in the status.
+    lineage_notes = {k: checkpoint[k] for k in ("mind_reset_at_generation", "stroke") if checkpoint and k in checkpoint}
     rng = random.Random()
 
     clip_index = 0
@@ -1378,6 +1382,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "n_vars": n_vars,
             "clip_index": (clip_index + 1) % len(clips),
             "total_generation": box.generation,
+            # Experiments on the lineage (tools/reset_mind.py, tools/stroke.py), kept across saves.
+            **lineage_notes,
             "saved_at": time.time(),
             "body": body_now,
             "memory": {"mean": [[None if np.isnan(x) else round(float(x), 4) for x in row] for row in memory_now[0]],
@@ -1678,6 +1684,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "prey_boxes": live_info.get("prey_boxes"),
             "eating": live_info.get("eating"),
             "tree_guess": live_info.get("tree_guess"),
+            "snacks": live_info.get("snacks"),
+            "stroke": lineage_notes.get("stroke"),
             "teacher_label": live_info.get("teacher_label"),
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
