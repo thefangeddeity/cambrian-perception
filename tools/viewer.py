@@ -196,7 +196,11 @@ PAGE = r"""<!doctype html>
   .chip { color: var(--dim); } .chip b { color: var(--cyan); font-weight: normal; }
   h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--cyan); margin: 0 0 4px; font-weight: normal; }
   .cap { color: var(--dim); font-size: 12px; margin: 0 0 10px; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; cursor: zoom-in; }
+  /* Tap/click a panel to fill the screen with it; tap again (or Esc) to put it back. */
+  .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; cursor: zoom-out; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
+  body.has-max { overflow: hidden; }
+  .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(340px, 0.95fr); gap: 16px; }
   .brainrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
@@ -333,6 +337,12 @@ PAGE = r"""<!doctype html>
   let D = null, t0 = performance.now();
 
   function innerWidth(el) { const cs = getComputedStyle(el); return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
+  function isMax(el) { const p = el && el.closest ? el.closest('.panel') : null; return !!(p && p.classList.contains('maximized')); }
+  // Width that also fits the screen's height when maximized, for a canvas of the given aspect (h/w).
+  function fitWidth(panel, aspect) {
+    const w = Math.floor(innerWidth(panel));
+    return isMax(panel) ? Math.min(w, Math.floor((window.innerHeight - 140) / aspect)) : w;
+  }
 
   function drawGrid(ctx, values, shape, x, y, w, h) {
     const [rows, cols] = shape;
@@ -359,7 +369,7 @@ PAGE = r"""<!doctype html>
     requestAnimationFrame(drawField);
     const d = D;
     if (!d || !d.frame_w || !d.world_grid) return;
-    const c = $('field'), W = Math.max(200, Math.floor(innerWidth($('field-panel'))));
+    const c = $('field'), W = Math.max(200, fitWidth($('field-panel'), d.frame_h / d.frame_w));
     const H = Math.round(W * d.frame_h / d.frame_w);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
@@ -409,7 +419,7 @@ PAGE = r"""<!doctype html>
     if (!d.grid || !d.frame_w) return;
     const f = d.fovea_fraction || 0.35, fmax = d.max_fraction || 0.6;
     const [cw, ch] = crop(d, f), [mw, mh] = crop(d, fmax);
-    const c = $('look'), W = Math.max(160, Math.floor(innerWidth($('look-panel')))), H = Math.round(W * mh / mw);
+    const c = $('look'), W = Math.max(160, fitWidth($('look-panel'), mh / mw)), H = Math.round(W * mh / mw);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'), s = W / mw;
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
@@ -465,7 +475,9 @@ PAGE = r"""<!doctype html>
   // The whole recurrent brain.
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
-    const c = $('brain'), W = Math.max(500, Math.floor(innerWidth(c.parentElement))), H = c.height;
+    const c = $('brain'), W = Math.max(500, Math.floor(innerWidth(c.parentElement)));
+    c.height = isMax(c) ? Math.max(520, window.innerHeight - 160) : 520;
+    const H = c.height;
     c.width = W;
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
@@ -535,6 +547,7 @@ PAGE = r"""<!doctype html>
   })();
   function lineChart(ch, recs) {
     const c = $(ch.id); c.width = Math.max(300, Math.floor(innerWidth(c.parentElement)));
+    c.height = isMax(c) ? Math.max(190, window.innerHeight - 190) : 190;
     const ctx = c.getContext('2d'), W = c.width, H = c.height; ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     const pad = { l: 46, r: 8, t: 8, b: 18 }, pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
     let lo = Infinity, hi = -Infinity;
@@ -551,6 +564,7 @@ PAGE = r"""<!doctype html>
   }
   function mutChart(ch, recs) {
     const c = $(ch.id); c.width = Math.max(300, Math.floor(innerWidth(c.parentElement)));
+    c.height = isMax(c) ? Math.max(190, window.innerHeight - 190) : 190;
     const ctx = c.getContext('2d'), W = c.width, H = c.height; ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     const pad = { l: 104, r: 8, t: 8, b: 18 }, pw = W - pad.l - pad.r, rh = (H - pad.t - pad.b) / MUT.length;
     ctx.font = '10px monospace'; ctx.textAlign = 'left';
@@ -558,10 +572,35 @@ PAGE = r"""<!doctype html>
     const n = recs.length;
     recs.forEach((r, i) => (r.accepted_types || []).forEach(t => { const k = MUT.indexOf(t); if (k < 0) return; ctx.fillStyle = MUT_COLOR[t]; ctx.beginPath(); ctx.arc(pad.l + (n <= 1 ? 0 : i / (n - 1)) * pw, pad.t + k * rh + rh / 2, 3, 0, 7); ctx.fill(); }));
   }
+  let lastHistory = null;
+
+  // Tap/click any panel to maximize it; tap again (or Esc) to restore.
+  // Controls inside a panel (inputs, buttons, links) keep working.
+  function redrawAll() {
+    if (D) { drawLook(D); drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }
+    if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, lastHistory));
+  }
+  function setMax(panel) {
+    document.querySelectorAll('.panel.maximized').forEach(p => { if (p !== panel) p.classList.remove('maximized'); });
+    const on = panel ? panel.classList.toggle('maximized') : false;
+    document.body.classList.toggle('has-max', on);
+    requestAnimationFrame(redrawAll);
+  }
+  document.addEventListener('click', e => {
+    if (e.target.closest('input, button, label, a, select, textarea')) return;
+    const p = e.target.closest('.panel');
+    if (p) setMax(p);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { const p = document.querySelector('.panel.maximized'); if (p) setMax(p); }
+  });
+  window.addEventListener('resize', () => requestAnimationFrame(redrawAll));
+
   async function fetchHistory() {
     try {
       const h = await (await fetch('/history')).json();
       const recs = h.records || []; recs.label_left = h.span_generations ? `${h.span_generations} generations ago` : 'older';
+      lastHistory = recs;
       CHARTS.forEach(ch => ch.mutations ? mutChart(ch, recs) : lineChart(ch, recs));
     } catch (e) { }
     setTimeout(fetchHistory, 20000);
