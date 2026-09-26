@@ -351,14 +351,11 @@ def _resolve_live_url(watch_url: str) -> str:
     yt_dlp = Path(sys.executable).parent / "yt-dlp"
     if not yt_dlp.exists():
         yt_dlp = Path("yt-dlp")  # fall back to PATH (e.g. local dev run)
-    # Video-only, not "best" -- confirmed live via --list-formats: these
-    # streams serve video and audio as SEPARATE adaptive formats, no
-    # muxed format exists at all, so a combined "best[height<=480]"
-    # selector matches nothing and fails outright. We only ever read
-    # frames (see video_source.py), so there's no reason to resolve
-    # audio in the first place.
+    # Video-only, preferring H.264 (avc1) -- YouTube serves both AV1 (av01)
+    # and H.264 in MP4 containers; without vcodec^=avc1, yt-dlp selects AV1,
+    # which fails pixel-format decode in OpenCV/FFmpeg on Tanzania.
     result = subprocess.run(
-        [str(yt_dlp), "-g", "-f", "bestvideo[height<=480][ext=mp4]/bestvideo[height<=480]/bestvideo", watch_url],
+        [str(yt_dlp), "-g", "-f", "bestvideo[height<=480][vcodec^=avc1]/bestvideo[height<=480][ext=mp4]/bestvideo[height<=480]/bestvideo", watch_url],
         capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:
@@ -648,6 +645,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
     world_conspec_strength = world_conspec[0]
 
     box = sandbox.Sandbox(limits)
+    if checkpoint is not None:
+        box.generation = int(checkpoint.get("total_generation", 0))
     habituation = conspec.Habituation()
     margin = 0.05
 
@@ -694,7 +693,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "habituation_exposure": habituation.exposure,
             "n_vars": n_vars,
             "clip_index": (clip_index + 1) % len(clips),
-            "total_generation": checkpoint.get("total_generation", 0) if checkpoint else 0,
+            "total_generation": box.generation,
         })
 
     while box.should_continue():

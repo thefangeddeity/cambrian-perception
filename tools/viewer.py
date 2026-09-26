@@ -131,21 +131,23 @@ PAGE = """<!doctype html>
      than the viewport, so only that one panel needs a swipe, not the
      whole page. */
   .tree-panel { max-width: 100%; overflow-x: auto; }
-  /* User: "Screw the video. What is a pixel dump of what it's seeing?"
-     -- replaced the YouTube-embed crop-preview entirely. This panel is
-     a WORLD RETINA: the same retina.py 12x12 block-reduction as the
-     #grid panel, just run on the full frame instead of the fovea's own
-     crop (run_vision.py's world_grid, computed once per run for the
-     grading signal itself -- see the self-stimulation-loophole fix).
-     The FOVEA is properly just the box drawn on top of it, showing
-     where fovea.py's pan/tilt window currently sits -- User: "don't get
-     retina and fovea confused." No YouTube embed, no embedding
-     restrictions, no autoplay games, no cross-origin pixel limits. */
+  /* the user's own terms, final: "look" (fovea.py's own small cropped
+     window) and "visual field" (the full frame it moves through --
+     "always, BY DEFINITION, bigger than the looking part"). Both
+     canvases are sized from ONE shared real-pixel scale (see tick()'s
+     computeScale) so their ON-SCREEN sizes stay honestly proportional
+     to their REAL pixel sizes -- no independently-capped canvas can
+     make the smaller one (look, real 112x62) render as big as or
+     bigger than the larger one (visual field, real 320x179) again.
+     User: "Screw the video. What is a pixel dump of what it's seeing?"
+     -- replaced an earlier YouTube-embed crop-preview entirely; no
+     embedding restrictions, no autoplay games, no cross-origin pixel
+     limits. */
   /* User: "Allow that long-ass explanation to wrap lol" -- flex items
      don't wrap text by default unless width-constrained; this label
      was stretching the whole panel across the page in one line
      instead of wrapping above its panel. */
-  #world-retina-label { max-width: 320px; }
+  #look-label, #visual-field-label { max-width: 320px; }
   .chart-panel { max-width: 100%; overflow-x: auto; }
   .stats div { margin-bottom: 6px; }
   .label { color: #567; }
@@ -174,23 +176,23 @@ PAGE = """<!doctype html>
        and leave it there." Same shrink-to-fit logic extended to the
        retina grid and all chart canvases -- previously only trees got
        it. */
-    #grid { max-width: 100%; height: auto; }
-    #world-retina { max-width: 100%; height: auto; }
+    #look { max-width: 100%; height: auto; }
+    #visual-field { max-width: 100%; height: auto; }
     .chart-panel canvas { max-width: 100%; height: auto; }
   }
 </style>
 </head>
 <body>
   <h1>cambrian-perception</h1>
-  <div class="sub">what it's seeing -- a real, live 12x12 luminance grid, not a reconstruction</div>
+  <div class="sub">live perception dashboard -- real, coarse 12x12 luminance receptors, not high-res video</div>
   <div class="row">
     <div>
-      <div class="sub">retina (grid)</div>
-      <canvas id="grid" width="240" height="240"></canvas>
+      <div class="sub" id="look-label"><strong>Gaze / Fovea ("Look")</strong> -- what the organism's brain actually receives: a 12x12 luminance grid of its current focus window (real crop: <span id="look-pixels">--</span>). This is its sole visual input.</div>
+      <canvas id="look" width="240" height="240"></canvas>
     </div>
     <div>
-      <div class="sub" id="world-retina-label">world retina -- the same 12x12 reduction as the grid on the left, run on the full frame instead of just the fovea's own crop, so the fovea's box (fovea.py's pan/tilt window, drawn on top) has real spatial context. Background is a single fixed frame sampled once when this run started (stays the same for the whole run, up to an hour) -- the box position updates every generation and is current.</div>
-      <canvas id="world-retina" width="240" height="240"></canvas>
+      <div class="sub" id="visual-field-label"><strong>Full Visual Field (Environment)</strong> -- 12x12 reference view of the entire scene (<span id="field-pixels">--</span>). The organism does not see this full view; the overlaid box shows where the fovea is currently aimed. Box color indicates penalties: <span style="color:#4fa">green</span> (centered), <span style="color:#fd4">yellow/orange</span> (edge proximity), <span style="color:#f44">red</span> (corner penalty).</div>
+      <canvas id="visual-field" width="240" height="240"></canvas>
     </div>
     <div>
       <div class="stats" id="stats"></div>
@@ -380,76 +382,74 @@ PAGE = """<!doctype html>
           <div><span class="label">watching:</span> ${watchingName}${watchingLive}</div>
         `;
 
-        if (d.grid && d.grid_shape) {
-          const [rows, cols] = d.grid_shape;
-          const c = document.getElementById('grid');
-          const ctx = c.getContext('2d');
-          const cw = c.width / cols, ch = c.height / rows;
-          for (let i = 0; i < rows; i++) {
-            for (let j = 0; j < cols; j++) {
-              const v = Math.max(0, Math.min(1, d.grid[i * cols + j]));
-              const g = Math.round(v * 255);
-              ctx.fillStyle = `rgb(${g},${g},${g})`;
-              ctx.fillRect(j * cw, i * ch, cw, ch);
-            }
-          }
-        }
-
-        // User: "Screw the video. What is a pixel dump of what it's
-        // seeing?" world_grid is a real backend-computed retina.py
-        // reduction of the full world frame (run_vision.py's
-        // _world_vectors, same grading signal the fitness function
-        // itself uses) -- never a raw frame, same boundary as #grid.
-        // Drawn with the exact same blocky-cell technique as #grid
-        // above, just on this panel's own canvas/data.
-        const wc = document.getElementById('world-retina');
-        // Honest shape, not a hardcoded square -- same fix as the
-        // original fovea-rectangle commit (frame_w/frame_h, sent once
-        // per run): the WORLD this grid reduces is the real, non-
-        // square source frame, so cells (and the fovea box drawn on
-        // top) should keep its real proportions, not an arbitrary
-        // square. Falls back to 240x240 only if an older
-        // live_status.json (pre this field) is being served.
-        const maxDim = Math.min(240, window.innerWidth - 36);
+        // User: "the visual field is always, BY DEFINITION, bigger than
+        // the looking part." ONE shared real-pixel scale for BOTH
+        // canvases below -- fixes a real bug where "look" (real crop
+        // 112x62) was independently capped at the same 240px max as
+        // "visual field" (real 320x179), making the smaller thing
+        // render as big as or bigger than the larger one. frac/cropW/
+        // cropH mirror fovea.py's own extract() math exactly
+        // (half_w = floor(w*frac/2), crop = 2*half) -- verified live
+        // against the actual running fovea.py, not re-derived blind.
+        const frac = d.fovea_fraction || 0.35;
+        let scale = 1, cropW = 0, cropH = 0;
         if (d.frame_w && d.frame_h) {
-          if (d.frame_w >= d.frame_h) {
-            wc.width = maxDim;
-            wc.height = Math.round(maxDim * d.frame_h / d.frame_w);
-          } else {
-            wc.height = maxDim;
-            wc.width = Math.round(maxDim * d.frame_w / d.frame_h);
-          }
-        } else {
-          wc.width = maxDim; wc.height = maxDim;
-        }
-        const wctx = wc.getContext('2d');
-        if (d.world_grid && d.world_grid_shape) {
-          const [wrows, wcols] = d.world_grid_shape;
-          const wcw = wc.width / wcols, wch = wc.height / wrows;
-          for (let i = 0; i < wrows; i++) {
-            for (let j = 0; j < wcols; j++) {
-              const v = Math.max(0, Math.min(1, d.world_grid[i * wcols + j]));
-              const g = Math.round(v * 255);
-              wctx.fillStyle = `rgb(${g},${g},${g})`;
-              wctx.fillRect(j * wcw, i * wch, wcw, wch);
-            }
-          }
-        } else {
-          wctx.fillStyle = '#111';
-          wctx.fillRect(0, 0, wc.width, wc.height);
+          scale = 240 / Math.max(d.frame_w, d.frame_h);
+          const halfW = Math.floor(d.frame_w * frac / 2);
+          const halfH = Math.floor(d.frame_h * frac / 2);
+          cropW = 2 * halfW; cropH = 2 * halfH;
         }
 
-        // The FOVEA itself: fovea.py's real pan/tilt window, drawn as
-        // a box on top of the world retina above -- User: "don't get
-        // retina and fovea confused." Position/size are normalized
-        // [0,1] fractions of the full frame, so they map onto this
-        // canvas the same way regardless of the canvas's own pixel
-        // dimensions.
-        if (d.fovea_cx !== undefined) {
-          const frac = d.fovea_fraction || 0.35;
-          const bx = (d.fovea_cx - frac / 2) * wc.width;
-          const by = (d.fovea_cy - frac / 2) * wc.height;
-          const bw = frac * wc.width, bh = frac * wc.height;
+        function drawGrid(canvas, values, shape) {
+          const ctx = canvas.getContext('2d');
+          if (values && shape) {
+            const [rows, cols] = shape;
+            for (let i = 0; i < rows; i++) {
+              const y0 = Math.round(i * canvas.height / rows);
+              const y1 = Math.round((i + 1) * canvas.height / rows);
+              for (let j = 0; j < cols; j++) {
+                const x0 = Math.round(j * canvas.width / cols);
+                const x1 = Math.round((j + 1) * canvas.width / cols);
+                const v = Math.max(0, Math.min(1, values[i * cols + j]));
+                const g = Math.round(v * 255);
+                ctx.fillStyle = `rgb(${g},${g},${g})`;
+                ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+              }
+            }
+          } else {
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+          return ctx;
+        }
+
+        // "look" -- fovea.py's own real crop (112x62 here), scaled by
+        // the SAME factor as "visual field" below, so it renders
+        // genuinely smaller, never equal or bigger.
+        const lookC = document.getElementById('look');
+        if (cropW && cropH) {
+          lookC.width = Math.round(cropW * scale);
+          lookC.height = Math.round(cropH * scale);
+        }
+        drawGrid(lookC, d.grid, d.grid_shape);
+
+        // "visual field" -- the full real frame (320x179 here), same
+        // scale.
+        const wc = document.getElementById('visual-field');
+        if (d.frame_w && d.frame_h) {
+          wc.width = Math.round(d.frame_w * scale);
+          wc.height = Math.round(d.frame_h * scale);
+        }
+        const wctx = drawGrid(wc, d.world_grid, d.world_grid_shape);
+
+        // The "look" box, drawn on top of "visual field" -- same real
+        // crop size as the "look" canvas itself (cropW/cropH * scale),
+        // not frac*canvas -- ties directly to fovea.py's real math
+        // instead of re-deriving a second time.
+        if (d.fovea_cx !== undefined && cropW && cropH) {
+          const bw = cropW * scale, bh = cropH * scale;
+          const bx = d.fovea_cx * wc.width - bw / 2;
+          const by = d.fovea_cy * wc.height - bh / 2;
 
           // Same two real penalties run_vision.py actually grades
           // fitness on (corner_penalty, edge_penalty), applied to
@@ -470,6 +470,13 @@ PAGE = """<!doctype html>
           wctx.lineWidth = 2;
           wctx.strokeRect(bx, by, bw, bh);
         }
+
+        // Real pixel counts, computed live -- User: "get the right
+        // pixel counts for each." Never a static guess.
+        const lookPx = document.getElementById('look-pixels');
+        const fieldPx = document.getElementById('field-pixels');
+        if (lookPx) lookPx.textContent = cropW && cropH ? `${cropW}x${cropH} real pixels` : '--';
+        if (fieldPx) fieldPx.textContent = d.frame_w && d.frame_h ? `${d.frame_w}x${d.frame_h} real pixels` : '--';
 
         if (d.trees) {
           renderTrees(d.trees, d.tree_stats, d.tree_limits);
