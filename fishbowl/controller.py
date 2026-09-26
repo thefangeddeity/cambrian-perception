@@ -48,6 +48,14 @@ HIDDEN = 16
 BASE_OUTPUTS = 6  # [pan, tilt, zoom, alarm, tempo, sleep]
 OUTPUTS = BASE_OUTPUTS
 MAX_CHANNELS = 4
+# Mutation steps are heavy-tailed, like real mutations' effects (mostly tiny,
+# occasionally large -- the distribution of fitness effects): 1 nudge in 10 is
+# Cauchy-sized. Gaussian steps alone never jump, so a brain stuck behind a
+# threshold -- e.g. an eye pinned at an edge by a saturated push, where every
+# small nudge changes nothing -- could not get off the plateau.
+HEAVY_TAIL_P = 0.1
+HEAVY_TAIL_SCALE = 0.1
+HEAVY_TAIL_MAX = 2.0
 INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "zoom", "blood sugar",
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
@@ -260,10 +268,14 @@ class MosquitoBrain:
         slots += [(b, None, i) for b in (self.bias_h, self.bias_o) for i in range(len(b))]
         k = rng.randint(1, 3)
         for container, r, j in rng.sample(slots, k):
-            if r is None:
-                container[j] += rng.gauss(0.0, sigma)
+            if rng.random() < HEAVY_TAIL_P:
+                step = max(-HEAVY_TAIL_MAX, min(HEAVY_TAIL_MAX, HEAVY_TAIL_SCALE * math.tan(math.pi * (rng.random() - 0.5))))
             else:
-                container[r][j] += rng.gauss(0.0, sigma)
+                step = rng.gauss(0.0, sigma)
+            if r is None:
+                container[j] += step
+            else:
+                container[r][j] += step
         return k
 
     def to_dict(self) -> dict[str, Any]:
