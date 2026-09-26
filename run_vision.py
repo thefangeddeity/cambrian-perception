@@ -915,11 +915,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # (Restart=always). Drop the choice and go back to the camera.
             print(f"Live stream unavailable ({e}) -- clearing the video choice, back to {home_source}.")
             if dessert is not None:
-                sandbox.clear_selected_source()
+                sandbox.clear_selected_source(dessert["url"] if dessert else None)
             return
         if dessert is not None and _still_live(clip_path) is False:
             print(f"The chosen stream is no longer live (a recording now) -- clearing the video choice, back to {home_source}.")
-            sandbox.clear_selected_source()
+            sandbox.clear_selected_source(dessert["url"] if dessert else None)
             return
 
     clip_name = _clip_display_name(source, clip_path)
@@ -955,7 +955,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             print("Live feed never filled its window -- aborting.")
             feed.close()
             if dessert is not None:
-                sandbox.clear_selected_source()
+                sandbox.clear_selected_source(dessert["url"] if dessert else None)
             return
         frames, vectors, seen_total, prey_boxes, colour_frames = feed.snapshot()
     else:
@@ -1092,7 +1092,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # this run so systemd brings it back on its home camera.
         if stream_ended["yes"]:
             print(f"The chosen stream is no longer live (it became a recording) -- back to {home_source}.")
-            sandbox.clear_selected_source()
+            sandbox.clear_selected_source(dessert["url"] if dessert else None)
             break
         # The video choice, checked every generation (a small file read): any
         # change -- a video chosen, cleared, or swapped for another -- stops
@@ -1163,7 +1163,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
                 print(f"No new frames for {time.time() - last_new_frame:.0f} s -- "
                       + ("stream ended, back to the camera." if source == "live" else "camera stalled, restarting."))
                 if source == "live" and dessert is not None:
-                    sandbox.clear_selected_source()
+                    sandbox.clear_selected_source(dessert["url"] if dessert else None)
                 break
             seen_total = total
         futures = None

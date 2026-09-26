@@ -96,9 +96,15 @@ def load_checkpoint() -> dict | None:
     return None
 
 
-def clear_selected_source() -> None:
-    """Drop the video choice (a chosen stream failed): back to the camera."""
+def clear_selected_source(url: str | None = None) -> None:
+    """Drop the video choice (a chosen stream failed): back to the camera.
+    With url, only if that is still the choice -- a run must never wipe a
+    newer choice made while it was watching the old one."""
     try:
+        if url is not None:
+            current = _read_json(SELECTED_SOURCE_PATH, None) if SELECTED_SOURCE_PATH.exists() else None
+            if not current or current.get("url") != url:
+                return
         SELECTED_SOURCE_PATH.unlink()
     except FileNotFoundError:
         pass
