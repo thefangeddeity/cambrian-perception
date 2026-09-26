@@ -22,7 +22,7 @@ from typing import Any
 
 from .state import MosquitoState
 
-INPUTS = 18  # Gemini's 12 + where the whole field saw motion relative to the look (dx, dy) + own eye velocity (vx, vy) + hunger, curiosity
+INPUTS = 19  # Gemini's 12 + where motion is (dx, dy) + own eye velocity (vx, vy) + hunger, curiosity + the perception tree's output
 HIDDEN = 16
 OUTPUTS = 5  # [pan, tilt, zoom, alarm, tempo] -- tempo: speed up / slow down its gazing (see run_vision.py)
 
@@ -81,7 +81,8 @@ class MosquitoBrain:
         periph_dy: float = 0.0,
         eye_vx: float = 0.0,
         eye_vy: float = 0.0,
-    ) -> tuple[float, float, float, float, bool]:
+        tree_out: float = 0.0,
+    ) -> tuple[float, float, float, float, float, bool]:
         """
         Runs one tick of the mosquito brain.
         Returns: (pan_dx, tilt_dy, d_zoom, alarm_response, tempo, is_reflex)
@@ -114,6 +115,7 @@ class MosquitoBrain:
             eye_vy * 2.5,
             state.hunger,
             state.curiosity,
+            tree_out,
         ]
 
         # Recurrent hidden update: h_t = tanh(W_ih * x + W_hh * h_{t-1} + b_h)
@@ -153,24 +155,24 @@ class MosquitoBrain:
             bias_o=self.bias_o[:],
         )
 
-    def mutate(self, rng: random.Random, rate: float = 0.05, sigma: float = 0.12) -> int:
-        """Applies Gaussian mutation to a subset of synaptic weights and biases."""
-        mutated = 0
-
-        for matrix in (self.weights_ih, self.weights_hh, self.weights_ho):
-            for row in matrix:
-                for j in range(len(row)):
-                    if rng.random() < rate:
-                        row[j] += rng.gauss(0.0, sigma)
-                        mutated += 1
-
-        for bias_list in (self.bias_h, self.bias_o):
-            for i in range(len(bias_list)):
-                if rng.random() < rate:
-                    bias_list[i] += rng.gauss(0.0, sigma)
-                    mutated += 1
-
-        return mutated
+    def mutate(self, rng: random.Random, sigma: float = 0.05) -> int:
+        """
+        Nudges 1-3 randomly chosen weights/biases by a small Gaussian step.
+        Audit: the old version changed ~32 of ~650 weights at sigma 0.12 per
+        mutation -- almost never neutral, usually worse, so the brain was
+        effectively never improved. Small steps give selection something
+        it can actually climb.
+        """
+        slots = [(m, r, j) for m in (self.weights_ih, self.weights_hh, self.weights_ho)
+                 for r in range(len(m)) for j in range(len(m[r]))]
+        slots += [(b, None, i) for b in (self.bias_h, self.bias_o) for i in range(len(b))]
+        k = rng.randint(1, 3)
+        for container, r, j in rng.sample(slots, k):
+            if r is None:
+                container[j] += rng.gauss(0.0, sigma)
+            else:
+                container[r][j] += rng.gauss(0.0, sigma)
+        return k
 
     def to_dict(self) -> dict[str, Any]:
         return {

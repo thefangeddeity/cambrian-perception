@@ -100,9 +100,11 @@ def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: 
     faster than force), whether or not a wall stopped the movement; an
     isometric push against a stop still costs something.
     """
-    fx = float(np.tanh(pan_output))
-    fy = float(np.tanh(tilt_output))
-    dz = float(np.tanh(zoom_output)) * ZOOM_STEP
+    # The brain's outputs are already tanh-bounded; clip only (audit: a
+    # second tanh here capped force at tanh(1) = 0.76).
+    fx = float(np.clip(pan_output, -1.0, 1.0))
+    fy = float(np.clip(tilt_output, -1.0, 1.0))
+    dz = float(np.clip(zoom_output, -1.0, 1.0)) * ZOOM_STEP
     new_frac = float(np.clip(state.fraction + dz, MIN_FRACTION, MAX_FRACTION))
     half = new_frac / 2.0
     vx = DAMPING * state.vx + FORCE_GAIN * fx

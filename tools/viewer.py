@@ -290,12 +290,12 @@ PAGE = r"""<!doctype html>
 <div class="brainrow">
   <div class="panel">
     <h2>its brain</h2>
-    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the gaze: 18 inputs &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm. Its memory units also feed the perception tree (right). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the gaze: 19 inputs (incl. the perception tree's output) &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm / tempo. Its memory units also feed the perception tree (right). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
     <canvas id="brain" height="520"></canvas>
   </div>
   <div class="panel">
     <h2>its perception tree</h2>
-    <div class="cap">The genome's evolved "response" tree: reads the gaze's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Graded by the hand-written scores below.</div>
+    <div class="cap">The genome's evolved "response" tree: reads the gaze's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Its output goes into the brain as the "tree" input -- it is no longer graded by any score of its own, so it only matters if what it perceives helps the body.</div>
     <div id="trees"></div>
   </div>
 </div>
@@ -311,12 +311,9 @@ PAGE = r"""<!doctype html>
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>alarm</td><td>Its brain's alarm output tracking real approaching objects.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+0.5 / +0.75 / +0.75</td><td>luminance_change / motion_energy / directional_motion</td><td>The response tree's output correlating with global brightness change, any change, and which way things move (Hassenstein-Reichardt).</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+2.0</td><td>loom (old detector)</td><td>Response tree correlating with reflexes.loom_score. Known flaw, measured: it scores sideways motion ~10x higher than a real approach. The body uses the corrected expansion detector; this score is first in line for retirement.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.5</td><td>conspec_drive</td><td>Staying engaged with a face-like pattern (Morton &amp; Johnson's CONSPEC), dampened by habituation to familiar harmless presence.</td></tr>
+    <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores</td><td>luminance_change, motion_energy, directional_motion, loom (old detector), conspec_drive, alarm, optokinetic_pursuit. Retired 2026-09-26 after two independent audits: they carried 80-95% of selection while moving nothing in the body (the perception tree memorised clips to satisfy them). Still measured and logged, not scored.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Rate of reaching new gaze positions (5x5 grid). Overlaps with eating novelty now.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0 / +1.0</td><td>optokinetic_pursuit / seek</td><td>Moving the gaze the way real motion goes; ending up near a detected face-like pattern.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>seek</td><td>Ending up near a detected face-like pattern.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead_field / movement_cost</td><td>Sustained stretches with nothing happening in the world; pushing the eye at all (on top of the body's energy cost for force).</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>corner / edge penalty</td><td>Sitting in a corner, or hard against one edge.</td></tr>
   </table>
@@ -324,8 +321,8 @@ PAGE = r"""<!doctype html>
 
 <script>
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'energy', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity'];
-  const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'energy', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree'];
+  const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo'];
   const REPLAY_FPS = 15;
   let D = null, t0 = performance.now();
 

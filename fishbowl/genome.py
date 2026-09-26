@@ -34,7 +34,8 @@ from .controller import MosquitoBrain
 # mutate_brain perturbs the recurrent motor brain (controller.py).
 # mutate_pace changes its pace of life (how often it looks; see run_vision.py).
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace")
-MIN_PACE, MAX_PACE = 1, 6  # look every 1st (15/s) .. 6th (2.5/s) frame
+MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
+BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
 FOVEA_MUTATION_SIGMA = 0.03
 
 # Motor control (pan/tilt/zoom) moved to the recurrent brain; the tree
@@ -274,10 +275,15 @@ class Genome:
         if channel is None:
             channel = rng.choice(self.channels)
 
-        names = list(self.mutation_weights.keys())
-        probs = np.array([self.mutation_weights[n] for n in names], dtype=float)
-        probs = probs / probs.sum()
-        choice = rng.choices(names, weights=probs, k=1)[0]
+        # The brain is guaranteed a real share of the search (audit: learned
+        # operator weights had starved it to ~1% of mutations).
+        if rng.random() < BRAIN_FLOOR:
+            choice = "mutate_brain"
+        else:
+            names = list(self.mutation_weights.keys())
+            probs = np.array([self.mutation_weights[n] for n in names], dtype=float)
+            probs = probs / probs.sum()
+            choice = rng.choices(names, weights=probs, k=1)[0]
 
         if choice == "mutate_fovea":
             old = self.fovea_fraction

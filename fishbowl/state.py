@@ -131,7 +131,10 @@ class MosquitoState:
         gain = FOOD_PER_LOOK * _clamp(tracking_quality)
         self.energy = _clamp(self.energy + gain)
         # Curiosity: slowly rises every frame, satisfied by real novelty.
-        self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.05 * _clamp(tracking_quality))
+        # Rises with real time, falls with what it actually took in (audit:
+        # the fall was 0.05 per gaze vs a rise of 0.01 per FRAME, so at slow
+        # tempos curiosity could never come down and sat pinned at 1.0).
+        self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.25 * _clamp(tracking_quality))
 
     def drive_reduction(self) -> float:
         """

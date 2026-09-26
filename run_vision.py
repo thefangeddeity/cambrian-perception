@@ -622,11 +622,14 @@ def evaluate_genome(
     prev_frame = None
     t = 0
 
+    frame_path = []  # (cx, cy, aperture) at EVERY frame -- the eye moves between gazes too
+    prev_response = 0.0
     while t < len(frames):
         frame = frames[t]
         v = fovea.extract(frame, state)
         positions.append((state.cx, state.cy))
         fracs.append(state.fraction)
+        frame_path.append((state.cx, state.cy, state.fraction))
 
         # What the look sees change, with its own eye movement cancelled
         # out (corollary discharge): the previous frame sampled at
@@ -655,37 +658,43 @@ def evaluate_genome(
 
         pan, tilt, zoom, alarm, tempo, is_reflex = brain.step(
             lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
-            periph_dx, periph_dy, state.vx, state.vy,
+            periph_dx, periph_dy, state.vx, state.vy, prev_response,
         )
         # The brain's recurrent memory (its 16 hidden units, updated just
         # above) feeds the perception tree as extra inputs x290-x305, after
         # the look (x0-143), previous look (x144-287) and own movement.
         vb = np.concatenate([v, prev_v, [prev_dx, prev_dy], brain.hidden])[None, :]
         response = float(g.evaluate("response", vb)[0])
+        # The perception tree's output reaches the brain (next gaze): with
+        # the hand-written correlation scores retired, the tree only matters
+        # if what it perceives helps the body.
+        prev_response = float(np.tanh(response)) if math.isfinite(response) else 0.0
         reflex_frames += int(is_reflex)
-        field_events.append([
-            round(float(world_signals["motion_cx"][t_idx]), 3), round(float(world_signals["motion_cy"][t_idx]), 3),
-            round(periph_motion, 3), round(loom, 3), int(is_reflex),
-        ])
         responses.append(response)
         alarms.append(alarm)
         last_grid = v
         prev_v = v
 
-        prev_cx, prev_cy = state.cx, state.cy
-        state, force_x, force_y, intended_dz = fovea.step(state, pan, tilt, zoom)
-        prev_dx, prev_dy = state.cx - prev_cx, state.cy - prev_cy
-        dxs.append(prev_dx)
-        dys.append(prev_dy)
-        # Muscle energy grows with force squared: many gentle pushes are
-        # cheaper than one violent one covering the same ground.
-        effort = force_x * force_x + force_y * force_y + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
-        movement_costs.append(math.hypot(force_x, force_y))
-        periph_active.append(periph_motion)
-
         interval = int(np.clip(round(pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
         idxs.append(t)
         intervals.append(interval)
+
+        # Eye physics every FRAME: the brain's force and zoom are held until
+        # its next gaze, and the damped eye keeps moving meanwhile (audit:
+        # stepping once per gaze stretched a "150 ms" saccade to ~1 s).
+        # Muscle energy = force squared, per frame pushed.
+        prev_cx, prev_cy = state.cx, state.cy
+        effort = 0.0
+        for j in range(interval):
+            state, force_x, force_y, intended_dz = fovea.step(state, pan, tilt, zoom)
+            effort += force_x * force_x + force_y * force_y + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
+            if j < interval - 1 and t + j + 1 < len(frames):
+                frame_path.append((state.cx, state.cy, state.fraction))
+        prev_dx, prev_dy = state.cx - prev_cx, state.cy - prev_cy
+        dxs.append(prev_dx)
+        dys.append(prev_dy)
+        movement_costs.append(math.hypot(force_x, force_y))
+        periph_active.append(periph_motion)
         body.update(periph_motion, loom, effort, scarcity_cost(state.fraction) + THINK_COST * scarcity,
                     dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps))
         food = _feed_on_novelty(memory, fovea.extract(frame, state), state, variance)
@@ -708,13 +717,21 @@ def evaluate_genome(
     # comparable to a real animal, not an impression.
     # Per base frame (1/15 s), so a slow pace can't look "smooth" just by
     # moving the same distance in fewer, bigger steps.
-    speeds = (np.hypot(np.array(dxs), np.array(dys)) / iv) if dxs else np.zeros(1)
-    active = np.array(periph_active) > 0.2 if periph_active else np.zeros(1, bool)
+    # Everything about MOVEMENT is measured on the per-frame path over the
+    # full world timeline (audit: sampling only at gaze frames let a slow
+    # tempo dodge world-graded terms).
+    fp = np.array(frame_path) if frame_path else np.array([[state.cx, state.cy, state.fraction]])
+    nf = len(fp)
+    fvx = np.diff(fp[:, 0], prepend=fp[0, 0])
+    fvy = np.diff(fp[:, 1], prepend=fp[0, 1])
+    speeds = np.hypot(fvx, fvy)
+    wmot = np.asarray(world_signals["motion_energy"][:nf]) * PERIPH_MOTION_GAIN
+    active = wmot > 0.2
     tracking = None
-    if active.sum() >= 10 and len(dxs) > 2:
-        mcx = np.diff(sel["motion_cx"], prepend=0.5)
-        mcy = np.diff(sel["motion_cy"], prepend=0.5)
-        tracking = round((_correlate(mcx[active], np.array(dxs)[active]) + _correlate(mcy[active], np.array(dys)[active])) / 2.0, 3)
+    if active.sum() >= 10 and nf > 2:
+        mcx = np.diff(np.asarray(world_signals["motion_cx"][:nf]), prepend=0.5)
+        mcy = np.diff(np.asarray(world_signals["motion_cy"][:nf]), prepend=0.5)
+        tracking = round((_correlate(mcx[active], fvx[active]) + _correlate(mcy[active], fvy[active])) / 2.0, 3)
     movement = {
         "fixate": round(float(np.mean(speeds < 0.005)), 3),
         "glide": round(float(np.mean((speeds >= 0.005) & (speeds < 0.05))), 3),
@@ -739,15 +756,17 @@ def evaluate_genome(
         "food_series": [round(float(np.mean(foods[k:k + step_n])), 4) for k in range(0, len(foods), step_n)],
         "mean_food": round(float(np.mean(foods)), 4) if foods else 0.0,
         "movement": movement,
-        "field_events": field_events,
-        "flinch": _flinch([e[3] for e in field_events], speeds, fracs, intervals),
+        "field_events": [[round(float(world_signals["motion_cx"][k]), 3), round(float(world_signals["motion_cy"][k]), 3),
+                          round(float(min(1.0, world_signals["motion_energy"][k] * PERIPH_MOTION_GAIN)), 3),
+                          round(float(min(1.0, world_signals["expansion"][k] * EXPANSION_GAIN)), 3), 0] for k in range(nf)],
+        "flinch": _flinch(list(np.minimum(1.0, np.asarray(world_signals["expansion"][:nf]) * EXPANSION_GAIN)), speeds, list(fp[:, 2]), [1] * nf),
         "pace": round(float(iv.mean()), 2),  # mean gaze interval actually used this run
         "tempo_series": [round(float(np.mean(intervals[k:k + step_n])), 2) for k in range(0, len(intervals), step_n)],
         "brain_hidden": [round(h, 3) for h in brain.hidden],
         "reflex_frames": reflex_frames,
         # (cx, cy, aperture, frame index): gazes are unevenly spaced now,
         # so the viewer replays each at its real moment.
-        "trajectory": [[round(x, 4), round(y, 4), round(f, 4), i] for (x, y), f, i in zip(positions, fracs, idxs)],
+        "trajectory": [[round(float(x), 4), round(float(y), 4), round(float(f), 4), i] for i, (x, y, f) in enumerate(fp)],
     }
 
     responses = np.array(responses)
@@ -760,22 +779,23 @@ def evaluate_genome(
 
     fitness = 0.0
     breakdown = {}
-    for name, weight in SIGNAL_WEIGHTS.items():
-        corr = _correlate(signals[name], responses)
-        fitness += weight * corr
-        breakdown[name] = corr
+    # RETIRED from fitness (the user, after both audits: the correlation block
+    # carried 80-95% of selection while moving nothing in the body, and
+    # its heaviest term graded the discredited loom detector). Still
+    # measured, for the record.
+    for name in SIGNAL_WEIGHTS:
+        breakdown[name] = _correlate(signals[name], responses)
 
     drive = conspec.drive_fitness(cs, responses)
     discounted_drive = drive * habituation_discount
-    fitness += CONSPEC_WEIGHT * discounted_drive
-    breakdown["conspec_drive"] = discounted_drive
+    breakdown["conspec_drive"] = discounted_drive  # retired from fitness (correlation score); measured only
     breakdown["loom_max"] = float(signals["loom"].max())
 
-    curiosity = _curiosity_score(positions) * len(positions) / max(1.0, float(iv.sum()))  # per real frame
+    curiosity = _curiosity_score([(q[0], q[1]) for q in fp])  # per real frame, on the per-frame path
     fitness += CURIOSITY_WEIGHT * curiosity
     breakdown["curiosity"] = curiosity
 
-    dead_field = _dead_field_penalty(signals)
+    dead_field = _dead_field_penalty({k: np.asarray(v)[:nf] for k, v in world_signals.items()})  # full timeline
     fitness -= DEAD_FIELD_PENALTY_WEIGHT * dead_field
     breakdown["dead_field_penalty"] = dead_field
 
@@ -783,10 +803,10 @@ def evaluate_genome(
     # comment) -- does pan/tilt's real movement track real motion
     # direction, and does the fovea end up near a real detection?
     pursuit = (_correlate(signals["motion_x"], np.array(dxs)) + _correlate(signals["motion_y"], np.array(dys))) / 2.0
-    fitness += PURSUIT_WEIGHT * pursuit
-    breakdown["optokinetic_pursuit"] = pursuit
+    breakdown["optokinetic_pursuit"] = pursuit  # retired from fitness (correlation score); measured only
 
-    seek = _seek_reward(positions, conspec_peak_cx, conspec_peak_cy, cs)
+    wcs = [np.asarray(a)[:nf] for a in world_conspec]
+    seek = _seek_reward([(q[0], q[1]) for q in fp], wcs[1], wcs[2], wcs[0])
     fitness += SEEK_WEIGHT * seek
     breakdown["seek_reward"] = seek
 
@@ -794,11 +814,11 @@ def evaluate_genome(
     fitness -= MOVEMENT_COST_WEIGHT * movement_cost
     breakdown["movement_cost"] = movement_cost
 
-    corner = _corner_penalty(positions, fracs)
+    corner = _corner_penalty([(q[0], q[1]) for q in fp], list(fp[:, 2]))
     fitness -= CORNER_PENALTY_WEIGHT * corner
     breakdown["corner_penalty"] = corner
 
-    edge = _edge_penalty(positions, fracs)
+    edge = _edge_penalty([(q[0], q[1]) for q in fp], list(fp[:, 2]))
     fitness -= EDGE_PENALTY_WEIGHT * edge
     breakdown["edge_penalty"] = edge
 
@@ -826,9 +846,7 @@ def evaluate_genome(
     breakdown["flinch"] = flinch["score"]
     breakdown["loom_events"] = flinch["events"]
 
-    alarm_corr = _correlate(signals["expansion"], np.array(alarms))
-    fitness += ALARM_WEIGHT * alarm_corr
-    breakdown["alarm_loom"] = alarm_corr
+    breakdown["alarm_loom"] = _correlate(signals["expansion"], np.array(alarms))  # retired from fitness; measured only
 
     return fitness, breakdown, live_info
 
@@ -855,8 +873,12 @@ class World:
     always scored on the same World within a generation.
     """
 
-    def __init__(self, frames: list[np.ndarray], vectors: np.ndarray):
+    def __init__(self, frames: list[np.ndarray], vectors: np.ndarray, fps: float = 15.0):
         self.frames, self.vectors = frames, vectors
+        # Frozen with the snapshot: parent and candidate must be scored at
+        # the SAME rate (audit: reading the live rate per evaluation could
+        # differ by 0.1 fps between them -- enough to flip a decision).
+        self.fps = fps if fps and fps > 0 else 15.0
         self._cache: dict[int, tuple] = {}
 
     def at_pace(self, pace: int):
@@ -964,10 +986,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             return
         vectors = _world_vectors(frames)
         seen_total = len(frames)
-    world = World(frames, vectors)
+    world = World(frames, vectors, feed.frames_per_second() if feed is not None else 15.0)
 
     def _fps() -> float:
-        return feed.frames_per_second() if feed is not None and feed.frames_per_second() > 0 else 15.0
+        return world.fps
 
     # The real source frame's shape -- User: "make foveal rectangle honest."
     frame_h, frame_w = frames[0].shape[:2]
@@ -1000,6 +1022,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # habituation silently stopped updating for thousands of
     # generations even while real exposure was happening on screen.
     def _observe(new_count: int) -> None:
+        if new_count <= 0:
+            return  # audit: [-0:] is the WHOLE array -- a stalled camera re-counted everything
         _, ws1, wc1 = world.at_pace(1)
         n = min(new_count, len(ws1["loom"]))
         for c, l in zip(wc1[0][-n:], ws1["loom"][-n:]):
@@ -1096,7 +1120,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # generation would nearly double generation time.
         if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
             frames, vectors, total = feed.snapshot()
-            world = World(frames, vectors)
+            world = World(frames, vectors, feed.frames_per_second())
             _observe(total - seen_total)
             seen_total = total
         parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), habituation.discount, quota_pct, body_now, _fps())
@@ -1153,7 +1177,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # unchanged parent on a reject), using the real evidence from
         # THIS generation's real attempt. Never gated on fitness --
         # there's no fitness for a weights-only change to be gated on.
-        genome.update_mutation_weights(applied, accepted)
+        # Credit an operator only for a REAL improvement (audit: counting
+        # neutral-drift accepts as successes let edits to unused branches of
+        # the tree win the operator race and starve the brain).
+        genome.update_mutation_weights(applied, accepted and both_finite and candidate_fitness > parent_fitness + 1e-9)
 
         # Margin eases a little every generation, not only on accept,
         # so a long dry spell can't permanently freeze the acceptance
