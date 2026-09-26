@@ -241,7 +241,7 @@ LOCK_HUD_JS = r"""
   // frames are immutable per (run, index), so the browser caches them.
   function frameLoader(img) {
     const L = { shown: null, want: null, busy: false, aspect: null, failed: false };
-    img.addEventListener('load', () => { L.busy = false; L.failed = false; L.shown = L.want; if (img.naturalWidth) L.aspect = img.naturalWidth / img.naturalHeight; });
+    img.addEventListener('load', () => { L.busy = false; L.failed = false; L.shown = L.want; img.style.visibility = 'visible'; if (img.naturalWidth) L.aspect = img.naturalWidth / img.naturalHeight; });
     img.addEventListener('error', () => { L.busy = false; L.failed = true; });
     L.show = (g, epoch) => {
       const key = g == null ? null : epoch + ':' + g;
@@ -352,7 +352,7 @@ LIVE_PAGE = r"""<!doctype html>
   #box canvas { pointer-events: none; }
 </style></head>
 <body>
-<div id="wrap"><div id="box"><img id="cam" alt=""><canvas id="hud"></canvas></div></div>
+<div id="wrap"><div id="box"><img id="cam" alt="" style="visibility:hidden"><canvas id="hud"></canvas></div></div>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
@@ -371,7 +371,6 @@ LIVE_PAGE = r"""<!doctype html>
     if (d.generation === undefined) return;
     const R = replayAt(d, now, clk);
     F.show(R.frame, R.epoch);
-    $('cam').style.visibility = F.shown != null ? 'visible' : 'hidden';
     drawLock(ctx, bw, bh, R, d, F.shown != null, F.aspect, now, st, { gen: false });
   }
   poll(); requestAnimationFrame(frame);
@@ -448,7 +447,7 @@ PAGE = r"""<!doctype html>
 <div class="quad">
   <div class="panel" id="live-panel">
     <h2 id="live-title">live view</h2>
-    <div class="video16x9" id="live-box"><img id="cam" alt=""><canvas id="hud"></canvas></div>
+    <div class="video16x9" id="live-box"><img id="cam" alt="" style="visibility:hidden"><canvas id="hud"></canvas></div>
     <div class="cap" id="live-cap">--</div>
     <div class="cap" id="cam-note" style="margin-top:6px"></div>
     <div class="cap" id="hud-legend" style="margin-top:6px"><label><input type="checkbox" id="hud-on" checked> HUD</label> -- <span id="hud-legend-text"></span></div>
@@ -893,7 +892,6 @@ PAGE = r"""<!doctype html>
     if (!D || D.generation === undefined) return;
     const R = replayAt(D, now, CLK, REPLAY_FPS);
     F.show(R.frame, R.epoch);
-    $('cam').style.visibility = F.shown != null ? 'visible' : 'hidden';
     if (HUD.on) drawLock(ctx, bw, bh, R, D, F.shown != null, F.aspect, now, HUD, { gen: true });
   }
   requestAnimationFrame(drawHud);
