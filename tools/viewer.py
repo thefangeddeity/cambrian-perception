@@ -531,7 +531,7 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), shown where it really is in its whole visual field (the panel), at its true size, with a dashed outline of the widest it could open there. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). View at the end of its latest run. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), shown where it really is in its whole visual field (the panel), at its true size, with a dashed outline of the widest it could open there. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). In step with the picture and the visual field (same replay clock); its 12x12 is rebuilt in your browser from the frame on screen with the same averaging its eye does -- a reconstruction, not its exact input. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
 </div>
@@ -713,28 +713,81 @@ PAGE = r"""<!doctype html>
   }
   requestAnimationFrame(drawField);
 
-  function drawLook(d) {
-    if (!d.grid || !d.frame_w) return;
-    // The panel is its whole visual field; the gaze's detail sits where the
-    // gaze really is, at its true size (dashed: the widest it could open there).
-    const f = d.fovea_fraction || 0.35, fmax = d.max_fraction || 0.6;
+  // The retina panel runs on the same replay clock as the picture and the
+  // visual field: its gaze where the replayed path has it, and its 12x12
+  // retina rebuilt here from the frame on screen with the same averaging its
+  // eye does (grey: 0.299 R + 0.587 G + 0.114 B, like its own). A
+  // reconstruction -- from the replay JPEG, not its exact frames; without
+  // frames (a file source) it falls back to its retina at the end of its run.
+  const LOOK = { key: null, cells: null };
+  const lookSrc = document.createElement('canvas');
+  function rebuildRetina(img, cx, cy, f) {
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    if (lookSrc.width !== iw || lookSrc.height !== ih) { lookSrc.width = iw; lookSrc.height = ih; }
+    const c2 = lookSrc.getContext('2d', { willReadFrequently: true });
+    c2.drawImage(img, 0, 0);
+    const gw = Math.max(1, Math.round(f * iw)), gh = Math.max(1, Math.round(f * ih));
+    const x0 = Math.round(cx * iw - gw / 2), y0 = Math.round(cy * ih - gh / 2);
+    const sx0 = Math.max(0, x0), sy0 = Math.max(0, y0), sx1 = Math.min(iw, x0 + gw), sy1 = Math.min(ih, y0 + gh);
+    const px = sx1 > sx0 && sy1 > sy0 ? c2.getImageData(sx0, sy0, sx1 - sx0, sy1 - sy0).data : null;
+    const cells = [];
+    for (let r = 0; r < 12; r++) for (let q = 0; q < 12; q++) {
+      const ya = y0 + Math.floor(r * gh / 12), yb = y0 + Math.floor((r + 1) * gh / 12);
+      const xa = x0 + Math.floor(q * gw / 12), xb = x0 + Math.floor((q + 1) * gw / 12);
+      let R = 0, G = 0, B = 0, n = 0;
+      for (let y = ya; y < yb; y++) for (let x = xa; x < xb; x++) {
+        n++;  // past the frame's edge counts as black, as its eye sees it
+        if (px && x >= sx0 && x < sx1 && y >= sy0 && y < sy1) { const k = ((y - sy0) * (sx1 - sx0) + (x - sx0)) * 4; R += px[k]; G += px[k + 1]; B += px[k + 2]; }
+      }
+      cells.push(n ? [R / n, G / n, B / n] : [0, 0, 0]);
+    }
+    return cells;
+  }
+  function drawLook(now) {
+    requestAnimationFrame(drawLook);
+    const d = D;
+    if (!d || !d.frame_w) return;
+    const R = replayAt(d, now, CLK, REPLAY_FPS), fmax = d.max_fraction || 0.6;
+    const img = $('cam');
+    let cells = null;
+    if (typeof F !== 'undefined' && F.shown != null && img.naturalWidth) {
+      const key = F.shown + '|' + R.cx + '|' + R.cy + '|' + R.f;
+      if (LOOK.key !== key) { LOOK.cells = rebuildRetina(img, R.cx, R.cy, R.f); LOOK.key = key; }
+      cells = LOOK.cells;
+    }
+    // Without frames: its retina and gaze at the end of its latest run.
+    const f = cells ? R.f : (d.fovea_fraction || 0.35);
+    const gx = cells ? R.cx : (d.fovea_cx ?? 0.5), gy = cells ? R.cy : (d.fovea_cy ?? 0.5);
     const [cw, ch] = crop(d, f);
     const c = $('look'), W = Math.max(160, fitWidth($('look-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-    const ctx = c.getContext('2d'), s = W / d.frame_w;
-    const cx = (d.fovea_cx ?? 0.5) * W, cy = (d.fovea_cy ?? 0.5) * H;
+    const ctx = c.getContext('2d'), s = W / d.frame_w, cx = gx * W, cy = gy * H;
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     ctx.strokeStyle = '#2a3c4c'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
     ctx.setLineDash([6, 5]); ctx.strokeRect(cx - fmax * W / 2, cy - fmax * H / 2, fmax * W, fmax * H); ctx.setLineDash([]);
     const lw = f * W, lh = f * H, lx = cx - lw / 2, ly = cy - lh / 2;
-    if (d.colour_grid && d.colour_grid.length >= d.grid.length) drawColourGrid(ctx, d.grid, d.colour_grid, d.grid_shape, lx, ly, lw, lh);
-    else drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
+    if (cells) {
+      const colour = (d.colour_channels ?? 0) > 0;
+      for (let r = 0; r < 12; r++) for (let q = 0; q < 12; q++) {
+        const [Rv, Gv, Bv] = cells[r * 12 + q];
+        const grey = Math.round(0.299 * Rv + 0.587 * Gv + 0.114 * Bv);
+        ctx.fillStyle = colour ? `rgb(${Math.round(Rv)},${Math.round(Gv)},${Math.round(Bv)})` : `rgb(${grey},${grey},${grey})`;
+        const xa = Math.round(lx + q * lw / 12), xb = Math.round(lx + (q + 1) * lw / 12);
+        const ya = Math.round(ly + r * lh / 12), yb = Math.round(ly + (r + 1) * lh / 12);
+        ctx.fillRect(xa, ya, xb - xa, yb - ya);
+      }
+    } else if (d.grid) {
+      if (d.colour_grid && d.colour_grid.length >= d.grid.length) drawColourGrid(ctx, d.grid, d.colour_grid, d.grid_shape, lx, ly, lw, lh);
+      else drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
+    }
     ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
-    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText('its whole visual field', 6, 14);
+    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
+    ctx.fillText(cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
     $('look-px').textContent = `${cw}x${ch} real pixels`;
     $('field-px').textContent = `${d.frame_w}x${d.frame_h} real pixels`;
-    $('look-scale').textContent = `Its gaze is ${(f).toFixed(3)} of the frame, centred at (${(d.fovea_cx ?? 0.5).toFixed(2)}, ${(d.fovea_cy ?? 0.5).toFixed(2)}); dashed: the widest it could open there (${fmax}). Shown ${s.toFixed(1)}x real size.`;
+    $('look-scale').textContent = `Its gaze is ${f.toFixed(3)} of the frame, centred at (${gx.toFixed(2)}, ${gy.toFixed(2)}); dashed: the widest it could open there (${fmax}). Shown ${s.toFixed(1)}x real size.`;
   }
+  requestAnimationFrame(drawLook);
 
   function gauge(name, v, color, note) {
     const x = Math.max(0, Math.min(1, v || 0));
@@ -890,7 +943,7 @@ PAGE = r"""<!doctype html>
   // Tap/click any panel to maximize it; tap again (or Esc) to restore.
   // Controls inside a panel (inputs, buttons, links) keep working.
   function redrawAll() {
-    if (D) { drawLook(D); drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }
+    if (D) { drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
     if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, lastHistory));
   }
   function setMax(panel) {
@@ -992,7 +1045,7 @@ PAGE = r"""<!doctype html>
         $('h-prey').textContent = ['eyes only', 'scent', 'scent + direction'][d.prey_sense ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
-        drawLook(d); drawBody(d); drawBrain(d); showLive(d);
+        drawBody(d); drawBrain(d); showLive(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
     } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }
