@@ -48,6 +48,8 @@ STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 # Same place run_vision writes it: RAM (/dev/shm) where available.
 _RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception"))
 LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR) / "live_status.json"
+# Camera preview run_vision.py keeps next to it, in RAM (see video_source.LiveFeed).
+CAMERA_PREVIEW_PATH = LIVE_STATUS_PATH.with_name("camera.jpg")
 EVOLUTION_LOG_PREV_PATH = STATE_DIR / "evolution_log.1.jsonl"
 # Paths defined independently here, not imported from fishbowl.sandbox
 # -- same deliberate independence as everything else in this module
@@ -201,13 +203,14 @@ PAGE = r"""<!doctype html>
   .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; cursor: zoom-out; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
   body.has-max { overflow: hidden; }
   .video16x9 { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
-  .video16x9 iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .video16x9 iframe, .video16x9 img { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
+  .liverow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
   .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-  .vision { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(340px, 0.95fr); gap: 16px; }
+  .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
   .brainrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
-  @media (max-width: 1250px) { .vision, .brainrow { grid-template-columns: 1fr; } }
+  @media (max-width: 1250px) { .vision, .brainrow, .liverow { grid-template-columns: 1fr; } }
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
@@ -243,7 +246,7 @@ PAGE = r"""<!doctype html>
   <span class="chip" id="h-stale"></span>
 </header>
 
-<div class="vision">
+<div class="liverow">
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors (fixed for now -- an evolvable, metabolically priced receptor count is queued) over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b>, replayed along its real path over its latest run (the newest ~600 frames), at real speed, trail = last 3 s.</div>
@@ -258,14 +261,17 @@ PAGE = r"""<!doctype html>
       <span><b style="color:#ff5fa2">- - -</b> prey (person/animal, YOLO); <b style="color:#ff5fa2">EATING</b> = prey in its gaze center</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
-    <div id="stream-wrap" style="display:none; margin-top:12px">
-      <h2>the stream, live</h2>
-      <div class="cap">What the camera of that stream shows right now, for context -- your browser's own connection to YouTube. The organism never sees this; it only gets the 12x12 grid above (and the replay there lags the live stream by up to a minute).</div>
-      <div class="video16x9"><iframe id="stream" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
-      <div class="cap" style="margin-top:6px"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a> (some streams don't allow embedding)</div>
-    </div>
   </div>
+  <div class="panel" id="live-panel">
+    <h2 id="live-title">live view</h2>
+    <div class="cap" id="live-cap">--</div>
+    <div class="video16x9"><iframe id="stream" style="display:none" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe><img id="cam" alt="camera" style="display:none"></div>
+    <div class="cap" id="cam-note" style="margin-top:6px"></div>
+    <div class="cap" id="stream-link-row" style="margin-top:6px; display:none"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a> (some streams don't allow embedding)</div>
+  </div>
+</div>
 
+<div class="vision">
   <div class="stack">
     <div class="panel" id="look-panel">
       <h2>gaze</h2>
@@ -646,16 +652,37 @@ PAGE = r"""<!doctype html>
       return m ? m[1] : null;
     } catch (e) { return null; }
   }
-  let streamId = null;
-  function showStream(d) {
-    const id = d.is_live ? youtubeId(d.clip) : null;
-    $('stream-wrap').style.display = id ? 'block' : 'none';
+  // Live view: follows what is SELECTED (dessert video or its camera), so it
+  // switches the moment you click. The organism itself restarts onto the new
+  // source and reports in within about a minute; until then the "watching"
+  // chip says it is switching.
+  let SEL = null, streamId = null, camTimer = null;
+  function showLive(d) {
+    const want = SEL ? (SEL.active ? 'video' : 'camera') : (d && d.is_live ? 'video' : 'camera');
+    const id = want === 'video' ? youtubeId((SEL && SEL.selected_url) || (d && d.clip)) : null;
+    $('stream').style.display = id ? 'block' : 'none';
+    $('stream-link-row').style.display = id ? 'block' : 'none';
+    $('cam').style.display = want === 'camera' ? 'block' : 'none';
+    $('live-title').textContent = want === 'video' ? 'the stream, live' : 'its camera, live';
+    $('live-cap').textContent = want === 'video'
+      ? 'What the stream shows right now -- your browser’s own connection to YouTube. The organism only gets the 12x12 grid beside it (whose replay lags the live stream by up to a minute).'
+      : 'What its camera sees right now (about one frame a second, kept in RAM only). The organism only gets the 12x12 grid beside it, replayed from its latest run.';
     if (id !== streamId) {
       streamId = id;
       $('stream').src = id ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&playsinline=1` : 'about:blank';
       $('stream-link').href = id ? `https://www.youtube.com/watch?v=${id}` : '#';
     }
+    if (want === 'camera' && !camTimer) { camTimer = setInterval(refreshCam, 1000); refreshCam(); }
+    if (want !== 'camera' && camTimer) { clearInterval(camTimer); camTimer = null; $('cam').removeAttribute('src'); $('cam-note').textContent = ''; }
+    const running = d && d.generation !== undefined ? (d.is_live ? 'video' : 'camera') : null;
+    const switching = running && (running !== want || (want === 'video' && youtubeId(d.clip) !== id));
+    $('h-src').textContent = switching
+      ? `switching to ${want === 'video' ? 'the video' : 'its camera'}... (restarting, about a minute)`
+      : ((d && (d.clip_name || d.clip)) || '--');
   }
+  function refreshCam() { $('cam').src = '/camera.jpg?t=' + Date.now(); }
+  $('cam').addEventListener('load', () => { $('cam-note').textContent = ''; });
+  $('cam').addEventListener('error', () => { $('cam-note').textContent = 'no camera picture yet -- the organism writes one once its camera is open'; });
 
   async function tick() {
     try {
@@ -666,13 +693,12 @@ PAGE = r"""<!doctype html>
         $('h-gen').textContent = d.generation;
         $('h-fit').textContent = d.best_fitness;
         $('h-peak').textContent = d.peak_fitness_seen;
-        $('h-src').textContent = d.clip_name || d.clip || '--';
         $('h-look').textContent = `${d.fovea_fraction_accepted ?? '--'} of frame at birth`;
         $('h-pace').textContent = d.pace_accepted ? `resting ${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
         $('h-colour').textContent = ['none (light only)', 'red-green', 'red-green + blue-yellow'][d.colour_channels ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
-        drawLook(d); drawBody(d); drawBrain(d); showStream(d);
+        drawLook(d); drawBody(d); drawBrain(d); showLive(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
     } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }
@@ -700,19 +726,20 @@ PAGE = r"""<!doctype html>
   });
   $('dessert-cancel').addEventListener('click', async () => {
     $('submit-status').textContent = 'going back to the camera...';
-    try { await fetch('/select?name=auto', { method: 'POST', headers: { 'X-Cambrian': '1' } }); $('submit-status').textContent = 'back to camera -- restarting'; } catch (e) { $('submit-status').textContent = 'failed'; }
+    try { await fetch('/select?name=auto', { method: 'POST', headers: { 'X-Cambrian': '1' } }); $('submit-status').textContent = 'back to camera -- the organism restarts onto it within about a minute'; } catch (e) { $('submit-status').textContent = 'failed'; }
     pollDessert();
   });
   async function pollDessert() {
     try {
       const r = await (await fetch('/sources')).json();
+      SEL = r; showLive(D);
       $('dessert-status').textContent = r.active
         ? `on video: ${r.selected_url}` + (r.until ? ` until ${new Date(r.until * 1000).toLocaleString()}` : ' until you switch back')
         : 'on its camera';
     } catch (e) { }
   }
   pollDessert();
-  setInterval(pollDessert, 15000);
+  setInterval(pollDessert, 5000);
 </script>
 </body>
 </html>
@@ -753,6 +780,19 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps(_history_summary(recs)).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/camera.jpg"):
+            try:
+                body = CAMERA_PREVIEW_PATH.read_bytes()
+            except OSError:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

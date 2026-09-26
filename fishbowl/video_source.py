@@ -11,6 +11,7 @@ README's fishbowl boundary.
 """
 
 import collections
+import os
 import threading
 import time
 from typing import Iterator
@@ -95,7 +96,7 @@ class LiveFeed:
     """
 
     def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM,
-                 detector=None, detect_every: int = 3):
+                 detector=None, detect_every: int = 3, preview_path=None):
         from .retina import frame_to_vector
         self._to_vector = frame_to_vector
         # Prey (see prey.py): detected on the full-resolution colour frame
@@ -104,6 +105,10 @@ class LiveFeed:
         self.detector, self.detect_every = detector, detect_every
         self._last_prey: list = []
         self.source, self.stride, self.max_dim = source, stride, max_dim
+        # Camera preview for the viewer: one small JPEG of the newest frame,
+        # replaced about once a second. Only ever pointed at the RAM runtime
+        # dir (run_vision.py), never at disk; None = off.
+        self.preview_path, self._preview_t = preview_path, 0.0
         self._buf: collections.deque = collections.deque(maxlen=window)
         self._lock = threading.Lock()
         self.total = 0  # frames ever kept -- lets callers find what's new since their last look
@@ -129,6 +134,9 @@ class LiveFeed:
                         continue
                     if self.detector is not None and (self.total % self.detect_every == 0):
                         self._last_prey = self.detector.detect(frame)
+                    if self.preview_path is not None and time.time() - self._preview_t >= 1.0:
+                        self._preview_t = time.time()
+                        self._write_preview(frame)
                     h, w = frame.shape[:2]
                     if max(h, w) > self.max_dim:
                         scale = self.max_dim / max(h, w)
@@ -144,6 +152,21 @@ class LiveFeed:
             finally:
                 cap.release()
             time.sleep(1.0)
+
+    def _write_preview(self, frame: np.ndarray, max_dim: int = 640) -> None:
+        """Best effort: a viewer that can't show the camera for a moment is fine."""
+        try:
+            h, w = frame.shape[:2]
+            if max(h, w) > max_dim:
+                s = max_dim / max(h, w)
+                frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if ok:
+                tmp = self.preview_path.with_suffix(".tmp")
+                tmp.write_bytes(jpg.tobytes())
+                os.replace(tmp, self.preview_path)
+        except (OSError, cv2.error):
+            pass
 
     def wait_for(self, n: int, timeout: float = 180.0) -> bool:
         deadline = time.time() + timeout

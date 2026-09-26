@@ -22,6 +22,8 @@ The world (World): a live camera or live stream is read continuously
 (video_source.LiveFeed) and each generation is scored on the newest
 ~600 frames, refreshed every few generations; a local file is one fixed
 clip. Raw frames never leave memory -- only 12x12 grids and prey boxes.
+On its own camera it also keeps one small preview JPEG in RAM for the
+viewer's live view (CAMBRIAN_CAMERA_PREVIEW=0 turns it off).
 
 Meant to run for years as a BOUNDED process restarted by systemd
 (Restart=always): each run resumes the genome, body and memory from
@@ -34,6 +36,7 @@ Usage:
 
 import argparse
 import math
+import os
 import random
 import signal
 import subprocess
@@ -963,7 +966,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         detector = prey_lib.PreyDetector()
         print(f"Prey detector: {'yolov8n loaded' if detector.available else 'MODEL MISSING -- no prey, snacks only'} ({detector.model_path})")
         feed_src = (int(source) if source.isdigit() else source) if _is_device(source) else load_source
-        feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None)
+        # Camera preview for the viewer: only on its own camera (a stream
+        # has YouTube's own embed), and only when the runtime dir is in RAM.
+        preview = sandbox.LIVE_STATUS_PATH.with_name("camera.jpg")
+        in_ram = sandbox.LIVE_STATUS_PATH.parent != sandbox.STATE_DIR
+        use_preview = _is_device(source) and in_ram and os.environ.get("CAMBRIAN_CAMERA_PREVIEW", "1") != "0"
+        if not use_preview and in_ram:
+            preview.unlink(missing_ok=True)
+        feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None,
+                                     preview_path=preview if use_preview else None)
         if not feed.wait_for(600):
             print("Live feed never filled its window -- aborting.")
             feed.close()
@@ -1358,6 +1369,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
 
 
 def main() -> int:
+    # Line-buffered, so the journal shows each line as it happens (not all
+    # at once when the run exits).
+    sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("source", help="'live' for real live streams (see LIVE_SOURCES), a media/ directory of clips, a single file, or a live device (e.g. /dev/video0)")
     parser.add_argument("--generations", type=int, default=200000)
