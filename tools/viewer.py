@@ -31,6 +31,7 @@ Usage:
 import argparse
 import json
 import subprocess
+import threading
 import time
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -71,6 +72,21 @@ def _write_json_atomic(path: Path, data) -> None:
     temp.replace(path)
 
 
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
+_URL_CHECK = threading.BoundedSemaphore(1)  # one yt-dlp check at a time
+
+
+def _allowed_url(url: str) -> bool:
+    """Only https YouTube links -- the viewer is reachable on the LAN, and
+    yt-dlp would otherwise fetch anything it understands (security audit:
+    SSRF, arbitrary stream decoding)."""
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return False
+    return u.scheme == "https" and (u.hostname or "").lower() in YOUTUBE_HOSTS and not u.username and not u.password
+
+
 def _check_live_url(url: str) -> tuple[bool, str | None]:
     """
     Real yt-dlp metadata check, not a URL-shape guess -- same
@@ -78,16 +94,23 @@ def _check_live_url(url: str) -> tuple[bool, str | None]:
     live via yt-dlp metadata before wiring in"). Free-text input has
     no whitelist to fall back on, so this IS the validation.
     """
+    if not _allowed_url(url):
+        return False, "only https youtube.com / youtu.be links are accepted"
+    if not _URL_CHECK.acquire(blocking=False):
+        return False, "another check is already running -- try again in a moment"
     yt_dlp = Path(sys.executable).parent / "yt-dlp"
     if not yt_dlp.exists():
         yt_dlp = Path("yt-dlp")
     try:
+        # "--" so the URL can never be read as a yt-dlp option.
         result = subprocess.run(
-            [str(yt_dlp), "--skip-download", "--print", "is_live", url],
+            [str(yt_dlp), "--skip-download", "--print", "is_live", "--", url],
             capture_output=True, text=True, timeout=20,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False, "yt-dlp check failed or timed out"
+    finally:
+        _URL_CHECK.release()
     if result.returncode != 0:
         return False, "not a resolvable video"
     if result.stdout.strip() != "True":
@@ -561,7 +584,7 @@ PAGE = r"""<!doctype html>
     const until = $('dessert-timed').checked ? nextTime($('dessert-until').value || '07:00') : null;
     $('submit-status').textContent = 'checking it is really live...';
     try {
-      const r = await (await fetch('/select?url=' + encodeURIComponent(url) + (until ? '&until=' + Math.floor(until.getTime() / 1000) : ''))).json();
+      const r = await (await fetch('/select?url=' + encodeURIComponent(url) + (until ? '&until=' + Math.floor(until.getTime() / 1000) : ''), { method: 'POST', headers: { 'X-Cambrian': '1' } })).json();
       $('submit-status').textContent = r.ok ? ('switching to it' + (until ? ` until ${until.toLocaleString()}` : ' until you switch back') + ' -- restarting (watch "watching" above)') : ('not switched: ' + (r.error || 'unknown'));
       if (r.ok) $('custom-url').value = '';
       pollDessert();
@@ -569,7 +592,7 @@ PAGE = r"""<!doctype html>
   });
   $('dessert-cancel').addEventListener('click', async () => {
     $('submit-status').textContent = 'going back to the camera...';
-    try { await fetch('/select?name=auto'); $('submit-status').textContent = 'back to camera -- restarting'; } catch (e) { $('submit-status').textContent = 'failed'; }
+    try { await fetch('/select?name=auto', { method: 'POST', headers: { 'X-Cambrian': '1' } }); $('submit-status').textContent = 'back to camera -- restarting'; } catch (e) { $('submit-status').textContent = 'failed'; }
     pollDessert();
   });
   async function pollDessert() {
@@ -649,57 +672,78 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path.startswith("/select"):
-            # "auto" clears the override, resuming normal round-robin.
-            # A whitelisted name is fine as-is. Free-text "url" has no
-            # whitelist to fall back on, so it's validated for real
-            # against yt-dlp (see _check_live_url) before being
-            # accepted -- User: "add a field I can input the video to
-            # be watched." Still human-only; the organism never
-            # reaches this endpoint or picks its own source.
-            qs = parse_qs(urlparse(self.path).query)
-            name = (qs.get("name") or [""])[0]
-            url = (qs.get("url") or [""])[0].strip()
-            until_raw = (qs.get("until") or [""])[0].strip()
-            until = float(until_raw) if until_raw.replace(".", "", 1).isdigit() else None
-            valid_names = {n for n, _ in LIVE_SOURCES}
-            ok, error = False, None
-            if name == "auto":
-                if SELECTED_SOURCE_PATH.exists():
-                    SELECTED_SOURCE_PATH.unlink()
-                ok = True
-            elif name in valid_names:
-                _write_json_atomic(SELECTED_SOURCE_PATH, {"name": name})
-                ok = True
-            elif url:
-                ok, error = _check_live_url(url)
-                if ok:
-                    # Dessert: a deadline after which the organism goes
-                    # back to its camera by itself (run_vision.py _dessert).
-                    _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url, **({"until": until} if until else {})})
-            if ok:
-                # User: "'Submit' should trigger a restart of
-                # cambrian-perception.service" -- without this the
-                # selection only took effect on whatever restart
-                # happened to come next (up to an hour away), which is
-                # exactly what caused the real "still watching the
-                # kittens" confusion. Confirmed passwordless sudo for
-                # this exact command before wiring it in.
-                try:
-                    subprocess.run(
-                        ["sudo", "systemctl", "restart", "cambrian-perception.service"],
-                        capture_output=True, text=True, timeout=15,
-                    )
-                except (OSError, subprocess.TimeoutExpired):
-                    pass  # selection is still saved even if the restart trigger itself failed
-            body = json.dumps({"ok": ok, "error": error}).encode("utf-8")
-            self.send_response(200 if ok else 400)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            # State-changing: POST only (see do_POST). A GET here could be
+            # triggered by any web page on the LAN (an <img> tag).
+            self.send_response(405)
+            self.send_header("Allow", "POST")
             self.end_headers()
-            self.wfile.write(body)
+            return
         else:
             self.send_response(404)
             self.end_headers()
+
+
+    def do_POST(self):
+        # Only this page's own fetch() sends X-Cambrian; a cross-site form
+        # can't set custom headers, and a cross-site fetch with one needs a
+        # CORS preflight this server never grants.
+        if not self.path.startswith("/select") or self.headers.get("X-Cambrian") != "1":
+            self.send_response(403)
+            self.end_headers()
+            return
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).netloc != self.headers.get("Host", ""):
+            self.send_response(403)
+            self.end_headers()
+            return
+        # "auto" clears the override, resuming normal round-robin.
+        # A whitelisted name is fine as-is. Free-text "url" has no
+        # whitelist to fall back on, so it's validated for real
+        # against yt-dlp (see _check_live_url) before being
+        # accepted -- User: "add a field I can input the video to
+        # be watched." Still human-only; the organism never
+        # reaches this endpoint or picks its own source.
+        qs = parse_qs(urlparse(self.path).query)
+        name = (qs.get("name") or [""])[0]
+        url = (qs.get("url") or [""])[0].strip()
+        until_raw = (qs.get("until") or [""])[0].strip()
+        until = float(until_raw) if until_raw.replace(".", "", 1).isdigit() else None
+        valid_names = {n for n, _ in LIVE_SOURCES}
+        ok, error = False, None
+        if name == "auto":
+            if SELECTED_SOURCE_PATH.exists():
+                SELECTED_SOURCE_PATH.unlink()
+            ok = True
+        elif name in valid_names:
+            _write_json_atomic(SELECTED_SOURCE_PATH, {"name": name})
+            ok = True
+        elif url:
+            ok, error = _check_live_url(url)
+            if ok:
+                # Dessert: a deadline after which the organism goes
+                # back to its camera by itself (run_vision.py _dessert).
+                _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url, **({"until": until} if until else {})})
+        if ok:
+            # User: "'Submit' should trigger a restart of
+            # cambrian-perception.service" -- without this the
+            # selection only took effect on whatever restart
+            # happened to come next (up to an hour away), which is
+            # exactly what caused the real "still watching the
+            # kittens" confusion. Confirmed passwordless sudo for
+            # this exact command before wiring it in.
+            try:
+                subprocess.run(
+                    ["systemctl", "restart", "--no-ask-password", "cambrian-perception.service"],
+                    capture_output=True, text=True, timeout=15,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                pass  # selection is still saved even if the restart trigger itself failed
+        body = json.dumps({"ok": ok, "error": error}).encode("utf-8")
+        self.send_response(200 if ok else 400)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def main() -> int:
