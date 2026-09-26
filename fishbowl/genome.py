@@ -35,8 +35,10 @@ from .controller import MosquitoBrain
 # grow_channel / add_prediction / shrink_channel add or remove a brain
 # channel -- an output wired back in as an input (controller.py): a latch
 # duplicated from an existing output, or a predictor of one of its inputs.
+# mutate_stabilizer changes its image-stabilization reflex gain (run_vision.py).
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace",
-            "mutate_colour", "grow_channel", "add_prediction", "shrink_channel")
+            "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer")
+STABILIZER_SIGMA = 0.1
 # Structural additions that change nothing at birth (run_vision.py keeps
 # them on a tie, so they can drift until they are useful).
 NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction")
@@ -111,6 +113,7 @@ class Genome:
         brain: MosquitoBrain | None = None,
         pace: int = 1,
         colour_channels: int = 0,
+        stabilizer: float = 0.0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -120,6 +123,7 @@ class Genome:
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
+        self.stabilizer = float(np.clip(stabilizer, 0.0, 1.0))
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
         # mutation_weights toward. Defaults to a neutral 0.5 prior for
@@ -142,6 +146,7 @@ class Genome:
             self.brain.clone(),
             self.pace,
             self.colour_channels,
+            self.stabilizer,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
@@ -309,6 +314,10 @@ class Genome:
             old = self.colour_channels
             self.colour_channels = int(np.clip(old + rng.choice((-1, 1)), 0, MAX_COLOUR_CHANNELS))
             return "colour", (choice if self.colour_channels != old else "noop_inapplicable")
+        if choice == "mutate_stabilizer":
+            old = self.stabilizer
+            self.stabilizer = float(np.clip(old + rng.gauss(0.0, STABILIZER_SIGMA), 0.0, 1.0))
+            return "stabilizer", (choice if self.stabilizer != old else "noop_inapplicable")
         if choice == "mutate_brain":
             return "brain", (choice if self.brain.mutate(rng) > 0 else "noop_inapplicable")
         if choice == "grow_channel":
@@ -409,6 +418,7 @@ class Genome:
             "brain": self.brain.to_dict(),
             "pace": self.pace,
             "colour_channels": self.colour_channels,
+            "stabilizer": self.stabilizer,
         }
 
     @staticmethod
@@ -438,4 +448,5 @@ class Genome:
             brain=brain,
             pace=int(np.clip(data.get("pace", 1), MIN_PACE, MAX_PACE)),
             colour_channels=int(np.clip(data.get("colour_channels", 0), 0, MAX_COLOUR_CHANNELS)),
+            stabilizer=float(np.clip(data.get("stabilizer", 0.0), 0.0, 1.0)),
         )

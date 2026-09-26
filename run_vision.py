@@ -45,6 +45,7 @@ import time
 import sys
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from fishbowl import fovea, genome as G, reflexes, sandbox, video_source
@@ -281,6 +282,39 @@ CHANNEL_COST = 2e-5  # per unit of loop weight, per gaze, x scarcity
 # each spot's remembered variation toward the sensor-noise floor, so after a
 # night real change stands out more sharply (and "boring" stays learned).
 CONSOLIDATE_RATE = 3.0
+# Image stabilization (genome.stabilizer, 0..1, evolved; after a design
+# panel): a reflex that moves the gaze with the WHOLE frame's shift from one
+# frame to the next -- camera shake -- the way an eye's optokinetic reflex
+# holds the image still between deliberate movements. Global only: the
+# shift is estimated by phase correlation on small frames, and only a
+# small, confident one counts (a cut or a big moving object gives none), so
+# the reflex can never follow an object -- pursuing prey stays the brain's
+# job. Priced like any receptor, x gain.
+STABILIZER_COST = 1e-5  # per gaze at gain 1, x scarcity
+SHIFT_WIDTH = 160
+SHIFT_MIN_RESPONSE = 0.2
+SHIFT_MAX = 0.08  # of the frame, per frame
+
+
+def _global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """The whole frame's shift from frame k-1 to frame k (fractions of its
+    width and height; 0 where no clear global shift)."""
+    n = len(frames)
+    sx, sy = np.zeros(n), np.zeros(n)
+    if n < 2:
+        return sx, sy
+    h, w = frames[0].shape[:2]
+    size = (SHIFT_WIDTH, max(8, int(round(h * SHIFT_WIDTH / w))))
+    window = cv2.createHanningWindow(size, cv2.CV_32F)
+    prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
+    for k in range(1, n):
+        cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
+        (dx, dy), response = cv2.phaseCorrelate(prev, cur, window)
+        fx, fy = dx / size[0], dy / size[1]
+        if response >= SHIFT_MIN_RESPONSE and abs(fx) <= SHIFT_MAX and abs(fy) <= SHIFT_MAX:
+            sx[k], sy[k] = fx, fy
+        prev = cur
+    return sx, sy
 
 # The flinch, evolved rather than wired: at each onset of a real
 # approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
@@ -592,6 +626,8 @@ def evaluate_genome(
     movement_costs = []  # pre-clamp motor intent per frame
     energies, drives, foods = [], [], []
     asleeps = []
+    stab = float(getattr(g, "stabilizer", 0.0))
+    stab_dx = stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
     periph_active = []
     field_events = []  # per frame: where the whole field saw motion, how much, loom, reflex
     last_grid = None
@@ -619,7 +655,10 @@ def evaluate_genome(
         # out (corollary discharge): the previous frame sampled at
         # the look's CURRENT position, so a saccade across a still scene
         # doesn't register as motion, threat, or loom.
-        h1 = fovea.extract(prev_frame, state) if prev_frame is not None and not was_asleep else v
+        # (Efference copy: sampled where the gaze is now, less what the
+        # stabilizer moved it -- so a shake it held still reads as stillness.)
+        h1 = (fovea.extract(prev_frame, fovea.FoveaState(cx=state.cx - stab_dx, cy=state.cy - stab_dy, fraction=state.fraction))
+              if prev_frame is not None and not was_asleep else v)
         hist = np.array([h1, v])
         lum = float(v.mean())
         # Only real history counts: on the first frame there's no older
@@ -696,8 +735,15 @@ def evaluate_genome(
         # Muscle energy = force squared, per frame pushed.
         prev_cx, prev_cy = state.cx, state.cy
         effort = 0.0
+        stab_dx = stab_dy = 0.0
         for j in range(interval):
             state, force_x, force_y, intended_dz = fovea.step(state, pan, tilt, zoom)
+            k = t + j + 1
+            if stab > 0.0 and not asleep and k < len(frames):
+                nx = float(np.clip(state.cx + stab * world_signals["shift_x"][k], 0.0, 1.0))
+                ny = float(np.clip(state.cy + stab * world_signals["shift_y"][k], 0.0, 1.0))
+                stab_dx, stab_dy = stab_dx + nx - state.cx, stab_dy + ny - state.cy
+                state = fovea.FoveaState(cx=nx, cy=ny, fraction=state.fraction, vx=state.vx, vy=state.vy)
             effort += force_x * force_x + force_y * force_y + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
             if j < interval - 1 and t + j + 1 < len(frames):
                 frame_path.append((state.cx, state.cy, state.fraction))
@@ -708,7 +754,8 @@ def evaluate_genome(
         periph_active.append(periph_motion)
         gaze_cost = 0.0 if asleep else scarcity_cost(state.fraction)
         body.update(periph_motion, loom, effort,
-                    gaze_cost + (THINK_COST + COLOUR_COST * colour_on + CHANNEL_COST * brain.loop_synapses()) * scarcity,
+                    gaze_cost + (THINK_COST + COLOUR_COST * colour_on + CHANNEL_COST * brain.loop_synapses()
+                                 + (0.0 if asleep else STABILIZER_COST * stab)) * scarcity,
                     dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps), field_light=field_light)
         cleared = body.take_cleared()
         if cleared > 0.0:
@@ -857,6 +904,8 @@ def evaluate_genome(
     breakdown["mean_energy"] = float(np.mean(energies)) if energies else 0.0
     breakdown["asleep_share"] = float(np.mean(asleeps)) if asleeps else 0.0
     breakdown["loop_weight"] = brain.loop_synapses()
+    breakdown["stabilizer"] = stab
+    breakdown["shake"] = float(np.mean(np.hypot(world_signals["shift_x"], world_signals["shift_y"])))
     breakdown["final_energy"] = energies[-1] if energies else 0.0
     breakdown["mean_food"] = float(np.mean(foods)) if foods else 0.0
     breakdown["mean_prey"] = float(np.mean(prey_eaten)) if prey_eaten else 0.0
@@ -1015,6 +1064,7 @@ class World:
             ws["expansion"] = reflexes.expansion_score(wv)
             ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv)
             ws["field_light"] = np.asarray(wv).mean(axis=1)
+            ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
 
@@ -1510,6 +1560,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "max_fraction": fovea.MAX_FRACTION,
             "colour_grid": live_info.get("colour_grid"),
             "colour_channels": genome.colour_channels,
+            "stabilizer": genome.stabilizer,
             # Its lasting body right now (persists across generations and
             # restarts), vs "body" = the candidate's at the end of its window.
             "body_now": {k: round(v, 4) for k, v in body_now.items()} if body_now else None,

@@ -448,6 +448,7 @@ PAGE = r"""<!doctype html>
   <span class="chip">gaze size <b id="h-look">--</b></span>
   <span class="chip">pace <b id="h-pace">--</b></span>
   <span class="chip">colour <b id="h-colour">--</b></span>
+  <span class="chip">stabilizer <b id="h-stab">--</b></span>
   <span class="chip">CPU quota <b id="h-quota">--</b></span>
   <span class="chip" id="h-stale"></span>
 </header>
@@ -541,6 +542,7 @@ PAGE = r"""<!doctype html>
     <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of hunger&sup2; (blood sugar plus half the gut, like a full stomach calming hunger before it is absorbed) + 0.3 (1-reserve)&sup2; + threat&sup2; + fatigue&sup2; + 0.3 sleep pressure&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). On a real clock: being awake costs a fixed amount plus a share that follows its tempo; asleep it burns a third as much. Also muscle force&sup2; every frame it pushes, and per gaze: thinking, gaze size, colour and any wired brain loops (x CPU scarcity). Restored only by eating (prey held in the gaze center, plus small surprise snacks), through the gut. No death: an empty body degrades (colour off, narrow eye, slower gazing) and burns less.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>colour vision</td><td>0, 1 or 2 colour-opponent channels in its gaze (red-green, then blue-yellow), inherited and evolving. Each channel costs energy every gaze (x CPU scarcity), so colour vision only spreads if seeing colour pays -- e.g. telling prey from background.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>image stabilizer</td><td>A reflex gain from 0 to 1, inherited and evolving: every frame its gaze moves by that fraction of the whole frame's shift from the last frame -- camera shake -- the way an eye's optokinetic reflex holds the image still between deliberate movements. Global only (a cut or a big moving object gives no shift), so it never follows prey; that stays the brain's job. Costs energy per gaze x gain, so it only spreads where the camera shakes enough to pay for it.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while blood sugar and gut are low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>motor</td><td>sleep</td><td>Its own choice (a brain output), with three physiological overrides: it collapses when sleep pressure maxes out (and can't wake by choice until it has recovered), starving wakes it (and keeps even an exhausted animal up), and a big change in the field wakes it. Asleep: eyes shut, no eating, slow sampling of the field, a third of the waking burn -- the reserve can cover sleep but not waking, so sleep is how to get through a quiet room. Sleep also pays back tiredness (at full pressure it gets only half of what it catches) and consolidates its habituation memory. Falling asleep takes a moment to settle; waking, it is groggy for a few seconds and can't eat. Its sense of day and night is the field's light and its trend.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
@@ -798,8 +800,8 @@ PAGE = r"""<!doctype html>
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#4fa', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { mutate_stabilizer: '#9fe', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
       (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +
@@ -935,6 +937,7 @@ PAGE = r"""<!doctype html>
         $('h-look').textContent = `${d.fovea_fraction_accepted ?? '--'} of frame at birth`;
         $('h-pace').textContent = d.pace_accepted ? `resting ${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
         $('h-colour').textContent = ['none (light only)', 'red-green', 'red-green + blue-yellow'][d.colour_channels ?? 0] || '--';
+        $('h-stab').textContent = d.stabilizer !== undefined ? `gain ${Number(d.stabilizer).toFixed(2)}` : '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
         drawLook(d); drawBody(d); drawBrain(d); showLive(d);
