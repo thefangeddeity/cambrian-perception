@@ -59,6 +59,16 @@ from fishbowl import fovea, genome as G, reflexes, sandbox, video_source
 from fishbowl.state import MosquitoState
 from fishbowl import prey as prey_lib
 from fishbowl.controller import HIDDEN as BRAIN_HIDDEN
+# The organism itself and the world's fixed physics it lives by -- one
+# implementation, shared with any live host (fishbowl/organism.py).
+from fishbowl.organism import (  # noqa: E402
+    APERTURE_COST, CHANNEL_COST, COLOUR_COST, CONSOLIDATE_RATE, EXPANSION_GAIN, FLOW_GAIN, FOOD_GAIN, MAX_INTERVAL,
+    MEAN_RATE, MEM_H, MEM_W, MOTION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, PREY_SENSE_COST, REFERENCE_QUOTA_PCT,
+    SHIFT_MAX, SHIFT_MIN_RESPONSE, SHIFT_WIDTH, STABILIZER_COST, SURPRISE_SIGMAS, TEMPO_RANGE, THINK_COST,
+    UNSEEN_NOVELTY, VAR_RATE, Organism, _aperture_cost,
+    feed_on_novelty as _feed_on_novelty, global_shifts as _global_shifts,
+    peripheral_motion_centroid as _peripheral_motion_centroid, prey_sense as _prey_sense,
+)
 from fishbowl.retina import GRID, N_CELLS, frame_to_vector
 
 # How much each reflex/drive contributes to total fitness -- loom
@@ -161,155 +171,16 @@ def _edge_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> f
     return float(np.mean([max(abs(cx - 0.5), abs(cy - 0.5)) / 0.5 for cx, cy in positions]))
 
 
-# --- Homeostasis (Gemini's plan: fishbowl/state.py + controller.py) ---
-#
-# The body pays per frame: basal metabolism, motor effort, and the
-# look's aperture. Aperture cost = area x scarcity (REFERENCE_QUOTA_PCT
-# / the real CPU quota resource_handler.py has granted): the gaze can
-# grow when resources allow and shrinks when they are scarce.
-REFERENCE_QUOTA_PCT = 150.0
-APERTURE_COST = 1e-4  # per gaze, x area x scarcity (real-clock body: see fishbowl/state.py)
-
-
-def _aperture_cost(frac: float, quota_pct: float) -> float:
-    return APERTURE_COST * (frac * frac) * (REFERENCE_QUOTA_PCT / max(1.0, quota_pct))
-
-
-# Food = genuinely new visual structure (Gemini: "appetite for novel
-# visual structure"), measured against a spatial memory of what the
-# look has already seen at each WORLD location. Panning across a static
-# scene is only news the first time; after that, only real change in
-# the world feeds it -- so moving the eye can't manufacture food (the
-# self-stimulation loophole the audit found, kept closed). A bigger
-# look takes in more at once, which is what pays for its aperture cost.
-MEM_H, MEM_W = 24, 32
-UNSEEN_NOVELTY = 0.25
-FOOD_GAIN = 400.0
-
-
-# Tuned on synthetic scenes (noise / swinging fan / new object / something
-# crossing): at 4 sigmas with these rates, noise feeds 0, a fan 0.20 while
-# new and 0 once learned, a new object ~0.2 when it appears, something
-# crossing to new places ~0.10 steadily.
-SURPRISE_SIGMAS = 4.0      # change beyond ~4x a spot's usual variation counts as surprise
-NOISE_FLOOR = 0.02         # smallest variation any spot is assumed to have (sensor noise)
-MEAN_RATE, VAR_RATE = 0.1, 0.05
-
-
-def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState", variance: np.ndarray | None = None) -> float:
-    """
-    Food = SURPRISE at each spot the gaze covers: how far what it sees
-    now is beyond that spot's usual variation (a running estimate of
-    both its brightness and how much it varies) -- habituation. Sensor
-    noise never feeds it; a swinging fan feeds it only until its swing
-    becomes expected; something new in a still corner is a big meal.
-    Spots never seen before count as UNSEEN_NOVELTY. Plain running
-    statistics per spot, no learning model needed.
-    """
-    # The gaze may hang past the frame's edge (fovea.py); only its on-frame
-    # part is remembered, each memory cell mapped to its own gaze cell.
-    gx0 = int(round((st.cx - st.fraction / 2) * MEM_W)); gx1 = max(gx0 + 1, int(round((st.cx + st.fraction / 2) * MEM_W)))
-    gy0 = int(round((st.cy - st.fraction / 2) * MEM_H)); gy1 = max(gy0 + 1, int(round((st.cy + st.fraction / 2) * MEM_H)))
-    x0, y0, x1, y1 = max(0, gx0), max(0, gy0), min(MEM_W, gx1), min(MEM_H, gy1)
-    if x1 <= x0 or y1 <= y0:
-        return 0.0
-    grid = look.reshape(GRID)
-    rows = np.minimum(GRID[0] - 1, (np.arange(y0, y1) - gy0) * GRID[0] // (gy1 - gy0))
-    cols = np.minimum(GRID[1] - 1, (np.arange(x0, x1) - gx0) * GRID[1] // (gx1 - gx0))
-    patch = grid[np.ix_(rows, cols)]
-    region = memory[y0:y1, x0:x1]
-    seen = ~np.isnan(region)
-    mean = np.nan_to_num(region)
-    if variance is None:
-        variance = np.full(memory.shape, NOISE_FLOOR ** 2)
-    var = variance[y0:y1, x0:x1]
-    sigma = np.sqrt(np.maximum(var, NOISE_FLOOR ** 2))
-    dev = patch - mean
-    surprise = np.where(seen, np.maximum(0.0, np.abs(dev) - SURPRISE_SIGMAS * sigma), UNSEEN_NOVELTY)
-    # Weighted toward the gaze CENTER (its central half counts fully, the
-    # rim a quarter): what it is actually looking at is what feeds it.
-    ry = (np.arange(y0, y1) - gy0 + 0.5) / (gy1 - gy0) - 0.5
-    rx = (np.arange(x0, x1) - gx0 + 0.5) / (gx1 - gx0) - 0.5
-    center = (np.abs(ry)[:, None] <= 0.25) & (np.abs(rx)[None, :] <= 0.25)
-    surprise = surprise * np.where(center, 1.0, 0.25)
-    memory[y0:y1, x0:x1] = np.where(seen, mean + MEAN_RATE * dev, patch)
-    variance[y0:y1, x0:x1] = np.where(seen, var + VAR_RATE * (dev * dev - var), NOISE_FLOOR ** 2)
-    return float(min(1.0, surprise.sum() / (MEM_H * MEM_W) * FOOD_GAIN))
-
-
-# Scale of the look's own motion/flow readings into the [0, 1]
-# range Gemini's state and reflex thresholds assume (calibrated on real
-# camera + synthetic looming frames -- see the commit message).
-MOTION_GAIN = 10.0
-FLOW_GAIN = 20.0
-
 # Fitness from staying viable: mean homeostatic drive over the run
 # (energy deficit, threat, fatigue -- MosquitoState.drive()). Mean, not
 # a summed per-frame drive reduction: such a sum telescopes to
 # D(start) - D(end) and ignores everything in between.
-# The WHOLE visual field (the fixed camera's coarse 12x12 view -- a
-# jumping spider's wide-field secondary eyes, or a locust's LGMD/DCMD
-# looming neurons) is what detects threat and where something moved;
-# the look (the spider's movable principal retinae) is for detail and
-# food. Whole-field gains calibrated like the look's.
-PERIPH_MOTION_GAIN = 300.0   # whole-field motion_energy: still room ~0.001 -> ~0.3, real movement saturates
-EXPANSION_GAIN = 10.0        # reflexes.expansion_score: approaching disc 0.083 -> 0.83, crossing blob 0.014 -> 0.14
-
-
-def _peripheral_motion_centroid(world_vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Where in the whole field things changed, per frame (0.5, 0.5 when nothing did)."""
-    n = len(world_vectors)
-    cx, cy = np.full(n, 0.5), np.full(n, 0.5)
-    rows, cols = GRID
-    yy, xx = np.mgrid[0:rows, 0:cols]
-    for t in range(1, n):
-        d = np.abs(world_vectors[t] - world_vectors[t - 1]).reshape(GRID)
-        tot = d.sum()
-        if tot > 1e-9:
-            cx[t] = ((xx + 0.5) * d).sum() / tot / cols
-            cy[t] = ((yy + 0.5) * d).sum() / tot / rows
-    return cx, cy
-
-
 HOMEOSTASIS_WEIGHT = 3.0
 DRIVE_REDUCTION_WEIGHT = 1.0
 # Gemini's brain has an "alarm" output; it earns fitness by tracking
 # real world loom (never forced to).
 ALARM_WEIGHT = 1.0
 
-# Per-look compute cost (the brain and tree running once), priced like
-# the aperture: x CPU scarcity. With basal rate scaling by pace (see
-# MosquitoState.update), this is what makes a fast pace of life expensive.
-THINK_COST = 2e-5  # per gaze, x scarcity
-# Each colour-opponent channel (receptors + processing) costs energy per
-# gaze, priced by CPU scarcity like everything else: colour vision only
-# evolves if seeing colour pays for itself.
-COLOUR_COST = 1e-5
-# A brain channel's loop (controller.py) costs energy in proportion to the
-# weight on its way back in: a loop that does nothing is free, one that
-# matters has to pay for itself (a synaptic cost, like any real circuit).
-CHANNEL_COST = 2e-5  # per unit of loop weight, per gaze, x scarcity
-# Sleep consolidates its habituation memory: clearing sleep pressure tightens
-# each spot's remembered variation toward the sensor-noise floor, so after a
-# night real change stands out more sharply (and "boring" stays learned).
-CONSOLIDATE_RATE = 3.0
-# Image stabilization (genome.stabilizer, 0..1, evolved; after a design
-# panel): a reflex that moves the gaze with the WHOLE frame's shift from one
-# frame to the next -- camera shake -- the way an eye's optokinetic reflex
-# holds the image still between deliberate movements. Global only: the
-# shift is estimated by phase correlation on small frames, and only a
-# small, confident one counts (a cut or a big moving object gives none), so
-# the reflex can never follow an object -- pursuing prey stays the brain's
-# job. Priced like any receptor, x gain.
-STABILIZER_COST = 1e-5  # per gaze at gain 1, x scarcity
-# Prey sense (genome.prey_sense; after a design panel): 1 = scent, prey
-# somewhere in its whole field and how much, without where -- "go look";
-# 2 = + a coarse direction from its gaze to the strongest prey (left/right,
-# up/down, or none within 5% of centre). It still has to centre prey with
-# its eyes to eat. Like a grown brain channel, a new sense changes nothing
-# until the brain wires it up, and its price grows with that wiring
-# (synaptic cost), so it is kept on a tie and spreads only if it pays.
-PREY_SENSE_COST = 2e-5  # per unit of weight on its inputs, per gaze, x scarcity
 # The perception tree's teacher (the teacher-student plan: YOLO is the
 # shortcut, the tree is to become its own detector): the tree is graded on
 # predicting, from its own pixels, how much prey fills its gaze window --
@@ -324,40 +195,6 @@ def _round2(v):
     return None if v is None else round(float(v), 2)
 
 
-def _prey_sense(boxes: list, cx: float, cy: float, level: int) -> tuple[float, float, float]:
-    if level <= 0 or not boxes:
-        return 0.0, 0.0, 0.0
-    scent = min(1.0, sum(conf * min(1.0, (x1 - x0) * (y1 - y0) / 0.02) for _, conf, x0, y0, x1, y1 in boxes))
-    if level < 2:
-        return scent, 0.0, 0.0
-    best = max(boxes, key=lambda b: b[1] * (b[4] - b[2]) * (b[5] - b[3]))
-    coarse = lambda v: 0.0 if abs(v) < 0.05 else (1.0 if v > 0 else -1.0)
-    return scent, coarse((best[2] + best[4]) / 2 - cx), coarse((best[3] + best[5]) / 2 - cy)
-SHIFT_WIDTH = 160
-SHIFT_MIN_RESPONSE = 0.2
-SHIFT_MAX = 0.08  # of the frame, per frame
-
-
-def _global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
-    """The whole frame's shift from frame k-1 to frame k (fractions of its
-    width and height; 0 where no clear global shift)."""
-    n = len(frames)
-    sx, sy = np.zeros(n), np.zeros(n)
-    if n < 2:
-        return sx, sy
-    h, w = frames[0].shape[:2]
-    size = (SHIFT_WIDTH, max(8, int(round(h * SHIFT_WIDTH / w))))
-    window = cv2.createHanningWindow(size, cv2.CV_32F)
-    prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
-    for k in range(1, n):
-        cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
-        (dx, dy), response = cv2.phaseCorrelate(prev, cur, window)
-        fx, fy = dx / size[0], dy / size[1]
-        if response >= SHIFT_MIN_RESPONSE and abs(fx) <= SHIFT_MAX and abs(fy) <= SHIFT_MAX:
-            sx[k], sy[k] = fx, fy
-        prev = cur
-    return sx, sy
-
 # The flinch, evolved rather than wired: at each onset of a real
 # approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
 # reacting within FLINCH_WINDOW frames (~200 ms at 15 frames/s) by
@@ -366,10 +203,6 @@ def _global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
 FLINCH_WEIGHT = 1.0
 FLINCH_THRESHOLD = 0.18
 FLINCH_WINDOW = 3
-
-TEMPO_RANGE = 3.0   # brain can speed up / slow down its gazing up to 3x around its resting pace
-MAX_INTERVAL = 12   # slowest: one gaze every 12 frames
-
 
 def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float], intervals: list[int]) -> dict:
     """Onsets of real approach, and whether it widened its gaze or made a
@@ -642,6 +475,17 @@ def _world_vectors(frames: list[np.ndarray]) -> np.ndarray:
     return np.array([frame_to_vector(f) for f in frames])
 
 
+class _SignalsAt:
+    """One frame's whole-field signals, read from a snapshot's arrays."""
+    __slots__ = ("ws", "t")
+
+    def __init__(self, ws: dict):
+        self.ws, self.t = ws, 0
+
+    def __getitem__(self, key: str):
+        return self.ws[key][self.t]
+
+
 def evaluate_genome(
     g: G.Genome,
     frames: list[np.ndarray],
@@ -660,198 +504,22 @@ def evaluate_genome(
     frame; start_body / start_memory are the organism's current body and
     surprise memory (shared by parent and candidate).
     """
-    state = fovea.FoveaState(fraction=float(np.clip(g.fovea_fraction, fovea.MIN_FRACTION, fovea.MAX_FRACTION)))
-    # Its body as it actually is right now (carried across generations
-    # by run()), not a fresh full-energy body each window.
-    body = MosquitoState.from_dict(start_body) if start_body else MosquitoState()
-    # Tempo: the genome's pace is its RESTING gaze interval (temperament);
-    # the brain's tempo output speeds it up or slows it down up to
-    # TEMPO_RANGE-fold either way, gaze by gaze -- a continuum, not a
-    # fixed hummingbird/reptile type. The body's metabolic rate
-    # acclimatizes to it slowly (MosquitoState.metabolic_rate).
-    pace = max(1, int(getattr(g, "pace", 1)))
-    drive_start = body.drive()
-    idxs, intervals = [], []
-    brain = g.brain
-    brain.reset_hidden()
-    # What the gaze has seen per world location, and how much each spot
-    # usually varies -- carried across generations by run() (audit: a fresh
-    # memory every window meant a fan was only "boring" for ~40 s).
-    if start_memory is not None:
-        memory, variance = start_memory[0].copy(), start_memory[1].copy()
-    else:
-        memory = np.full((MEM_H, MEM_W), np.nan)
-        variance = np.full((MEM_H, MEM_W), NOISE_FLOOR ** 2)
-    prey_eaten = []
-    # Colour vision: how many opponent channels this genome's gaze has
-    # (0-2). Unused slots are zero, so tree inputs keep fixed positions.
-    colour_n = int(getattr(g, "colour_channels", 0)) if world_colour is not None else 0
-    colour_pad = np.zeros(2 * N_CELLS)
-    last_colour = None
-    scarcity_cost = lambda frac: _aperture_cost(frac, quota_pct)
-    scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
-
-    responses, alarms = [], []
-    positions, fracs = [], []
-    dxs, dys = [], []  # real (post-clamp) look movement per frame
-    movement_costs = []  # pre-clamp motor intent per frame
-    energies, drives, foods = [], [], []
-    asleeps = []
-    stab = float(getattr(g, "stabilizer", 0.0))
-    prey_level = int(getattr(g, "prey_sense", 0)) if world_prey is not None else 0
-    teacher_p, teacher_y = [], []
-    stab_dx = stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
-    periph_active = []
-    field_events = []  # per frame: where the whole field saw motion, how much, loom, reflex
-    last_grid = None
-    prev_v = np.zeros(N_CELLS)
-    # Response tree's motor-efference input (its old pan/tilt feedback):
-    # now the brain's real applied movement.
-    prev_dx, prev_dy = 0.0, 0.0
-    prev_frame = None
-    t = 0
-
-    frame_path = []  # (cx, cy, aperture) at EVERY frame -- the eye moves between gazes too
-    prev_response = 0.0
-    while t < len(frames):
-        frame = frames[t]
-        # Asleep, its eyes are shut: the gaze sees nothing. The whole field
-        # still reaches it (light and movement through closed eyes), so a
-        # big enough change can wake it.
-        was_asleep = body.asleep >= 0.5
-        v = np.zeros(N_CELLS) if was_asleep else fovea.extract(frame, state)
-        positions.append((state.cx, state.cy))
-        fracs.append(state.fraction)
-        frame_path.append((state.cx, state.cy, state.fraction))
-
-        # What the look sees change, with its own eye movement cancelled
-        # out (corollary discharge): the previous frame sampled at
-        # the look's CURRENT position, so a saccade across a still scene
-        # doesn't register as motion, threat, or loom.
-        # (Efference copy: sampled where the gaze is now, less what the
-        # stabilizer moved it -- so a shake it held still reads as stillness.)
-        h1 = (fovea.extract(prev_frame, fovea.FoveaState(cx=state.cx - stab_dx, cy=state.cy - stab_dy, fraction=state.fraction))
-              if prev_frame is not None and not was_asleep else v)
-        hist = np.array([h1, v])
-        lum = float(v.mean())
-        # Only real history counts: on the first frame there's no older
-        # sample to compare against.
-        motion = flow_x = flow_y = 0.0
-        if prev_frame is not None and not was_asleep:
-            motion = min(1.0, float(np.abs(v - h1).mean()) * MOTION_GAIN)
-            mx, my = reflexes.directional_motion(hist)
-            flow_x = float(np.clip(mx[-1] * FLOW_GAIN, -1.0, 1.0))
-            flow_y = float(np.clip(my[-1] * FLOW_GAIN, -1.0, 1.0))
-        # Threat and arousal come from the WHOLE visual field (spider's
-        # secondary eyes / locust LGMD), plus where in it something moved,
-        # relative to the look -- so the brain can learn to swing its look
-        # toward movement. The look's own readings above are for detail.
-        t_idx = t
-        loom = min(1.0, float(world_signals["expansion"][t_idx]) * EXPANSION_GAIN)
-        periph_motion = min(1.0, float(world_signals["motion_energy"][t_idx]) * PERIPH_MOTION_GAIN)
-        periph_dx = float(world_signals["motion_cx"][t_idx]) - state.cx
-        periph_dy = float(world_signals["motion_cy"][t_idx]) - state.cy
-
-        field_light = float(world_signals["field_light"][t_idx])
-        boxes_now = world_prey[t] if world_prey is not None and t < len(world_prey) else []
-        scent, prey_dx, prey_dy = _prey_sense(boxes_now, state.cx, state.cy, prey_level)
-        out = brain.step(
-            lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
-            periph_dx, periph_dy, state.vx, state.vy, prev_response, field_light, scent, prey_dx, prey_dy,
-        )
-        pan, tilt, zoom, alarm, tempo = out.pan, out.tilt, out.zoom, out.alarm, out.tempo
-        # Sleep is its own choice (its sleep output); the body adds only the
-        # physiological overrides -- collapse, hunger, a big change (state.py).
-        body.set_sleep(out.sleep > 0.0, loom, periph_motion)
-        asleep = body.asleep >= 0.5
-        # An empty body runs on less (soft floor): colour off, a narrow eye,
-        # slower gazing. Asleep, the eye is shut: no colour either.
-        colour_on = colour_n if not (asleep or body.degraded) else 0
-        # The brain's recurrent memory (its 16 hidden units, updated just
-        # above) feeds the perception tree as extra inputs x290-x305, after
-        # the look (x0-143), previous look (x144-287) and own movement.
-        col = fovea.extract_colour(world_colour[t], state, colour_on) if colour_on else np.zeros(0)
-        colour_in = colour_pad.copy()
-        colour_in[:len(col)] = col
-        if colour_on:
-            last_colour = col
-        vb = np.concatenate([v, prev_v, [prev_dx, prev_dy], brain.hidden, colour_in])[None, :]
-        response = float(g.evaluate("response", vb)[0])
-        # The perception tree's output reaches the brain (next gaze): with
-        # the hand-written correlation scores retired, the tree only matters
-        # if what it perceives helps the body.
-        prev_response = float(np.tanh(response)) if math.isfinite(response) else 0.0
-        # One per gaze (None asleep): its tree's own guess at how much prey
-        # fills its gaze, and the teacher's label for it.
-        teacher_p.append(None if was_asleep else 0.5 * (1.0 + prev_response))
-        teacher_y.append(None if was_asleep else prey_lib.prey_in_window(boxes_now, state.cx, state.cy, state.fraction))
-        responses.append(response)
-        alarms.append(alarm)
-        last_grid = v
-        prev_v = v
-
-        # Eating happens at the gaze: prey held in the gaze center is a
-        # meal; genuinely new structure there is a small snack.
-        if asleep:
-            # Asleep: no eating, no gazing, slow coarse sampling of the field.
-            pan = tilt = zoom = 0.0
-            prey_now = snack = 0.0
-            interval = MAX_INTERVAL
-        else:
-            prey_now = prey_lib.prey_in_gaze(world_prey[t] if world_prey is not None and t < len(world_prey) else [],
-                                             state.cx, state.cy, state.fraction)
-            snack = _feed_on_novelty(memory, v, state, variance)
-            interval = int(np.clip(round(pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
-            if body.degraded:
-                interval = min(MAX_INTERVAL, interval * 2)
-                zoom = -1.0
-        idxs.append(t)
-        intervals.append(interval)
-
-        # Eye physics every FRAME: the brain's force and zoom are held until
-        # its next gaze, and the damped eye keeps moving meanwhile (audit:
-        # stepping once per gaze stretched a "150 ms" saccade to ~1 s).
-        # Muscle energy = force squared, per frame pushed.
-        prev_cx, prev_cy = state.cx, state.cy
-        effort = 0.0
-        stab_dx = stab_dy = 0.0
-        for j in range(interval):
-            state, force_x, force_y, intended_dz = fovea.step(state, pan, tilt, zoom)
-            k = t + j + 1
-            if stab > 0.0 and not asleep and k < len(frames):
-                nx = float(np.clip(state.cx + stab * world_signals["shift_x"][k], 0.0, 1.0))
-                ny = float(np.clip(state.cy + stab * world_signals["shift_y"][k], 0.0, 1.0))
-                stab_dx, stab_dy = stab_dx + nx - state.cx, stab_dy + ny - state.cy
-                state = fovea.FoveaState(cx=nx, cy=ny, fraction=state.fraction, vx=state.vx, vy=state.vy)
-            effort += force_x * force_x + force_y * force_y + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
-            if j < interval - 1 and t + j + 1 < len(frames):
-                frame_path.append((state.cx, state.cy, state.fraction))
-        prev_dx, prev_dy = state.cx - prev_cx, state.cy - prev_cy
-        dxs.append(prev_dx)
-        dys.append(prev_dy)
-        movement_costs.append(math.hypot(force_x, force_y))
-        periph_active.append(periph_motion)
-        gaze_cost = 0.0 if asleep else scarcity_cost(state.fraction)
-        body.update(periph_motion, loom, effort,
-                    gaze_cost + (THINK_COST + COLOUR_COST * colour_on + CHANNEL_COST * brain.loop_synapses()
-                                 + (0.0 if asleep else STABILIZER_COST * stab)
-                                 + PREY_SENSE_COST * brain.prey_synapses(prey_level)) * scarcity,
-                    dt=interval, pace=interval, dt_seconds=interval / max(1.0, fps), field_light=field_light)
-        cleared = body.take_cleared()
-        if cleared > 0.0:
-            floor = NOISE_FLOOR ** 2
-            variance[...] = floor + (variance - floor) * math.exp(-CONSOLIDATE_RATE * cleared)
-        body.feed_visual_sustenance(snack)
-        body.feed_prey(prey_now)
-        prey_eaten.append(prey_now)
-        food = snack
-        energies.append(body.energy)
-        drives.append(body.drive())
-        asleeps.append(body.asleep)
-        foods.append(food)
-
-        prev_frame = frame
-        t += interval
+    # One organism lives through the snapshot, frame by frame (fishbowl/
+    # organism.py -- the same code a live host runs).
+    org = Organism(g, start_body, start_memory, quota_pct, fps,
+                   colour=world_colour is not None, prey=world_prey is not None, record=True)
+    sig = _SignalsAt(world_signals)
+    shift_x, shift_y = world_signals["shift_x"], world_signals["shift_y"]
+    for t in range(len(frames)):
+        sig.t = t
+        org.frame(frames[t], sig, world_prey[t] if world_prey is not None and t < len(world_prey) else [],
+                  world_colour[t] if world_colour is not None else None, (shift_x[t], shift_y[t]))
+    org.finish()
+    (positions, fracs, frame_path, responses, alarms, teacher_p, teacher_y, idxs, intervals, dxs, dys,
+     movement_costs, periph_active, prey_eaten, foods, energies, drives, asleeps) = (org.rec[n] for n in Organism.RECORDS)
+    state, body, brain = org.state, org.body, org.brain
+    memory, variance, last_grid, last_colour = org.memory, org.variance, org.last_grid, org.last_colour
+    drive_start, stab, prey_level = org.drive_start, org.stab, org.prey_level
 
     step_n = max(1, len(energies) // 60)
     sel = {k: np.asarray(v)[idxs] for k, v in world_signals.items()}
