@@ -213,9 +213,10 @@ PAGE = """<!doctype html>
         <button id="custom-url-submit" style="font-family:monospace; font-size:11px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; cursor:pointer;">Submit</button>
         <span id="submit-status" style="color:#567; font-size:11px;"></span>
       </div>
+      <div id="body-panel" class="stats" style="margin-top:14px;"></div>
     </div>
   </div>
-  <div class="sub" style="margin-top:24px;">its brain -- the current ACCEPTED genome's own trees (response / pan / tilt), not a rejected candidate's</div>
+  <div class="sub" style="margin-top:24px;">its perception tree -- the current ACCEPTED genome's response tree. Movement (pan / tilt / zoom) is driven by its recurrent brain (fishbowl/controller.py), not a tree.</div>
   <div class="row" id="trees"></div>
 
   <div class="sub" style="margin-top:24px;">what drives it -- FIXED, never-evolved pressures (fishbowl/reflexes.py, conspec.py, run_vision.py). Every one below is a REWARD or PUNISHMENT graded against real signals; none forces a specific behavior -- the organism evolves its own way to satisfy or avoid them.</div>
@@ -232,6 +233,9 @@ PAGE = """<!doctype html>
     <div><span class="minus">- movement_cost</span> -- real motor effort, every frame, whether or not it actually moved (a push against a wall still costs something). Doesn't cap or forbid a big jump -- pursuit/seek above can still justify one -- it just means an UNJUSTIFIED one is no longer free.</div>
     <div><span class="minus">- corner_penalty</span> -- sitting in a corner specifically (both axes maxed out at once, not just one edge). Soft, not a hard constraint -- real reward can still outweigh it.</div>
     <div><span class="minus">- edge_penalty</span> -- hard against just one edge. Real but smaller than corner_penalty -- a single edge is less wasteful than a true corner, so it costs less, not nothing.</div>
+    <div><span class="minus">- homeostatic drive</span> (weight 3, the biggest single term) -- its BODY (fishbowl/state.py, Gemini's plan): every frame costs energy (basal burn, more when aroused; motor effort; a wider look costs more, and more still when CPU is scarce). It only eats by taking in genuinely NEW visual structure through its look -- a still room starves it, and panning over what it has already seen doesn't feed it. Threat (from something approaching anywhere in the whole field) and fatigue (from violent movement) also count against it.</div>
+    <div><span class="minus">- giant-fiber reflex</span> -- not a reward: when something approaches fast (locust-LGMD-style expansion across the whole field), the reflex takes over the brain for that frame and widens the look. Innate, not learned.</div>
+    <div><span class="plus">+ alarm</span> -- its brain's alarm output tracking real approaching objects.</div>
   </div>
   <div class="sub" style="margin-top:10px;">real tensions it has to balance, not resolve for it: loom's urgency to startle vs. curiosity's pull to keep exploring (a real predator/prey visual-field tradeoff, "scalding vs. freezing" -- a threat on one side, going numb on the other); habituation's dampening of familiar beings vs. resensitizing to any real threat paired with one; dead_field's "don't go numb" vs. seek's "stay locked on what you found." No fixed right answer to any of these is built in -- only the pressure to find its own.</div>
 
@@ -359,6 +363,103 @@ PAGE = """<!doctype html>
       }
     }
 
+    function drawGrid(canvas, values, shape) {
+      const ctx = canvas.getContext('2d');
+      if (values && shape) {
+        const [rows, cols] = shape;
+        for (let i = 0; i < rows; i++) {
+          const y0 = Math.round(i * canvas.height / rows);
+          const y1 = Math.round((i + 1) * canvas.height / rows);
+          for (let j = 0; j < cols; j++) {
+            const x0 = Math.round(j * canvas.width / cols);
+            const x1 = Math.round((j + 1) * canvas.width / cols);
+            const v = Math.max(0, Math.min(1, values[i * cols + j]));
+            const g = Math.round(v * 255);
+            ctx.fillStyle = `rgb(${g},${g},${g})`;
+            ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+          }
+        }
+      } else {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      return ctx;
+    }
+
+
+    // Replays the look's REAL per-frame path (cx, cy, aperture) from the
+    // latest evaluated run, one analyzed frame per step at ~15/s (camera
+    // at 30 fps, every 2nd frame analyzed) -- no interpolation, so a jump
+    // shows as a jump and a glide as a glide. User: "Your box is still
+    // jumping from place to place."
+    let field = null;
+    const REPLAY_FPS = 15;
+    function cropSize(d, f) {
+      return [2 * Math.floor(d.frame_w * f / 2), 2 * Math.floor(d.frame_h * f / 2)];
+    }
+    function animateField(now) {
+      if (field && field.d.frame_w && field.d.frame_h) {
+        const { d, scale } = field;
+        const wc = document.getElementById('visual-field');
+        const wctx = drawGrid(wc, d.world_grid, d.world_grid_shape);
+        const traj = (d.trajectory && d.trajectory.length) ? d.trajectory
+          : (d.fovea_cx !== undefined ? [[d.fovea_cx, d.fovea_cy, d.fovea_fraction || 0.35]] : []);
+        if (traj.length) {
+          const i = Math.floor((now - field.t0) / 1000 * REPLAY_FPS) % traj.length;
+          wctx.strokeStyle = 'rgba(127, 212, 255, 0.35)';
+          wctx.lineWidth = 1;
+          wctx.beginPath();
+          for (let k = Math.max(0, i - 45); k <= i; k++) {
+            const px = traj[k][0] * wc.width, py = traj[k][1] * wc.height;
+            if (k === Math.max(0, i - 45)) wctx.moveTo(px, py); else wctx.lineTo(px, py);
+          }
+          wctx.stroke();
+          const [cx, cy, f] = traj[i];
+          const [cw, ch] = cropSize(d, f);
+          const bw = cw * scale, bh = ch * scale;
+          // Same corner/edge penalties run_vision.py grades on: red = a
+          // true corner; orange = hard against one edge; yellow =
+          // approaching either; green = centered.
+          const halfRange = 0.5 - f / 2;
+          const nx = halfRange > 1e-9 ? (cx - 0.5) / halfRange : 0;
+          const ny = halfRange > 1e-9 ? (cy - 0.5) / halfRange : 0;
+          const corner = Math.abs(nx * ny), edge = Math.max(Math.abs(nx), Math.abs(ny));
+          wctx.strokeStyle = corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#4fa';
+          wctx.lineWidth = 2;
+          wctx.strokeRect(cx * wc.width - bw / 2, cy * wc.height - bh / 2, bw, bh);
+        }
+      }
+      requestAnimationFrame(animateField);
+    }
+    requestAnimationFrame(animateField);
+
+    // Gemini's homeostatic gauges -- the candidate's body at the end of
+    // its latest run, its energy over that run, and how often the
+    // giant-fiber escape reflex took over from the brain.
+    function renderBody(d) {
+      const el = document.getElementById('body-panel');
+      if (!el || !d.body) return;
+      const bar = (name, v, color) =>
+        `<div><span class="label" style="display:inline-block;width:62px">${name}</span>` +
+        `<span style="display:inline-block;width:120px;height:8px;background:#162029;vertical-align:middle">` +
+        `<span style="display:block;width:${Math.round(Math.max(0, Math.min(1, v)) * 120)}px;height:8px;background:${color}"></span></span> ${v.toFixed(2)}</div>`;
+      el.innerHTML = '<div class="sub" style="margin:0 0 6px 0">body (end of latest run)</div>' +
+        bar('energy', d.body.energy, '#4fa') + bar('arousal', d.body.arousal, '#7fd4ff') +
+        bar('threat', d.body.threat, '#f44') + bar('search', d.body.search, '#fd4') +
+        bar('fatigue', d.body.fatigue, '#f90') +
+        `<div><span class="label">reflex took over:</span> ${d.reflex_frames ?? '--'} frames</div>` +
+        '<canvas id="energy-trace" width="200" height="40" style="margin-top:4px"></canvas>';
+      const c = document.getElementById('energy-trace');
+      const s = d.energy_series || [];
+      if (c && s.length > 1) {
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.strokeStyle = '#4fa'; ctx.beginPath();
+        s.forEach((v, k) => { const x = k / (s.length - 1) * c.width, y = (1 - v) * (c.height - 2) + 1; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+        ctx.stroke();
+      }
+    }
+
     async function tick() {
       let el = document.getElementById('stats');
       try {
@@ -404,29 +505,6 @@ PAGE = """<!doctype html>
           cropW = 2 * halfW; cropH = 2 * halfH;
         }
 
-        function drawGrid(canvas, values, shape) {
-          const ctx = canvas.getContext('2d');
-          if (values && shape) {
-            const [rows, cols] = shape;
-            for (let i = 0; i < rows; i++) {
-              const y0 = Math.round(i * canvas.height / rows);
-              const y1 = Math.round((i + 1) * canvas.height / rows);
-              for (let j = 0; j < cols; j++) {
-                const x0 = Math.round(j * canvas.width / cols);
-                const x1 = Math.round((j + 1) * canvas.width / cols);
-                const v = Math.max(0, Math.min(1, values[i * cols + j]));
-                const g = Math.round(v * 255);
-                ctx.fillStyle = `rgb(${g},${g},${g})`;
-                ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-              }
-            }
-          } else {
-            ctx.fillStyle = '#111';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-          }
-          return ctx;
-        }
-
         // "look" -- fovea.py's own real crop (112x62 here), scaled by
         // the SAME factor as "visual field" below, so it renders
         // genuinely smaller, never equal or bigger.
@@ -444,36 +522,12 @@ PAGE = """<!doctype html>
           wc.width = Math.round(d.frame_w * scale);
           wc.height = Math.round(d.frame_h * scale);
         }
-        const wctx = drawGrid(wc, d.world_grid, d.world_grid_shape);
 
-        // The "look" box, drawn on top of "visual field" -- same real
-        // crop size as the "look" canvas itself (cropW/cropH * scale),
-        // not frac*canvas -- ties directly to fovea.py's real math
-        // instead of re-deriving a second time.
-        if (d.fovea_cx !== undefined && cropW && cropH) {
-          const bw = cropW * scale, bh = cropH * scale;
-          const bx = d.fovea_cx * wc.width - bw / 2;
-          const by = d.fovea_cy * wc.height - bh / 2;
+        // The look's box is drawn by animateField() below, replaying its
+        // real path -- keep this generation's data for it.
+        if (!field || field.d !== d) field = { d, scale, t0: field ? field.t0 : performance.now() };
 
-          // Same two real penalties run_vision.py actually grades
-          // fitness on (corner_penalty, edge_penalty), applied to
-          // THIS exact position -- User: "touching one edge also give
-          // an orange-level penalty... shun edges unless they're
-          // worth it." Red = a true corner; orange = hard against one
-          // edge; yellow = approaching either; green = centered.
-          const halfRange = 0.5 - frac / 2;
-          const normX = halfRange > 1e-9 ? (d.fovea_cx - 0.5) / halfRange : 0;
-          const normY = halfRange > 1e-9 ? (d.fovea_cy - 0.5) / halfRange : 0;
-          const cornerness = Math.abs(normX * normY);
-          const edgeCloseness = Math.max(Math.abs(normX), Math.abs(normY));
-          let boxColor = '#4fa';
-          if (cornerness >= 0.5) boxColor = '#f44';
-          else if (edgeCloseness >= 0.75) boxColor = '#f90';
-          else if (edgeCloseness >= 0.4) boxColor = '#fd4';
-          wctx.strokeStyle = boxColor;
-          wctx.lineWidth = 2;
-          wctx.strokeRect(bx, by, bw, bh);
-        }
+        renderBody(d);
 
         // Real pixel counts, computed live -- User: "get the right
         // pixel counts for each." Never a static guess.
@@ -641,7 +695,6 @@ PAGE = """<!doctype html>
         if (d.ok) { input.value = ''; }
       } catch (err) { status.textContent = 'failed'; }
     });
-    loadSources();
   </script>
 </body>
 </html>

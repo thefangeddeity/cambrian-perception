@@ -18,6 +18,8 @@ cues, whatever it finds) on top of what this hands it; this module
 does not pre-solve any of that for it.
 """
 
+from functools import lru_cache
+
 import numpy as np
 
 GRID = (12, 12)
@@ -37,12 +39,18 @@ def frame_to_vector(gray_frame: np.ndarray) -> np.ndarray:
         frame = frame / 255.0
 
     h, w = frame.shape
-    rows = np.array_split(np.arange(h), GRID[0])
-    cols = np.array_split(np.arange(w), GRID[1])
+    row_starts, col_starts, counts = _cell_layout(h, w)
+    sums = np.add.reduceat(np.add.reduceat(frame, row_starts, axis=0), col_starts, axis=1)
+    return (sums / counts).reshape(-1)
 
-    cells = np.empty(GRID, dtype=np.float64)
-    for i, row_idx in enumerate(rows):
-        for j, col_idx in enumerate(cols):
-            cells[i, j] = frame[np.ix_(row_idx, col_idx)].mean()
 
-    return cells.reshape(-1)
+@lru_cache(maxsize=256)
+def _cell_layout(h: int, w: int):
+    # Same cell boundaries np.array_split would produce, so reduceat
+    # sums give results identical to per-cell mean() -- just without
+    # 144 separate calls (this runs several times per frame per genome).
+    row_sizes = np.array([len(a) for a in np.array_split(np.arange(h), GRID[0])])
+    col_sizes = np.array([len(a) for a in np.array_split(np.arange(w), GRID[1])])
+    row_starts = np.concatenate([[0], np.cumsum(row_sizes)[:-1]])
+    col_starts = np.concatenate([[0], np.cumsum(col_sizes)[:-1]])
+    return row_starts, col_starts, np.outer(row_sizes, col_sizes)

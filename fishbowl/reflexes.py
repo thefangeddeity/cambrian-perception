@@ -168,3 +168,39 @@ def all_signals(vectors: np.ndarray) -> dict[str, np.ndarray]:
         "directional_motion": np.hypot(motion_x, motion_y),
         "loom": loom_score(vectors),
     }
+
+
+def expansion_score(vectors: np.ndarray, threshold: float = 0.08, adapt: float = 0.05) -> np.ndarray:
+    """
+    A looming detector modeled on the locust LGMD/DCMD: responds to a
+    silhouette GROWING, not to something sliding past. Each frame, the
+    area (fraction of cells) DARKER than a slow-adapting background by
+    more than threshold -- an approaching object blocks light, and real
+    looming-escape circuits (LGMD, a tubeworm's shadow reflex) respond
+    to an expanding shadow, not to brightening (on the real camera, a
+    large dark shape approaching fired this correctly, while the same
+    shape leaving -- a brightening -- also fired before this was
+    dark-only); loom = that area's growth, counted only while growth
+    is sustained over consecutive frames. A crossing object keeps
+    roughly constant area, so it scores ~0 (the translation-rejecting
+    role lateral inhibition plays in the real neuron); an approaching
+    one keeps getting bigger.
+
+    Written because loom_score() above, measured 2026-09-26, scored a
+    blob CROSSING the frame ~10x higher than a disc actually
+    approaching it.
+    """
+    n = len(vectors)
+    out = np.zeros(n)
+    if n == 0:
+        return out
+    background = vectors[0].astype(np.float64).copy()
+    prev_area = prev_growth = 0.0
+    for t in range(n):
+        area = float(((background - vectors[t]) > threshold).mean())
+        growth = area - prev_area
+        if t >= 2 and growth > 0 and prev_growth > 0:
+            out[t] = growth
+        prev_area, prev_growth = area, growth
+        background += adapt * (vectors[t] - background)
+    return out

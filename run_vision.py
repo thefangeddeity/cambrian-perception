@@ -69,6 +69,7 @@ from pathlib import Path
 import numpy as np
 
 from fishbowl import conspec, fovea, genome as G, reflexes, sandbox, video_source
+from fishbowl.state import MosquitoState
 from fishbowl.retina import GRID, N_CELLS, frame_to_vector
 
 # How much each reflex/drive contributes to total fitness -- loom
@@ -134,7 +135,7 @@ MOVEMENT_COST_WEIGHT = 0.5
 CORNER_PENALTY_WEIGHT = 1.0  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
 
 
-def _corner_penalty(positions: list[tuple[float, float]], frac: float) -> float:
+def _corner_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> float:
     """
     "Cornerness" = product of how off-center each axis is (normalized
     to [-1, 1] over the reachable range) -- zero along either center
@@ -143,10 +144,10 @@ def _corner_penalty(positions: list[tuple[float, float]], frac: float) -> float:
     """
     if not positions:
         return 0.0
-    half_range = 0.5 - frac / 2.0
-    if half_range <= 1e-9:
-        return 0.0
-    scores = [abs((cx - 0.5) / half_range * (cy - 0.5) / half_range) for cx, cy in positions]
+    scores = []
+    for (cx, cy), frac in zip(positions, fracs):
+        half_range = 0.5 - frac / 2.0
+        scores.append(abs((cx - 0.5) / half_range * (cy - 0.5) / half_range) if half_range > 1e-9 else 0.0)
     return float(np.mean(scores))
 
 
@@ -158,30 +159,95 @@ def _corner_penalty(positions: list[tuple[float, float]], frac: float) -> float:
 EDGE_PENALTY_WEIGHT = 0.5  # doubled 2026-09-24, User: "Double the edge and corner penalties please"
 
 
-def _edge_penalty(positions: list[tuple[float, float]], frac: float) -> float:
+def _edge_penalty(positions: list[tuple[float, float]], fracs: list[float]) -> float:
     """Max (not product) of how off-center each axis is -- unlike cornerness, this alone is already high for EITHER a corner or a single edge; corner_penalty's own weight is what makes a true corner cost more overall."""
     if not positions:
         return 0.0
-    half_range = 0.5 - frac / 2.0
-    if half_range <= 1e-9:
-        return 0.0
-    scores = [max(abs((cx - 0.5) / half_range), abs((cy - 0.5) / half_range)) for cx, cy in positions]
+    scores = []
+    for (cx, cy), frac in zip(positions, fracs):
+        half_range = 0.5 - frac / 2.0
+        scores.append(max(abs((cx - 0.5) / half_range), abs((cy - 0.5) / half_range)) if half_range > 1e-9 else 0.0)
     return float(np.mean(scores))
 
 
-# Price of the look's size, User: "grow its visual field as curiosity
-# wants and resources allow, but shrink as resource hunger limits it."
-# Area (frac^2) because that's what a bigger crop really costs to
-# process; multiplied by scarcity = REFERENCE_QUOTA_PCT / the real
-# current CPU quota resource_handler.py has granted. A genome only
-# keeps a bigger look if seeing more earns back its price -- never
-# forced either way.
-FIELD_COST_WEIGHT = 1.0
+# --- Homeostasis (Gemini's plan: fishbowl/state.py + controller.py) ---
+#
+# The body pays per frame: basal metabolism, motor effort, and the
+# look's aperture. Aperture cost = area x scarcity (REFERENCE_QUOTA_PCT
+# / the real CPU quota resource_handler.py has granted) -- User: "grow
+# its visual field as curiosity wants and resources allow, but shrink
+# as resource hunger limits it."
 REFERENCE_QUOTA_PCT = 150.0
+APERTURE_COST = 0.01
 
 
-def _field_cost(frac: float, quota_pct: float) -> float:
-    return (frac * frac) * (REFERENCE_QUOTA_PCT / max(1.0, quota_pct))
+def _aperture_cost(frac: float, quota_pct: float) -> float:
+    return APERTURE_COST * (frac * frac) * (REFERENCE_QUOTA_PCT / max(1.0, quota_pct))
+
+
+# Food = genuinely new visual structure (Gemini: "appetite for novel
+# visual structure"), measured against a spatial memory of what the
+# look has already seen at each WORLD location. Panning across a static
+# scene is only news the first time; after that, only real change in
+# the world feeds it -- so moving the eye can't manufacture food (the
+# self-stimulation loophole the audit found, kept closed). A bigger
+# look takes in more at once, which is what pays for its aperture cost.
+MEM_H, MEM_W = 24, 32
+UNSEEN_NOVELTY = 0.25
+FOOD_GAIN = 400.0
+
+
+def _feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: "fovea.FoveaState") -> float:
+    x0 = int(round((st.cx - st.fraction / 2) * MEM_W)); x1 = max(x0 + 1, int(round((st.cx + st.fraction / 2) * MEM_W)))
+    y0 = int(round((st.cy - st.fraction / 2) * MEM_H)); y1 = max(y0 + 1, int(round((st.cy + st.fraction / 2) * MEM_H)))
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(MEM_W, x1), min(MEM_H, y1)
+    grid = look.reshape(GRID)
+    patch = grid[np.ix_(np.arange(y1 - y0) * GRID[0] // (y1 - y0), np.arange(x1 - x0) * GRID[1] // (x1 - x0))]
+    region = memory[y0:y1, x0:x1]
+    seen = ~np.isnan(region)
+    novelty = np.where(seen, np.abs(patch - np.nan_to_num(region)), UNSEEN_NOVELTY)
+    memory[y0:y1, x0:x1] = np.where(seen, 0.7 * np.nan_to_num(region) + 0.3 * patch, patch)
+    return float(min(1.0, novelty.sum() / (MEM_H * MEM_W) * FOOD_GAIN))
+
+
+# Scale of the look's own motion/flow readings into the [0, 1]
+# range Gemini's state and reflex thresholds assume (calibrated on real
+# camera + synthetic looming frames -- see the commit message).
+MOTION_GAIN = 10.0
+FLOW_GAIN = 20.0
+
+# Fitness from staying viable: mean homeostatic drive over the run
+# (energy deficit, threat, fatigue -- MosquitoState.drive()). Mean, not
+# summed drive_reduction(): a sum of per-frame reductions telescopes to
+# D(start) - D(end) and ignores everything in between.
+# The WHOLE visual field (the fixed camera's coarse 12x12 view -- a
+# jumping spider's wide-field secondary eyes, or a locust's LGMD/DCMD
+# looming neurons) is what detects threat and where something moved;
+# the look (the spider's movable principal retinae) is for detail and
+# food. Whole-field gains calibrated like the look's.
+PERIPH_MOTION_GAIN = 300.0   # whole-field motion_energy: still room ~0.001 -> ~0.3, real movement saturates
+EXPANSION_GAIN = 10.0        # reflexes.expansion_score: approaching disc 0.083 -> 0.83, crossing blob 0.014 -> 0.14
+
+
+def _peripheral_motion_centroid(world_vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Where in the whole field things changed, per frame (0.5, 0.5 when nothing did)."""
+    n = len(world_vectors)
+    cx, cy = np.full(n, 0.5), np.full(n, 0.5)
+    rows, cols = GRID
+    yy, xx = np.mgrid[0:rows, 0:cols]
+    for t in range(1, n):
+        d = np.abs(world_vectors[t] - world_vectors[t - 1]).reshape(GRID)
+        tot = d.sum()
+        if tot > 1e-9:
+            cx[t] = ((xx + 0.5) * d).sum() / tot / cols
+            cy[t] = ((yy + 0.5) * d).sum() / tot / rows
+    return cx, cy
+
+
+HOMEOSTASIS_WEIGHT = 3.0
+# Gemini's brain has an "alarm" output; it earns fitness by tracking
+# real world loom (never forced to).
+ALARM_WEIGHT = 1.0
 
 # The other boundary of the corridor -- the user's own framing: a deep-sea
 # vent shrimp doesn't just flee scalding water, it also has to avoid
@@ -445,83 +511,104 @@ def evaluate_genome(
     is now observed once per run, from the real world signal, not from
     any genome's path -- see run()).
     """
-    state = fovea.FoveaState(fraction=g.fovea_fraction)
-    responses = []
-    positions = []
-    dxs, dys = [], []  # real fovea movement per frame, for the pursuit reward
-    movement_costs = []  # real motor effort per frame (pre-clamp intent), for the movement-cost penalty
+    state = fovea.FoveaState(fraction=float(np.clip(g.fovea_fraction, fovea.MIN_FRACTION, fovea.MAX_FRACTION)))
+    body = MosquitoState()
+    brain = g.brain
+    brain.reset_hidden()
+    memory = np.full((MEM_H, MEM_W), np.nan)  # what the look has seen, per world location
+    scarcity_cost = lambda frac: _aperture_cost(frac, quota_pct)
+
+    responses, alarms = [], []
+    positions, fracs = [], []
+    dxs, dys = [], []  # real (post-clamp) look movement per frame
+    movement_costs = []  # pre-clamp motor intent per frame
+    energies, drives, foods = [], [], []
+    reflex_frames = 0
     last_grid = None
-    prev_v = np.zeros(N_CELLS)  # no "previous frame" before the first one
-    # Real motor-efference-style feedback, User: "Of course feed the
-    # tree its own previous pan/tilt output!" Confirmed empirically
-    # first (2000-genome sample): tanh(pan)/MAX_STEP's geometry alone
-    # makes a saturated/near-maximal step ~5x more likely than a small
-    # graded one (39% vs 7%) for a random tree, independent of fitness
-    # -- the search landscape itself structurally favors hopping.
-    # Without this, the tree decides pan/tilt completely FRESH every
-    # frame from visual input alone -- no way to "continue" a motion it
-    # has no memory of starting, which is a real, separate reason
-    # smooth pursuit couldn't emerge even if it were the better
-    # strategy. Feeding back the REAL applied delta (post-clamp, what
-    # actually happened, not the raw pre-clip intent) gives it that
-    # memory -- still pure information, not a forced behavior; nothing
-    # requires the tree to use it, or to prefer continuity over
-    # hopping if hopping genuinely works better (n_vars grows by 2
-    # accordingly -- see run()).
+    prev_v = np.zeros(N_CELLS)
+    # Response tree's motor-efference input (its old pan/tilt feedback):
+    # now the brain's real applied movement.
     prev_dx, prev_dy = 0.0, 0.0
+    prev_frame = None
 
     for frame in frames:
         v = fovea.extract(frame, state)
         positions.append((state.cx, state.cy))
-        # Real fix (external audit): the tree used to see only the
-        # CURRENT frame, but is graded against frame-DIFFERENCE
-        # signals -- a memoryless function of one frame can't compute
-        # a derivative. Concatenating the PREVIOUS fovea vector gives
-        # it the raw material to compute one itself via the DSL's own
-        # sub op, if that's what actually evolves to help (n_vars is
-        # doubled accordingly -- see run()).
+        fracs.append(state.fraction)
+
+        # What the look sees change, with its own eye movement cancelled
+        # out (corollary discharge): the previous frame sampled at
+        # the look's CURRENT position, so a saccade across a still scene
+        # doesn't register as motion, threat, or loom.
+        h1 = fovea.extract(prev_frame, state) if prev_frame is not None else v
+        hist = np.array([h1, v])
+        lum = float(v.mean())
+        # Only real history counts: on the first frame there's no older
+        # sample to compare against.
+        motion = flow_x = flow_y = 0.0
+        if prev_frame is not None:
+            motion = min(1.0, float(np.abs(v - h1).mean()) * MOTION_GAIN)
+            mx, my = reflexes.directional_motion(hist)
+            flow_x = float(np.clip(mx[-1] * FLOW_GAIN, -1.0, 1.0))
+            flow_y = float(np.clip(my[-1] * FLOW_GAIN, -1.0, 1.0))
+        # Threat and arousal come from the WHOLE visual field (spider's
+        # secondary eyes / locust LGMD), plus where in it something moved,
+        # relative to the look -- so the brain can learn to swing its look
+        # toward movement. The look's own readings above are for detail.
+        t_idx = len(positions) - 1
+        loom = min(1.0, float(world_signals["expansion"][t_idx]) * EXPANSION_GAIN)
+        periph_motion = min(1.0, float(world_signals["motion_energy"][t_idx]) * PERIPH_MOTION_GAIN)
+        periph_dx = float(world_signals["motion_cx"][t_idx]) - state.cx
+        periph_dy = float(world_signals["motion_cy"][t_idx]) - state.cy
+
         vb = np.concatenate([v, prev_v, [prev_dx, prev_dy]])[None, :]
         response = float(g.evaluate("response", vb)[0])
-        pan = float(g.evaluate("pan", vb)[0])
-        tilt = float(g.evaluate("tilt", vb)[0])
+        pan, tilt, zoom, alarm, is_reflex = brain.step(
+            lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
+            periph_dx, periph_dy,
+        )
+        reflex_frames += int(is_reflex)
         responses.append(response)
+        alarms.append(alarm)
         last_grid = v
         prev_v = v
+
         prev_cx, prev_cy = state.cx, state.cy
-        state, intended_dx, intended_dy = fovea.step(state, pan, tilt)
-        # The REAL movement that happened (post-clamp), not the raw
-        # tree output -- what the pursuit reward below is graded
-        # against, since that's what actually reached the world, and
-        # what gets fed back as next frame's motor-efference input.
-        prev_dx = state.cx - prev_cx
-        prev_dy = state.cy - prev_cy
+        state, intended_dx, intended_dy, intended_dz = fovea.step(state, pan, tilt, zoom)
+        prev_dx, prev_dy = state.cx - prev_cx, state.cy - prev_cy
         dxs.append(prev_dx)
         dys.append(prev_dy)
-        # The INTENDED (pre-clamp) step, for the movement-cost penalty
-        # below -- deliberately NOT the same value as prev_dx/dy above.
-        # A tree that keeps outputting a maximal pan/tilt while already
-        # pinned against a wall is still "trying" every frame (real
-        # motor effort, even though clamping zeroes out its net
-        # displacement) -- costing intent, not net movement, is what
-        # actually counterbalances the saturated-output bias.
+        effort = math.hypot(intended_dx, intended_dy) + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
         movement_costs.append(math.hypot(intended_dx, intended_dy))
 
+        body.update(periph_motion, loom, effort, scarcity_cost(state.fraction))
+        food = _feed_on_novelty(memory, fovea.extract(frame, state), state)
+        body.feed_visual_sustenance(food)
+        energies.append(body.energy)
+        drives.append(body.drive())
+        foods.append(food)
+
+        prev_frame = frame
+
+    step_n = max(1, len(energies) // 60)
     live_info = {
         "fovea_cx": state.cx, "fovea_cy": state.cy,
-        "fovea_fraction": g.fovea_fraction,
+        "fovea_fraction": state.fraction,
         "last_response": responses[-1] if responses else 0.0,
-        # The actual 144-value grid the organism just processed, for
-        # the viewer -- this is genuinely "what it's seeing", already
-        # reduced far past anything reconstructable into real footage
-        # (a blocky 12x12 luminance grid, not an image), so including
-        # it here doesn't touch the no-raw-frames rule at all.
+        # The actual 144-value grid the organism just processed -- a
+        # blocky 12x12 luminance grid, not an image, so it doesn't touch
+        # the no-raw-frames rule.
         "grid": last_grid.tolist() if last_grid is not None else [],
         "grid_shape": list(GRID),
+        "body": body.to_dict(),
+        "energy_series": [round(e, 4) for e in energies[::step_n]],
+        "reflex_frames": reflex_frames,
+        "trajectory": [[round(x, 4), round(y, 4), round(f, 4)] for (x, y), f in zip(positions, fracs)],
     }
 
     responses = np.array(responses)
 
-    if not np.all(np.isfinite(responses)):
+    if not np.all(np.isfinite(responses)) or not np.all(np.isfinite(alarms)):
         return float("-inf"), {}, live_info
 
     signals = world_signals
@@ -563,17 +650,26 @@ def evaluate_genome(
     fitness -= MOVEMENT_COST_WEIGHT * movement_cost
     breakdown["movement_cost"] = movement_cost
 
-    corner = _corner_penalty(positions, g.fovea_fraction)
+    corner = _corner_penalty(positions, fracs)
     fitness -= CORNER_PENALTY_WEIGHT * corner
     breakdown["corner_penalty"] = corner
 
-    edge = _edge_penalty(positions, g.fovea_fraction)
+    edge = _edge_penalty(positions, fracs)
     fitness -= EDGE_PENALTY_WEIGHT * edge
     breakdown["edge_penalty"] = edge
 
-    field_cost = _field_cost(g.fovea_fraction, quota_pct)
-    fitness -= FIELD_COST_WEIGHT * field_cost
-    breakdown["field_cost"] = field_cost
+    mean_drive = float(np.mean(drives)) if drives else 0.0
+    fitness -= HOMEOSTASIS_WEIGHT * mean_drive
+    breakdown["mean_drive"] = mean_drive
+    breakdown["mean_energy"] = float(np.mean(energies)) if energies else 0.0
+    breakdown["final_energy"] = energies[-1] if energies else 0.0
+    breakdown["mean_food"] = float(np.mean(foods)) if foods else 0.0
+    breakdown["mean_aperture"] = float(np.mean(fracs)) if fracs else 0.0
+    breakdown["reflex_frames"] = reflex_frames
+
+    alarm_corr = _correlate(signals["expansion"], np.array(alarms))
+    fitness += ALARM_WEIGHT * alarm_corr
+    breakdown["alarm_loom"] = alarm_corr
 
     return fitness, breakdown, live_info
 
@@ -659,6 +755,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
     # generation, never what it's being compared against.
     world_vectors = _world_vectors(frames)
     world_signals = reflexes.all_signals(world_vectors)
+    world_signals["expansion"] = reflexes.expansion_score(world_vectors)
+    world_signals["motion_cx"], world_signals["motion_cy"] = _peripheral_motion_centroid(world_vectors)
     # (strength, peak_cx, peak_cy) -- see conspec.conspec_signal and
     # evaluate_genome's own docstring for what the peak location is for.
     world_conspec = conspec.conspec_signal(world_vectors)
@@ -858,6 +956,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "fovea_fraction": live_info["fovea_fraction"],
             "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
             "quota_pct": quota_pct,
+            # Gemini's homeostasis: the candidate's body at the end of this
+            # generation's run, its energy over time, how many frames the
+            # giant-fiber reflex took over, and the look's real path
+            # (cx, cy, aperture) -- so the viewer can replay movement
+            # instead of showing one end-point per generation.
+            "body": live_info.get("body"),
+            "energy_series": live_info.get("energy_series"),
+            "reflex_frames": live_info.get("reflex_frames"),
+            "trajectory": live_info.get("trajectory"),
             # Real source frame shape -- User: "make foveal rectangle
             # honest." Lets the viewer draw the box at the REAL aspect
             # ratio instead of a hardcoded one.

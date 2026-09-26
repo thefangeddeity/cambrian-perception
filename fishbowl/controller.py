@@ -1,0 +1,192 @@
+from __future__ import annotations
+
+"""
+Mosquito Visual Controller -- Recurrent Central Complex with Giant Fiber Reflex.
+
+Modeled on insect neurobiology (e.g. Diptera / mosquito):
+  - Optic Lobe Inputs:
+      12 ommatidia/optic channels: luminance, motion, optic flow (dx, dy), loom,
+      current gaze (cx, cy, zoom), and homeostatic interoception (energy, arousal,
+      threat, search).
+  - Central Complex (Recurrent Ring):
+      A 16-unit recurrent neural circuit (RNN) with temporal hidden memory.
+      Maintains smooth gaze stabilization, pursuit, and active visual casting.
+  - Giant Fiber Evasion Reflex (Subcortical Override):
+      High looming stimulus triggers an immediate emergency escape saccade
+      and fovea expansion, bypassing deliberative processing.
+"""
+
+import math
+import random
+from typing import Any
+
+from .state import MosquitoState
+
+INPUTS = 14  # Gemini's 12 + where the whole field saw motion, relative to the look (dx, dy)
+HIDDEN = 16
+OUTPUTS = 4  # [pan, tilt, zoom, alarm]
+
+
+def _tanh(x: float) -> float:
+    return math.tanh(x)
+
+
+class MosquitoBrain:
+    def __init__(
+        self,
+        weights_ih: list[list[float]],
+        weights_hh: list[list[float]],
+        weights_ho: list[list[float]],
+        bias_h: list[float],
+        bias_o: list[float],
+    ):
+        self.weights_ih = weights_ih
+        self.weights_hh = weights_hh
+        self.weights_ho = weights_ho
+        self.bias_h = bias_h
+        self.bias_o = bias_o
+        self.hidden = [0.0] * HIDDEN
+
+    @classmethod
+    def random(cls, rng: random.Random) -> MosquitoBrain:
+        def matrix(rows: int, cols: int, scale: float = 0.4) -> list[list[float]]:
+            return [
+                [rng.uniform(-scale, scale) for _ in range(cols)]
+                for _ in range(rows)
+            ]
+
+        return cls(
+            weights_ih=matrix(HIDDEN, INPUTS, scale=0.4),
+            weights_hh=matrix(HIDDEN, HIDDEN, scale=0.3),
+            weights_ho=matrix(OUTPUTS, HIDDEN, scale=0.4),
+            bias_h=[rng.uniform(-0.05, 0.05) for _ in range(HIDDEN)],
+            bias_o=[rng.uniform(-0.05, 0.05) for _ in range(OUTPUTS)],
+        )
+
+    def reset_hidden(self) -> None:
+        self.hidden = [0.0] * HIDDEN
+
+    def step(
+        self,
+        luminance: float,
+        motion: float,
+        flow_x: float,
+        flow_y: float,
+        loom: float,
+        gaze_cx: float,
+        gaze_cy: float,
+        gaze_zoom: float,
+        state: MosquitoState,
+        periph_dx: float = 0.0,
+        periph_dy: float = 0.0,
+    ) -> tuple[float, float, float, float, bool]:
+        """
+        Runs one tick of the mosquito brain.
+        Returns: (pan_dx, tilt_dy, d_zoom, alarm_response, is_reflex)
+        """
+        # -------------------------------------------------------------
+        # 1. Giant Fiber Reflex: Emergency Evasion
+        # -------------------------------------------------------------
+        # Real insects have giant descending fibers that fire on sudden loom,
+        # triggering an immediate ballistic jump/takeoff before the brain deliberates.
+        if loom > 0.18 or state.threat > 0.65:
+            # Evasive reaction: jump away from optic flow, rapidly expand aperture
+            escape_dx = -1.0 if flow_x > 0 else 1.0
+            escape_dy = -1.0 if flow_y > 0 else 1.0
+            escape_zoom = 1.0  # zoom out to maximize field of view
+            alarm = 1.0
+            return escape_dx, escape_dy, escape_zoom, alarm, True
+
+        # -------------------------------------------------------------
+        # 2. Central Complex: Recurrent Processing
+        # -------------------------------------------------------------
+        inputs = [
+            luminance,
+            motion,
+            flow_x,
+            flow_y,
+            loom,
+            gaze_cx - 0.5,
+            gaze_cy - 0.5,
+            gaze_zoom,
+            state.energy,
+            state.arousal,
+            state.threat,
+            state.search,
+            periph_dx,
+            periph_dy,
+        ]
+
+        # Recurrent hidden update: h_t = tanh(W_ih * x + W_hh * h_{t-1} + b_h)
+        new_hidden = []
+        for i in range(HIDDEN):
+            val = self.bias_h[i]
+            for j in range(INPUTS):
+                val += self.weights_ih[i][j] * inputs[j]
+            for j in range(HIDDEN):
+                val += self.weights_hh[i][j] * self.hidden[j]
+            new_hidden.append(_tanh(val))
+
+        self.hidden = new_hidden
+
+        # Motor readout: o_t = tanh(W_ho * h_t + b_o)
+        outputs = []
+        for i in range(OUTPUTS):
+            val = self.bias_o[i]
+            for j in range(HIDDEN):
+                val += self.weights_ho[i][j] * self.hidden[j]
+            outputs.append(_tanh(val))
+
+        pan_dx = outputs[0]
+        tilt_dy = outputs[1]
+        d_zoom = outputs[2]
+        alarm = outputs[3]
+
+        return pan_dx, tilt_dy, d_zoom, alarm, False
+
+    def clone(self) -> MosquitoBrain:
+        return MosquitoBrain(
+            weights_ih=[row[:] for row in self.weights_ih],
+            weights_hh=[row[:] for row in self.weights_hh],
+            weights_ho=[row[:] for row in self.weights_ho],
+            bias_h=self.bias_h[:],
+            bias_o=self.bias_o[:],
+        )
+
+    def mutate(self, rng: random.Random, rate: float = 0.05, sigma: float = 0.12) -> int:
+        """Applies Gaussian mutation to a subset of synaptic weights and biases."""
+        mutated = 0
+
+        for matrix in (self.weights_ih, self.weights_hh, self.weights_ho):
+            for row in matrix:
+                for j in range(len(row)):
+                    if rng.random() < rate:
+                        row[j] += rng.gauss(0.0, sigma)
+                        mutated += 1
+
+        for bias_list in (self.bias_h, self.bias_o):
+            for i in range(len(bias_list)):
+                if rng.random() < rate:
+                    bias_list[i] += rng.gauss(0.0, sigma)
+                    mutated += 1
+
+        return mutated
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "weights_ih": self.weights_ih,
+            "weights_hh": self.weights_hh,
+            "weights_ho": self.weights_ho,
+            "bias_h": self.bias_h,
+            "bias_o": self.bias_o,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MosquitoBrain:
+        return cls(
+            weights_ih=data["weights_ih"],
+            weights_hh=data["weights_hh"],
+            weights_ho=data["weights_ho"],
+            bias_h=data["bias_h"],
+            bias_o=data["bias_o"],
+        )

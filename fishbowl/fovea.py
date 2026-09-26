@@ -28,8 +28,12 @@ FOVEA_FRACTION = 0.35  # DEFAULT look size (fraction of the full
 # below and priced by real compute scarcity (see run_vision.py's
 # field cost) -- User: "grow its visual field as curiosity wants and
 # resources allow, but shrink as resource hunger limits it."
-MIN_FRACTION = 0.10  # 2*int(179*0.10/2)=16 rows, still >= retina's 12
-MAX_FRACTION = 0.90  # below 1.0 so the look can still move at all
+# Gemini's aperture range and per-frame zoom rate: the brain can widen
+# or narrow the look every frame (a zoom motor), within these bounds.
+# genome.fovea_fraction is only the aperture at birth.
+MIN_FRACTION = 0.15
+MAX_FRACTION = 0.60
+ZOOM_STEP = 0.05
 
 # Real correction, User: "Curiosity and large saccades should evolve,
 # not be forced." MAX_STEP used to be 0.12 -- small enough that NO
@@ -55,7 +59,7 @@ MAX_STEP = 1.0
 class FoveaState:
     cx: float = 0.5  # center, normalized [0, 1] within the full frame
     cy: float = 0.5
-    fraction: float = FOVEA_FRACTION  # fixed for a genome's lifetime, set from genome.fovea_fraction
+    fraction: float = FOVEA_FRACTION  # current aperture; starts at genome.fovea_fraction, then the zoom motor moves it
 
 
 def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
@@ -72,7 +76,7 @@ def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
     return frame_to_vector(window)
 
 
-def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[FoveaState, float, float]:
+def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: float = 0.0) -> tuple[FoveaState, float, float, float]:
     """
     Applies the genome's own raw pan/tilt tree output as a bounded
     move. tanh squashes an unbounded tree output (blocks.py's Node.
@@ -82,7 +86,7 @@ def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[Fove
     further, rather than being clamped in a way that makes large and
     huge outputs indistinguishable in some other, less predictable way.
 
-    Returns (new_state, intended_dx, intended_dy) -- intended_dx/dy are
+    Returns (new_state, intended_dx, intended_dy, intended_dz) -- intended_dx/dy are
     the PRE-CLAMP step (what the tree actually tried to do), for
     run_vision.py's movement-cost penalty. Real motor effort isn't
     zero just because a wall stopped the actual displacement -- an
@@ -94,7 +98,9 @@ def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[Fove
     """
     dx = float(np.tanh(pan_output)) * MAX_STEP
     dy = float(np.tanh(tilt_output)) * MAX_STEP
-    half = state.fraction / 2.0
+    dz = float(np.tanh(zoom_output)) * ZOOM_STEP
+    new_frac = float(np.clip(state.fraction + dz, MIN_FRACTION, MAX_FRACTION))
+    half = new_frac / 2.0
     new_cx = float(np.clip(state.cx + dx, half, 1.0 - half))
     new_cy = float(np.clip(state.cy + dy, half, 1.0 - half))
-    return FoveaState(cx=new_cx, cy=new_cy, fraction=state.fraction), dx, dy
+    return FoveaState(cx=new_cx, cy=new_cy, fraction=new_frac), dx, dy, dz

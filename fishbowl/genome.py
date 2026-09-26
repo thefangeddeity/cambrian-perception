@@ -26,14 +26,18 @@ import random
 import numpy as np
 
 from . import blocks, fovea
+from .controller import MosquitoBrain
 
 # mutate_fovea resizes the look (genome.fovea_fraction) instead of
 # touching a tree -- same fitness gate, same operator-weight learning,
 # so how often resizing gets TRIED is itself learned from evidence.
-TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea")
+# mutate_brain perturbs the recurrent motor brain (controller.py).
+TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain")
 FOVEA_MUTATION_SIGMA = 0.03
 
-DEFAULT_CHANNELS = ("response", "pan", "tilt")
+# Motor control (pan/tilt/zoom) moved to the recurrent brain; the tree
+# genome keeps the perception readout only.
+DEFAULT_CHANNELS = ("response",)
 
 # How fast the per-operator success estimate tracks new evidence, and
 # how fast meta_mutation_rate itself settles toward its floor once
@@ -81,7 +85,8 @@ def random_genome(rng: random.Random, n_vars: int = 3, channels: tuple[str, ...]
     trees = {name: _random_small_tree(rng, n_vars, max_depth=3) for name in channels}
     weights = {name: 1.0 / len(TASK_OPS) for name in TASK_OPS}
     op_success = {name: 0.5 for name in TASK_OPS}
-    return Genome(trees=trees, mutation_weights=weights, meta_mutation_rate=0.15, n_vars=n_vars, op_success=op_success)
+    return Genome(trees=trees, mutation_weights=weights, meta_mutation_rate=0.15, n_vars=n_vars,
+                  op_success=op_success, brain=MosquitoBrain.random(rng))
 
 
 class Genome:
@@ -93,12 +98,14 @@ class Genome:
         n_vars: int = 3,
         op_success: dict[str, float] | None = None,
         fovea_fraction: float = fovea.FOVEA_FRACTION,
+        brain: MosquitoBrain | None = None,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
         self.meta_mutation_rate = meta_mutation_rate
         self.n_vars = n_vars
         self.fovea_fraction = float(fovea_fraction)
+        self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
         # mutation_weights toward. Defaults to a neutral 0.5 prior for
@@ -118,6 +125,7 @@ class Genome:
             self.n_vars,
             dict(self.op_success),
             self.fovea_fraction,
+            self.brain.clone(),
         )
 
     def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
@@ -272,6 +280,8 @@ class Genome:
                 old + rng.gauss(0.0, FOVEA_MUTATION_SIGMA), fovea.MIN_FRACTION, fovea.MAX_FRACTION,
             ))
             return "fovea", (choice if self.fovea_fraction != old else "noop_inapplicable")
+        if choice == "mutate_brain":
+            return "brain", (choice if self.brain.mutate(rng) > 0 else "noop_inapplicable")
         if choice == "grow":
             applied, hit_ceiling = self._grow(rng, channel, max_nodes, max_depth)
         else:
@@ -361,6 +371,7 @@ class Genome:
             "n_vars": self.n_vars,
             "op_success": self.op_success,
             "fovea_fraction": self.fovea_fraction,
+            "brain": self.brain.to_dict(),
         }
 
     @staticmethod
@@ -376,11 +387,16 @@ class Genome:
             op_success.setdefault(name, 0.5)
         total = sum(weights.values())
         weights = {k: v / total for k, v in weights.items()}
+        # Pre-brain checkpoints carried pan/tilt trees; motor control now
+        # lives in the brain, so only the perception channels are kept.
+        trees = {name: blocks.Node.from_dict(t) for name, t in data["trees"].items() if name in DEFAULT_CHANNELS}
+        brain = MosquitoBrain.from_dict(data["brain"]) if data.get("brain") else MosquitoBrain.random(random.Random(0))
         return Genome(
-            trees={name: blocks.Node.from_dict(t) for name, t in data["trees"].items()},
+            trees=trees,
             mutation_weights=weights,
             meta_mutation_rate=float(data["meta_mutation_rate"]),
             n_vars=int(data.get("n_vars", 3)),
             op_success=op_success,
-            fovea_fraction=float(data.get("fovea_fraction", fovea.FOVEA_FRACTION)),
+            fovea_fraction=float(np.clip(data.get("fovea_fraction", fovea.FOVEA_FRACTION), fovea.MIN_FRACTION, fovea.MAX_FRACTION)),
+            brain=brain,
         )
