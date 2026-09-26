@@ -31,6 +31,7 @@ Usage:
 import argparse
 import json
 import subprocess
+import time
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -170,6 +171,7 @@ PAGE = r"""<!doctype html>
   h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--cyan); margin: 0 0 4px; font-weight: normal; }
   .cap { color: var(--dim); font-size: 12px; margin: 0 0 10px; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+  .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(340px, 0.95fr); gap: 16px; }
   .brainrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
@@ -224,11 +226,25 @@ PAGE = r"""<!doctype html>
     <div class="cap" id="replay-clock">--</div>
   </div>
 
-  <div class="panel" id="look-panel">
-    <h2>gaze</h2>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. View at the end of its latest run.</div>
-    <canvas id="look" class="px"></canvas>
-    <div class="cap" style="margin-top:8px" id="look-scale"></div>
+  <div class="stack">
+    <div class="panel" id="look-panel">
+      <h2>gaze</h2>
+      <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), magnified. The dashed frame is the widest it can open; the gaze sits centered inside at its true relative size, so you can watch it widen and narrow. The only place it sees detail, and the only way it eats. View at the end of its latest run.</div>
+      <canvas id="look" class="px"></canvas>
+      <div class="cap" style="margin-top:8px" id="look-scale"></div>
+    </div>
+    <div class="panel" id="dessert-card">
+      <h2>dessert</h2>
+      <div class="cap">Switch it from the camera to a live YouTube stream -- to speed up learning with more going on, or overnight when the room is asleep. It stays on the video until you press "back to camera", or optionally until a set time. The stream is checked to really be live first; frames are never saved.</div>
+      <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px">
+        <input type="text" id="custom-url" placeholder="paste a live YouTube URL..." style="flex:1 1 260px">
+        <button id="custom-url-submit">switch to this video</button>
+        <button id="dessert-cancel">back to camera now</button>
+      </div>
+      <label class="cap" style="display:block; margin-top:6px"><input type="checkbox" id="dessert-timed"> go back to the camera by itself at <input type="time" id="dessert-until" value="07:00"></label>
+      <div id="submit-status" class="cap" style="margin-top:6px"></div>
+    </div>
   </div>
 
   <div class="panel">
@@ -244,10 +260,6 @@ PAGE = r"""<!doctype html>
     <div class="section"><h2>how it moves</h2>
       <div class="cap">Measured, not rewarded. Yardstick: Land 1969, jumping-spider retinae (fixate / glide / saccade, scanning still things, tracking moving ones).</div>
       <div id="movement"></div>
-    </div>
-    <div id="url-picker" class="section" style="display:none">
-      <input type="text" id="custom-url" placeholder="paste a live YouTube URL..." style="width:230px">
-      <button id="custom-url-submit">Submit</button> <span id="submit-status" class="cap"></span>
     </div>
   </div>
 </div>
@@ -524,7 +536,6 @@ PAGE = r"""<!doctype html>
         $('h-pace').textContent = d.pace_accepted ? `${((d.frames_per_second || 15) / d.pace_accepted).toFixed(1)} gazes/s` : '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';
-        $('url-picker').style.display = d.is_live ? 'block' : 'none';
         drawLook(d); drawBody(d); drawBrain(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
@@ -533,13 +544,39 @@ PAGE = r"""<!doctype html>
   }
   tick();
 
+  // Dessert: next occurrence of the chosen local time, as a unix deadline.
+  function nextTime(hhmm) {
+    const [h, m] = hhmm.split(':').map(Number), t = new Date();
+    t.setHours(h, m, 0, 0);
+    if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
+    return t;
+  }
   $('custom-url-submit').addEventListener('click', async () => {
     const url = $('custom-url').value.trim(); if (!url) return;
+    const until = $('dessert-timed').checked ? nextTime($('dessert-until').value || '07:00') : null;
     $('submit-status').textContent = 'checking it is really live...';
-    try { const r = await (await fetch('/select?url=' + encodeURIComponent(url))).json();
-      $('submit-status').textContent = r.ok ? 'restarting -- watch "watching" above' : ('failed: ' + (r.error || 'unknown')); }
-    catch (e) { $('submit-status').textContent = 'failed'; }
+    try {
+      const r = await (await fetch('/select?url=' + encodeURIComponent(url) + (until ? '&until=' + Math.floor(until.getTime() / 1000) : ''))).json();
+      $('submit-status').textContent = r.ok ? ('switching to it' + (until ? ` until ${until.toLocaleString()}` : ' until you switch back') + ' -- restarting (watch "watching" above)') : ('not switched: ' + (r.error || 'unknown'));
+      if (r.ok) $('custom-url').value = '';
+      pollDessert();
+    } catch (e) { $('submit-status').textContent = 'failed'; }
   });
+  $('dessert-cancel').addEventListener('click', async () => {
+    $('submit-status').textContent = 'going back to the camera...';
+    try { await fetch('/select?name=auto'); $('submit-status').textContent = 'back to camera -- restarting'; } catch (e) { $('submit-status').textContent = 'failed'; }
+    pollDessert();
+  });
+  async function pollDessert() {
+    try {
+      const r = await (await fetch('/sources')).json();
+      $('dessert-status').textContent = r.active
+        ? `on video: ${r.selected_url}` + (r.until ? ` until ${new Date(r.until * 1000).toLocaleString()}` : ' until you switch back')
+        : 'on its camera';
+    } catch (e) { }
+  }
+  pollDessert();
+  setInterval(pollDessert, 15000);
 </script>
 </body>
 </html>
@@ -587,17 +624,19 @@ class Handler(BaseHTTPRequestHandler):
             # one (for an honest status line) -- a real gap found live:
             # the dropdown was falling back to "auto" for a custom URL
             # selection, which is actually active, just not nameable.
-            selected_name, selected_url = None, None
+            selected_name, selected_url, until = None, None, None
             if SELECTED_SOURCE_PATH.exists():
                 try:
                     data = json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8"))
-                    selected_name, selected_url = data.get("name"), data.get("url")
+                    selected_name, selected_url, until = data.get("name"), data.get("url"), data.get("until")
                 except (OSError, json.JSONDecodeError):
                     pass
             body = json.dumps({
                 "options": [n for n, _ in LIVE_SOURCES],
                 "selected": selected_name,
                 "selected_url": selected_url,
+                "until": until,
+                "active": bool(selected_url) and (until is None or float(until) > time.time()),
             }).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -615,6 +654,8 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             name = (qs.get("name") or [""])[0]
             url = (qs.get("url") or [""])[0].strip()
+            until_raw = (qs.get("until") or [""])[0].strip()
+            until = float(until_raw) if until_raw.replace(".", "", 1).isdigit() else None
             valid_names = {n for n, _ in LIVE_SOURCES}
             ok, error = False, None
             if name == "auto":
@@ -627,7 +668,9 @@ class Handler(BaseHTTPRequestHandler):
             elif url:
                 ok, error = _check_live_url(url)
                 if ok:
-                    _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url})
+                    # Dessert: a deadline after which the organism goes
+                    # back to its camera by itself (run_vision.py _dessert).
+                    _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url, **({"until": until} if until else {})})
             if ok:
                 # User: "'Submit' should trigger a restart of
                 # cambrian-perception.service" -- without this the

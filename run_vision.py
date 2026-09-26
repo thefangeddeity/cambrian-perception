@@ -63,6 +63,7 @@ import argparse
 import math
 import random
 import subprocess
+import time
 import sys
 from pathlib import Path
 
@@ -811,7 +812,30 @@ def _is_device(source: str) -> bool:
     return source.startswith("/dev/video") or source.isdigit()
 
 
+def _dessert() -> dict | None:
+    """
+    User: "submit a live YT video it can watch overnight when everything
+    is sleeping... like feeding it dessert." A human-chosen live stream
+    with a deadline ("until", unix seconds), written by the viewer.
+    Active while the deadline is in the future; None otherwise.
+    """
+    sel = sandbox.load_selected_source()
+    if not sel or not sel.get("url"):
+        return None
+    until = sel.get("until")
+    if until is not None and time.time() >= float(until):
+        return None
+    return sel
+
+
 def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRAIN_HIDDEN) -> None:
+    # Dessert overrides the camera until its deadline; then this run
+    # exits and systemd restarts it back on the camera.
+    home_source = source
+    dessert = _dessert() if _is_device(source) else None
+    if dessert is not None:
+        print(f"Dessert: watching {dessert['url']} until {time.ctime(float(dessert['until'])) if dessert.get('until') else 'cleared'}")
+        source = "live"
     clips = _list_clips(source)
 
     checkpoint = sandbox.load_checkpoint()
@@ -948,6 +972,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         })
 
     while box.should_continue():
+        # Dessert over (deadline passed, or cleared in the viewer): stop
+        # this run so systemd brings it back on its home camera.
+        if dessert is not None and box.generation % 25 == 0 and _dessert() is None:
+            print(f"Dessert over -- returning to {home_source}.")
+            break
         box.generation += 1
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
