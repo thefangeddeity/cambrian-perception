@@ -19,6 +19,11 @@ Three real, distinct mechanisms, not one knob:
     signal: a permissive feeder that still cuts off food when it's bad
     for the host, however hungry the organism is.
 
+  IDLE (use what nobody else is using) -- quota moves UP a core at a
+    time while a whole core sits idle beyond what it already has, and
+    DOWN a core when other work needs them back. Needs no request and
+    no fitness gain: an idle core costs the host nothing.
+
   HUNGER (reward for real, demonstrated cognition) -- quota moves UP,
     within the ceiling, when evolution_log.json shows real recent
     fitness improvement. Never based on the organism merely asking.
@@ -48,6 +53,7 @@ bounded adjustment, and exits.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -61,10 +67,13 @@ HANDLER_STATE_PATH = STATE_DIR / "handler_state.json"
 SERVICE_NAME = "cambrian-perception.service"
 
 MIN_QUOTA_PCT = 50    # hard floor -- never starve it completely
-MAX_QUOTA_PCT = 300   # hard ceiling -- never exceed 3 of 8 real cores,
-# regardless of any signal below. Change this only as a deliberate,
-# written decision (see README's fishbowl boundary on what "explicit,
-# not slid into" means), not a tuning knob to nudge casually.
+# Hard ceiling: every core but one, regardless of any signal below -- the
+# host always keeps a core to itself. Raised from 3 of 8 cores (300%) on
+# 2026-09-26 as a deliberate decision, together with run_vision.py scoring
+# several children at once on the cores it is granted. Change this only as
+# a deliberate, written decision, not a tuning knob to nudge casually.
+MAX_QUOTA_PCT = max(100, ((os.cpu_count() or 2) - 1) * 100)
+IDLE_STEP_PCT = 100   # IDLE moves a whole core at a time
 STEP_PCT = 25         # bounded step per invocation, up or down --
 # no single run can swing the quota far, so a bad read of the signals
 # costs at most one small step, not a lurch.
@@ -179,8 +188,17 @@ def _recent_request_count(since_seconds: float = 1800.0) -> int:
     return len(requests[-20:])
 
 
+def _idle_cores(current_pct: int) -> float:
+    """Cores nobody is using beyond what the organism already has (keeping
+    one for the host): the 1-minute load minus the organism's own share."""
+    load1, _, _ = os.getloadavg()
+    nproc = os.cpu_count() or 1
+    ours = current_pct / 100.0
+    others = max(0.0, load1 - ours)
+    return nproc - 1 - others - ours
+
+
 def _load_average_strain() -> bool:
-    import os
     load1, _, _ = os.getloadavg()
     nproc = os.cpu_count() or 1
     return (load1 / nproc) > LOAD_STRAIN_PER_CORE
@@ -219,6 +237,7 @@ def run(dry_run: bool = False) -> None:
     current = _current_quota_pct()
     target = current
     reason = "no change"
+    idle = _idle_cores(current)
 
     if strained:
         # Unconditional -- overrides hunger/fitness entirely. The
@@ -226,6 +245,12 @@ def run(dry_run: bool = False) -> None:
         # the organism is doing.
         target = max(MIN_QUOTA_PCT, current - STEP_PCT)
         reason = "real system strain (load or memory) -- cutting back regardless of fitness"
+    elif idle >= 1.0 and current < MAX_QUOTA_PCT:
+        target = min(MAX_QUOTA_PCT, current + IDLE_STEP_PCT)
+        reason = f"{idle:.1f} idle cores -- granting one more"
+    elif idle < 0.0 and current > MIN_QUOTA_PCT:
+        target = max(MIN_QUOTA_PCT, current - IDLE_STEP_PCT)
+        reason = f"other work needs the cores ({-idle:.1f} short) -- giving one back"
     elif fitness_improved and request_count > 0:
         step = int(round(STEP_PCT * responsiveness))
         target = min(MAX_QUOTA_PCT, current + max(step, 1 if responsiveness > 0.15 else 0))
@@ -237,7 +262,7 @@ def run(dry_run: bool = False) -> None:
 
     print(f"[resource_handler] current={current}% target={target}% satiation={satiation:.3f} "
           f"responsiveness={responsiveness:.3f} strained={strained} "
-          f"fitness_improved={fitness_improved} requests={request_count}")
+          f"fitness_improved={fitness_improved} requests={request_count} idle_cores={idle:.2f} ceiling={MAX_QUOTA_PCT}%")
     print(f"[resource_handler] {reason}")
 
     if not dry_run:

@@ -884,6 +884,105 @@ NEUTRAL_EPSILON = 0.001
 NEUTRAL_ACCEPT_PROB = 0.1
 
 
+# ---- Parallel evaluation: several children per generation -----------------
+# A (1+lambda) search: each generation mutates lambda children from the
+# parent and scores them at once in worker processes, on the same world
+# snapshot, body and memory as the parent (scored meanwhile in the main
+# process). The world's frames go into shared memory once per snapshot, never
+# copied per child. lambda follows the CPU it is granted -- the resource
+# handler's quota, which already tracks what is idle: one core per 100%, less
+# one for the main process (capture, detection, the parent), at most the
+# host's cores minus one. CAMBRIAN_WORKERS=<n> overrides; 1 = serial.
+# The best child must pass the usual acceptance, then a re-check on the
+# previous snapshot (RECHECK): picking the best of several children favours
+# one that merely exploits this particular window.
+_WORKER: dict = {"id": None, "shm": [], "frames": None, "colour": None}
+
+
+def _n_children(quota_pct: float) -> int:
+    cap = max(1, (os.cpu_count() or 2) - 1)
+    env = os.environ.get("CAMBRIAN_WORKERS")
+    if env is not None and env.strip().isdigit():
+        return max(1, min(cap, int(env)))
+    return max(1, min(cap, int(quota_pct // 100) - 1))
+
+
+def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict, fps: float, memory):
+    """Runs in a worker process: attaches to the snapshot's frames (once per
+    snapshot) and scores one child."""
+    from multiprocessing import shared_memory
+    if _WORKER["id"] != meta["id"]:
+        for old in _WORKER["shm"]:
+            old.close()
+        _WORKER["shm"] = []
+        arrays = {}
+        for key in ("grey", "colour"):
+            spec = meta.get(key)
+            if spec is None:
+                arrays[key] = None
+                continue
+            name, shape, dtype = spec
+            block = shared_memory.SharedMemory(name=name, track=False)
+            _WORKER["shm"].append(block)
+            arrays[key] = np.ndarray(shape, dtype=dtype, buffer=block.buf)
+        _WORKER["frames"] = [arrays["grey"][k] for k in range(arrays["grey"].shape[0])]
+        _WORKER["colour"] = [arrays["colour"][k] for k in range(arrays["colour"].shape[0])] if arrays["colour"] is not None else None
+        _WORKER["id"] = meta["id"]
+    g = G.Genome.from_dict(genome_dict)
+    return evaluate_genome(g, _WORKER["frames"], meta["ws"], quota_pct, body, fps, meta["prey"], memory, _WORKER["colour"])
+
+
+class _Workers:
+    """The worker pool and the snapshot it is sharing."""
+
+    def __init__(self, n: int):
+        import concurrent.futures
+        import multiprocessing
+        # One thread each: the workers already use every core they are given.
+        for var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+            os.environ.setdefault(var, "1")
+        self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=n, mp_context=multiprocessing.get_context("forkserver"))
+        self.world, self.meta, self.shm = None, None, []
+
+    def publish(self, world: "World") -> bool:
+        """Shares this snapshot's frames (once). False if they can't be shared."""
+        if world is self.world:
+            return self.meta is not None
+        from multiprocessing import shared_memory
+        self.world, meta, blocks = world, None, []
+        try:
+            arrays = {"grey": np.stack(world.frames)}
+            if world.colour is not None:
+                arrays["colour"] = np.stack(world.colour)
+            meta = {"id": f"{os.getpid()}-{time.time_ns()}", "prey": world.prey, "ws": world.at_pace(1)[1], "colour": None}
+            for key, arr in arrays.items():
+                block = shared_memory.SharedMemory(create=True, size=max(1, arr.nbytes))
+                np.ndarray(arr.shape, dtype=arr.dtype, buffer=block.buf)[...] = arr
+                blocks.append(block)
+                meta[key] = (block.name, arr.shape, arr.dtype.str)
+        except (ValueError, OSError) as e:  # frames of different sizes, or no shared memory
+            print(f"Parallel evaluation off for this snapshot ({e}).")
+            for block in blocks:
+                block.close()
+                block.unlink()
+            meta, blocks = None, []
+        old, self.shm, self.meta = self.shm, blocks, meta
+        for block in old:  # workers still mapping these keep them until they move on
+            block.close()
+            block.unlink()
+        return meta is not None
+
+    def submit(self, genome, quota_pct: float, body: dict, fps: float, memory):
+        return self.pool.submit(_worker_evaluate, self.meta, genome.to_dict(), quota_pct, body, fps, memory)
+
+    def close(self) -> None:
+        self.pool.shutdown(wait=False, cancel_futures=True)
+        for block in self.shm:
+            block.close()
+            block.unlink()
+        self.shm = []
+
+
 WORLD_REFRESH_GENERATIONS = 5
 
 
@@ -1136,6 +1235,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     # switch in the viewer) ends the loop cleanly so the checkpoint is
     # saved below -- it used to die mid-loop and lose up to 99 generations.
     stop = {"now": False}
+    workers = None  # the worker pool, started when more than one child is scored (False = unavailable)
+    world_prev = None  # the previous snapshot, for re-checking a winner
     _last_status = [0.0]
     last_new_frame = time.time()
 
@@ -1162,18 +1263,21 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         box.generation += 1
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
-        candidate = genome.clone()
-
-        # Every generation now really tries a tree mutation -- the
+        n_children = _n_children(quota_pct)
+        children = []
+        for _ in range(n_children):
+            child = genome.clone()
+            # Every generation now really tries a tree mutation -- the
         # previous 15%-of-generations branch that mutated weights
         # INSTEAD of a tree was a wasted generation twice over (see
         # Genome.update_mutation_weights's own docstring): weight-only
         # candidates can never pass the tree accept/reject gate, so
         # that branch's change was always discarded, and no tree
         # mutation was even attempted on that generation either.
-        channel, applied = candidate.mutate_task(
-            rng, max_nodes=limits.max_tree_nodes, max_depth=limits.max_tree_depth,
-        )
+            ch, ap = child.mutate_task(
+                rng, max_nodes=limits.max_tree_nodes, max_depth=limits.max_tree_depth,
+            )
+            children.append((child, ch, ap))
         # Only a REAL ceiling hit is worth surfacing as a request --
         # "noop_inapplicable" (e.g. mutate_const picked on a tree with
         # no consts yet) is normal and expected on a small tree, not
@@ -1181,7 +1285,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # mutate_task docstring for the real bug this used to be:
         # every noop got blamed on the size ceiling, which made a
         # healthy small tree look artificially stuck).
-        ceiling_reason = "tree_size_or_depth" if applied == "noop_ceiling" else None
+        ceiling_reason = "tree_size_or_depth" if any(ap == "noop_ceiling" for _, _, ap in children) else None
         box.note_ceiling(ceiling_reason)
 
         # Re-evaluate the PARENT fresh, right here, right now -- never
@@ -1195,6 +1299,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # generation would nearly double generation time.
         if feed is not None and box.generation % WORLD_REFRESH_GENERATIONS == 0:
             frames, vectors, total, prey_boxes, colour_frames = feed.snapshot()
+            world_prev = world
             world = World(frames, vectors, feed.frames_per_second(), prey_boxes, colour_frames)
             world.t_newest = feed.newest_time
             world.first_index = feed.snapshot_first
@@ -1210,10 +1315,32 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
                     sandbox.clear_selected_source()
                 break
             seen_total = total
+        futures = None
+        if n_children > 1 and workers is not False:
+            try:
+                if workers is None:
+                    workers = _Workers(max(1, (os.cpu_count() or 2) - 1))
+                if workers.publish(world):
+                    futures = [workers.submit(c, quota_pct, body_now, _fps(), memory_now) for c, _, _ in children]
+            except Exception as e:  # no worker processes on this host: serial from here on
+                print(f"Parallel evaluation unavailable ({e}); continuing serially.")
+                workers, futures = False, None
         parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour)
-        candidate_fitness, breakdown, live_info = evaluate_genome(
-            candidate, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour,
-        )
+        if futures is not None:
+            results = []
+            for (c, _, _), fut in zip(children, futures):
+                try:
+                    results.append(fut.result(timeout=600))
+                except Exception as e:  # a lost worker: score that child here instead
+                    if not stop["now"]:
+                        print(f"Worker failed ({type(e).__name__}); scoring the child here.")
+                    results.append(evaluate_genome(c, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour))
+        else:
+            results = [evaluate_genome(c, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour)
+                       for c, _, _ in children]
+        best = max(range(len(children)), key=lambda k: results[k][0] if math.isfinite(results[k][0]) else -math.inf)
+        candidate, channel, applied = children[best]
+        candidate_fitness, breakdown, live_info = results[best]
 
         both_finite = math.isfinite(candidate_fitness) and math.isfinite(parent_fitness)
         accepted = both_finite and candidate_fitness > parent_fitness + margin
@@ -1226,6 +1353,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # A newborn brain channel changes nothing yet (controller.py):
             # kept on a tie, so it can drift until it is useful.
             accepted = rng.random() < (1.0 if applied in G.NEUTRAL_GROWTH_OPS else NEUTRAL_ACCEPT_PROB)
+        rechecked_out = False
+        if accepted and both_finite and candidate_fitness > parent_fitness + margin and world_prev is not None:
+            # The best of several children re-checked on the previous
+            # snapshot: it must not be worse there (see RECHECK above).
+            p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), quota_pct, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour)
+            c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), quota_pct, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour)
+            if not (math.isfinite(c2) and math.isfinite(p2) and c2 >= p2 - NEUTRAL_EPSILON):
+                accepted, rechecked_out = False, True
 
         if accepted:
             # Evolution just chose to pay for a bigger look -- a real,
@@ -1276,7 +1411,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         # Credit an operator only for a REAL improvement (audit: counting
         # neutral-drift accepts as successes let edits to unused branches of
         # the tree win the operator race and starve the brain).
-        genome.update_mutation_weights(applied, accepted and both_finite and candidate_fitness > parent_fitness + 1e-9)
+        # Every child's operator is credited on its own result.
+        for (_, _, ap), (fit, _, _) in zip(children, results):
+            genome.update_mutation_weights(ap, math.isfinite(fit) and math.isfinite(parent_fitness) and fit > parent_fitness + 1e-9)
 
         # Margin eases a little every generation, not only on accept,
         # so a long dry spell can't permanently freeze the acceptance
@@ -1310,6 +1447,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # genome, same as live_status.json's own tree_stats.
             "channel": channel,
             "mutation_type": applied,
+            # (1+lambda): how many children this generation, what each tried,
+            # and whether the best failed its re-check on the previous snapshot.
+            "children": n_children,
+            "children_ops": [ap for _, _, ap in children],
+            "rechecked_out": rechecked_out,
             "fitness_delta": (candidate_fitness - parent_fitness) if both_finite else None,
             "fovea_fraction": genome.fovea_fraction,
             "quota_pct": quota_pct,
@@ -1437,6 +1579,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             _save()
 
     _save()
+    if workers:
+        workers.close()
     if feed is not None:
         feed.close()
     print(f"Stopped after {box.generation} generations, {round(__import__('time').perf_counter() - box.start_time, 1)}s.")
