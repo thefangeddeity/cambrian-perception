@@ -314,6 +314,21 @@ LOCK_HUD_JS = r"""
       const x = st.rx * w, y = st.ry * h, gw = st.rs * w, gh = st.rs * h;
       ctx.strokeStyle = col; ctx.lineWidth = 2;
       lockCorners(ctx, x - gw / 2, y - gh / 2, x + gw / 2, y + gh / 2, Math.min(gw, gh) * 0.16);
+      // Client view only (opts.snap): when it locks on -- starts eating, where a
+      // livecam would take its snapshot -- the brackets snap in from the edges of
+      // the picture onto its gaze (with a soft shutter flash, below). At most
+      // once a second, so a flickering lock doesn't strobe.
+      if (opts && opts.snap) {
+        if (L.mode === 'LOCK' && st.mode !== 'LOCK' && now - (st.snapT ?? -1e9) > 1000) st.snapT = now;
+        const age = now - (st.snapT ?? -1e9);
+        if (age < 280) {
+          const k = age / 280, e = 1 - Math.pow(1 - k, 3);
+          const X0 = (x - gw / 2) * e, Y0 = (y - gh / 2) * e, X1 = w + (x + gw / 2 - w) * e, Y1 = h + (y + gh / 2 - h) * e;
+          ctx.save(); ctx.strokeStyle = `rgba(255, 77, 109, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
+          lockCorners(ctx, X0, Y0, X1, Y1, Math.min(X1 - X0, Y1 - Y0) * 0.14);
+          ctx.restore();
+        }
+      }
       // its center (the central half of the gaze, where it eats): a diamond that spins on LOCK
       const r = Math.min(gw, gh) / 4;
       ctx.save(); ctx.translate(x, y); ctx.rotate(L.mode === 'LOCK' ? now / 300 : Math.PI / 4);
@@ -332,6 +347,11 @@ LOCK_HUD_JS = r"""
       }
       ctx.restore();
     }
+    if (opts && opts.snap) {  // the shutter flash (client view only)
+      const age = now - (st.snapT ?? -1e9);
+      if (age < 180) { ctx.fillStyle = `rgba(255, 255, 255, ${0.16 * (1 - age / 180)})`; ctx.fillRect(0, 0, bw, bh); }
+    }
+    st.mode = L.mode;
     const b = d.body_now || d.body || {}, threat = Math.max(0, Math.min(1, b.threat || 0));
     if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
@@ -387,7 +407,7 @@ LIVE_PAGE = r"""<!doctype html>
     if (d.generation === undefined) return;
     const R = replayAt(d, now, clk);
     F.show(R.frame, R.epoch);
-    drawLock(ctx, bw, bh, R, d, F.shown != null, F.aspect, now, st, { gen: false });
+    drawLock(ctx, bw, bh, R, d, F.shown != null, F.aspect, now, st, { gen: false, snap: true });
   }
   poll(); requestAnimationFrame(frame);
 </script>
