@@ -92,12 +92,16 @@ def _allowed_url(url: str) -> bool:
     return u.scheme == "https" and (u.hostname or "").lower() in YOUTUBE_HOSTS and not u.username and not u.password
 
 
+# yt-dlp's own give-up time with its default settings (a 20 s socket
+# timeout, 10 retries): the check waits as long as yt-dlp itself would.
+YTDLP_GIVE_UP_S = 20 * (10 + 1)
+
+
 def _check_live_url(url: str) -> tuple[bool, str | None]:
     """
-    Real yt-dlp metadata check, not a URL-shape guess -- same
-    discipline as every curated source added this session ("confirmed
-    live via yt-dlp metadata before wiring in"). Free-text input has
-    no whitelist to fall back on, so this IS the validation.
+    Real yt-dlp metadata check, not a URL-shape guess: the link must resolve
+    to a playable YouTube video, live or recorded (a recording plays at its
+    own pace, and it goes back to its camera when the video ends).
     """
     if not _allowed_url(url):
         return False, "only https youtube.com / youtu.be links are accepted"
@@ -109,17 +113,15 @@ def _check_live_url(url: str) -> tuple[bool, str | None]:
     try:
         # "--" so the URL can never be read as a yt-dlp option.
         result = subprocess.run(
-            [str(yt_dlp), "--skip-download", "--print", "is_live", "--", url],
-            capture_output=True, text=True, timeout=60,  # YouTube's challenge solving can take a while
+            [str(yt_dlp), "--skip-download", "--no-warnings", "--print", "is_live", "--", url],
+            capture_output=True, text=True, timeout=YTDLP_GIVE_UP_S,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False, "the live check (yt-dlp) failed or took over a minute -- try again"
+        return False, "yt-dlp could not reach YouTube (it gave up) -- try again"
     finally:
         _URL_CHECK.release()
     if result.returncode != 0:
-        return False, "not a resolvable video"
-    if result.stdout.strip() != "True":
-        return False, "not currently live"
+        return False, "not a playable YouTube video"
     return True, None
 
 
@@ -540,10 +542,10 @@ PAGE = r"""<!doctype html>
   <div class="stack">
     <div class="panel" id="dessert-card">
       <h2>dessert</h2>
-      <div class="cap">Switch it from the camera to a live YouTube stream -- to speed up learning with more going on, or overnight when the room is asleep. It stays on the video until you press "back to camera", or optionally until a set time. The stream is checked to really be live first; frames are never saved.</div>
+      <div class="cap">Switch it from the camera to a YouTube video, live or recorded -- to speed up learning with more going on, or overnight when the room is asleep. A recording plays at its own speed; it goes back to its camera when the video ends, when you press "back to camera", or optionally at a set time. Frames are never saved.</div>
       <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px">
-        <input type="text" id="custom-url" placeholder="paste a live YouTube URL..." style="flex:1 1 260px">
+        <input type="text" id="custom-url" placeholder="paste a YouTube URL (live or recorded)..." style="flex:1 1 260px">
         <button id="custom-url-submit">switch to this video</button>
         <button id="dessert-cancel">back to camera now</button>
       </div>
@@ -1070,7 +1072,7 @@ PAGE = r"""<!doctype html>
   $('custom-url-submit').addEventListener('click', async () => {
     const url = $('custom-url').value.trim(); if (!url) return;
     const until = $('dessert-timed').checked ? nextTime($('dessert-until').value || '07:00') : null;
-    switchStatus('checking it is really live (can take up to a minute)...');
+    switchStatus('checking the video can be played...');
     try {
       const r = await postSelect('url=' + encodeURIComponent(url) + (until ? '&until=' + Math.floor(until.getTime() / 1000) : ''));
       if (r.ok) switchStatus('switching to it' + (until ? ` until ${until.toLocaleString()}` : ' until you switch back') + ' -- restarting (watch "watching" above)');

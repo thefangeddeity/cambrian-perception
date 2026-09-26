@@ -94,6 +94,12 @@ SLOW_SOURCE_FPS = 12.0
 DETECT_INTERVAL_S = 0.3
 
 
+
+def _is_live_source(source) -> bool:
+    """A camera (device index or /dev/video*) or a network camera stream."""
+    return isinstance(source, int) or str(source).startswith(("/dev/video", "rtsp://", "rtsps://", "srt://"))
+
+
 class LiveFeed:
     """
     A live camera kept continuously in memory: a background thread reads
@@ -128,6 +134,7 @@ class LiveFeed:
         if frames_dir is not None:
             self._drop_old_runs()
         self.newest_time = None  # set by snapshot()
+        self.ended = False       # a recording played to its end (a live source never ends: it reconnects)
         self.snapshot_first = 0  # index of the first frame in the last snapshot
         self._buf: collections.deque = collections.deque(maxlen=window)
         self._lock = threading.Lock()
@@ -170,11 +177,31 @@ class LiveFeed:
             count = 0
             rate = cap.get(cv2.CAP_PROP_FPS)
             stride = 1 if 0 < rate < SLOW_SOURCE_FPS else self.stride
+            # Anything that isn't a camera (a video URL or file) is played at
+            # its own declared frame rate -- a recording decoded as fast as
+            # possible would make the body's real-clock time fly; a live stream
+            # can't outrun real time anyway, so pacing only smooths its bursts
+            # -- and when it ends, it has ended. (Frame counts can't tell a
+            # recording from a stream: YouTube's report garbage.) Cameras
+            # arrive in real time and reconnect if they drop.
+            recording = not _is_live_source(self.source)
+            period = 1.0 / rate if recording and 0 < rate < 1000 else 0.0
+            due = time.time()
             try:
                 while not self._stop:
                     ok, frame = cap.read()
                     if not ok:
+                        if recording:
+                            self.ended = True
+                            return
                         break
+                    if period:
+                        due += period
+                        wait = due - time.time()
+                        if wait > 0:
+                            time.sleep(wait)
+                        elif wait < -1.0:
+                            due = time.time()  # fell behind (a stall): carry on from now
                     count += 1
                     if count % stride:
                         continue
@@ -225,6 +252,14 @@ class LiveFeed:
                     p.unlink()
             except OSError:
                 pass
+
+    def longest_gap(self) -> float:
+        """The longest wait between kept frames in the current window: the
+        source's own cadence, bursts included (a live stream arrives in
+        segments of a few seconds)."""
+        with self._lock:
+            t = list(self._times)
+        return max((b - a for a, b in zip(t, t[1:])), default=0.0)
 
     def wait_for(self, n: int, timeout: float = 180.0) -> bool:
         deadline = time.time() + timeout
