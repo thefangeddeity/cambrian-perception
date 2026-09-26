@@ -524,6 +524,7 @@ def evaluate_genome(
     movement_costs = []  # pre-clamp motor intent per frame
     energies, drives, foods = [], [], []
     periph_active = []
+    field_events = []  # per frame: where the whole field saw motion, how much, loom, reflex
     reflex_frames = 0
     last_grid = None
     prev_v = np.zeros(N_CELLS)
@@ -569,6 +570,10 @@ def evaluate_genome(
             periph_dx, periph_dy, state.vx, state.vy,
         )
         reflex_frames += int(is_reflex)
+        field_events.append([
+            round(float(world_signals["motion_cx"][t_idx]), 3), round(float(world_signals["motion_cy"][t_idx]), 3),
+            round(periph_motion, 3), round(loom, 3), int(is_reflex),
+        ])
         responses.append(response)
         alarms.append(alarm)
         last_grid = v
@@ -632,6 +637,8 @@ def evaluate_genome(
         "food_series": [round(float(np.mean(foods[k:k + step_n])), 4) for k in range(0, len(foods), step_n)],
         "mean_food": round(float(np.mean(foods)), 4) if foods else 0.0,
         "movement": movement,
+        "field_events": field_events,
+        "brain_hidden": [round(h, 3) for h in brain.hidden],
         "reflex_frames": reflex_frames,
         "trajectory": [[round(x, 4), round(y, 4), round(f, 4)] for (x, y), f in zip(positions, fracs)],
     }
@@ -999,6 +1006,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2) -> N
             "food_series": live_info.get("food_series"),
             "mean_food": live_info.get("mean_food"),
             "movement": live_info.get("movement"),
+            "field_events": live_info.get("field_events"),
+            # The accepted genome's whole recurrent brain (Gemini's
+            # MosquitoBrain) for the viewer's brain diagram, plus the
+            # candidate's hidden state at the end of its run.
+            "brain": genome.brain.to_dict(),
+            "brain_hidden": live_info.get("brain_hidden"),
             # Real source frame shape -- User: "make foveal rectangle
             # honest." Lets the viewer draw the box at the REAL aspect
             # ratio instead of a hardcoded one.

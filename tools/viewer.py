@@ -48,8 +48,8 @@ LIVE_STATUS_PATH = STATE_DIR / "live_status.json"
 # -- same deliberate independence as everything else in this module
 # (see its own module docstring: this has to work standalone).
 EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
-HISTORY_MAX_LINES = 500
-HISTORY_MAX_BYTES = 800_000  # real tail, not a full-file read -- the
+HISTORY_MAX_LINES = 5000
+HISTORY_MAX_BYTES = 12_000_000  # real tail, not a full-file read -- the
 # log can grow to ~20000 lines/rotation; this stays cheap regardless.
 
 # User: "put a list of training videos I can pick from the viewer."
@@ -111,615 +111,422 @@ def _tail_jsonl(path: Path, max_lines: int = HISTORY_MAX_LINES, max_bytes: int =
             continue
     return records
 
-PAGE = """<!doctype html>
+HISTORY_POINTS = 600
+
+
+def _history_summary(records: list[dict]) -> dict:
+    """
+    Up to HISTORY_POINTS chart points from a long tail of the log: each
+    point is the last record in its bucket (its current state), plus
+    every mutation kind that was ACCEPTED anywhere in the bucket and the
+    largest accepted gain -- so downsampling never hides an acceptance.
+    """
+    n = len(records)
+    if not n:
+        return {"records": [], "span_generations": 0}
+    size = max(1, -(-n // HISTORY_POINTS))
+    out = []
+    for i in range(0, n, size):
+        bucket = records[i:i + size]
+        r = bucket[-1]
+        bd = r.get("breakdown") or {}
+        ts = (r.get("tree_stats") or {}).get("response") or {}
+        acc = [b for b in bucket if b.get("accepted")]
+        gains = [b["fitness_delta"] for b in acc if b.get("fitness_delta") is not None]
+        out.append({
+            "best_fitness": r.get("best_fitness"),
+            "peak_fitness_seen": r.get("peak_fitness_seen"),
+            "mean_energy": bd.get("mean_energy"),
+            "mean_food": bd.get("mean_food"),
+            "mean_drive": bd.get("mean_drive"),
+            "mean_aperture": bd.get("mean_aperture"),
+            "mv": bd.get("movement"),
+            "fovea_fraction": r.get("fovea_fraction"),
+            "quota_pct": r.get("quota_pct"),
+            "tree_nodes": ts.get("nodes"),
+            "tree_depth": ts.get("depth"),
+            "accepted_types": sorted({b.get("mutation_type") for b in acc}),
+            "accepted_delta": max(gains) if gains else None,
+        })
+    return {"records": out, "span_generations": n}
+
+
+# Raw string: the page is served byte-for-byte, no Python escape
+# processing (an unescaped apostrophe in the JS broke the page once).
+PAGE = r"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cambrian-perception -- live viewer</title>
+<title>cambrian-perception</title>
 <style>
-  body { background: #0a0e14; color: #7fd4ff; font-family: monospace; padding: 16px; }
-  h1 { font-size: 15px; font-weight: normal; color: #4fa; margin-bottom: 4px; }
-  .sub { color: #567; font-size: 12px; margin-bottom: 20px; }
-  .row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-  canvas { image-rendering: pixelated; border: 1px solid #234; }
-  /* Trees render at their real, honest size (User: "since trees grow
-     downward, page can just show its honest growth and scroll as far
-     down as it grew" -- no shrinking the canvas to fake-fit). This
-     wrapper is what actually adapts to a narrow/mobile screen: it
-     scrolls horizontally WITHIN itself if the real canvas is wider
-     than the viewport, so only that one panel needs a swipe, not the
-     whole page. */
-  .tree-panel { max-width: 100%; overflow-x: auto; }
-  /* the user's own terms, final: "look" (fovea.py's own small cropped
-     window) and "visual field" (the full frame it moves through --
-     "always, BY DEFINITION, bigger than the looking part"). Both
-     canvases are sized from ONE shared real-pixel scale (see tick()'s
-     computeScale) so their ON-SCREEN sizes stay honestly proportional
-     to their REAL pixel sizes -- no independently-capped canvas can
-     make the smaller one (look, real 112x62) render as big as or
-     bigger than the larger one (visual field, real 320x179) again.
-     User: "Screw the video. What is a pixel dump of what it's seeing?"
-     -- replaced an earlier YouTube-embed crop-preview entirely; no
-     embedding restrictions, no autoplay games, no cross-origin pixel
-     limits. */
-  /* User: "Allow that long-ass explanation to wrap lol" -- flex items
-     don't wrap text by default unless width-constrained; this label
-     was stretching the whole panel across the page in one line
-     instead of wrapping above its panel. */
-  #visual-field-label { max-width: 720px; }
-  #look-label { max-width: 430px; }
-  .stats { min-width: 300px; }
-  .chart-panel { max-width: 100%; overflow-x: auto; }
-  .stats div { margin-bottom: 6px; }
-  .label { color: #567; }
-  .stale { color: #f66; }
-  /* User: "Itemize tensions, instincts, 'feelings', rewards, and
-     punishments, so we know our organism." A static caption, not
-     live data -- these are the FIXED fitness terms (fishbowl/
-     reflexes.py, conspec.py, run_vision.py), not something that
-     changes per generation, so it doesn't need to poll /state. */
-  .drives { font-size: 12px; margin-top: 8px; max-width: 900px; }
-  .drives div { margin-bottom: 4px; }
-  .plus { color: #4fa; }
-  .minus { color: #f66; }
-  @media (max-width: 480px) {
-    body { padding: 10px; }
-    .row { gap: 14px; }
-    /* User: "resize tree to fit in mobile view" -- a real, deliberate
-       exception to the "render honest size, let it scroll" rule for
-       this one case: a tree wider than the ENTIRE phone screen with
-       no visible scroll affordance just looks broken, not honest.
-       Scales the real, already-computed canvas down to fit the
-       viewport width (aspect ratio preserved, internal resolution
-       unchanged) -- desktop/tablet keep the real per-panel scroll. */
-    .tree-panel canvas { max-width: 100%; height: auto; }
-    /* User: "Just optimize for mobile using Apple-compatible viewer
-       and leave it there." Same shrink-to-fit logic extended to the
-       retina grid and all chart canvases -- previously only trees got
-       it. */
-    #look { max-width: 100%; height: auto; }
-    #visual-field { max-width: 100%; height: auto; }
-    .chart-panel canvas { max-width: 100%; height: auto; }
-  }
+  :root { --bg:#0a0e14; --panel:#0d141c; --line:#1c2a36; --text:#cfe3f0; --dim:#6f8798; --cyan:#7fd4ff; --green:#4fa; --orange:#f90; --red:#f44; --yellow:#fd4; --violet:#c8f; --pink:#f6a; --magenta:#f4f; }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 16px 20px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 22px; margin-bottom: 14px; }
+  h1 { font-size: 17px; font-weight: normal; color: var(--green); margin: 0; }
+  .chip { color: var(--dim); } .chip b { color: var(--cyan); font-weight: normal; }
+  h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--cyan); margin: 0 0 4px; font-weight: normal; }
+  .cap { color: var(--dim); font-size: 12px; margin: 0 0 10px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+  .vision { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(340px, 0.95fr); gap: 16px; }
+  .brainrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
+  @media (max-width: 1250px) { .vision, .brainrow { grid-template-columns: 1fr; } }
+  @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
+  canvas { display: block; max-width: 100%; }
+  canvas.px { image-rendering: pixelated; }
+  .legend span { margin-right: 12px; white-space: nowrap; }
+  .gauge { display: grid; grid-template-columns: 84px 1fr 44px; align-items: center; gap: 8px; margin: 3px 0; }
+  .gauge .track { height: 10px; background: #162029; border-radius: 2px; overflow: hidden; }
+  .gauge .fill { height: 10px; }
+  .gauge .v { text-align: right; color: var(--cyan); }
+  .note { color: var(--dim); font-size: 11px; margin: -1px 0 4px 92px; }
+  .section { margin-top: 12px; }
+  table.drives { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.drives td, table.drives th { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  table.drives th { color: var(--dim); font-weight: normal; }
+  .plus { color: var(--green); } .minus { color: var(--red); } .inn { color: var(--yellow); }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .tag.body { color: var(--green); border-color: #1f5a44; } .tag.hand { color: var(--orange); border-color: #5a3f1f; } .tag.innate { color: var(--yellow); border-color: #5a531f; }
+  #trees { display: flex; flex-wrap: wrap; gap: 14px; overflow-x: auto; }
+  .stale { color: var(--red); }
+  input, button { font: inherit; background: var(--bg); color: var(--cyan); border: 1px solid var(--line); padding: 3px 6px; }
 </style>
 </head>
 <body>
+<header>
   <h1>cambrian-perception</h1>
-  <div class="sub">live perception dashboard -- real, coarse 12x12 luminance receptors, not high-res video</div>
-  <div class="row">
-    <div>
-      <div class="sub" id="visual-field-label"><strong>visual field</strong> -- the whole scene at 12x12 (<span id="field-pixels">--</span>): its coarse wide-field eyes, like a jumping spider's secondary eyes. It feels threat, arousal and <em>where</em> something moved from this. The box is its <strong>look</strong>, replayed along its real path over its latest ~40 s run (faint trail = recent path). Box color: <span style="color:#4fa">centered</span> / <span style="color:#fd4">near an edge</span> / <span style="color:#f90">on an edge</span> / <span style="color:#f44">in a corner</span>.</div>
-      <canvas id="visual-field" width="240" height="240"></canvas>
-    </div>
-    <div>
-      <div class="sub" id="look-label"><strong>look</strong> -- its movable high-acuity eye (<span id="look-pixels">--</span>), same 12x12 grid, drawn at the same true scale as the visual field. The only place it sees detail, and the only way it eats.</div>
-      <canvas id="look" width="240" height="240"></canvas>
-    </div>
-    <div>
-      <div class="stats" id="stats"></div>
-      <!-- Kept as a SIBLING of #stats, not a child -- #stats gets
-           wholesale-overwritten every 1s by tick() (real bug, found
-           live, fixed once already: nesting this inside #stats wiped
-           it out within a second of every load). Sitting in the same
-           shared column puts it right below "watching:" without
-           re-triggering that bug -- User: "that paste-in line should
-           go below 'watching:' line." No separate "train on:" status
-           line -- User: "Page already tells me what it's watching...
-           your 'train on' line is redundant." No dropdown either --
-           User: "I don't want hardcoded anything for now; I'll pick
-           the training videos for now." -->
-      <div id="url-picker" style="margin-top:6px; display:none;">
-        <input type="text" id="custom-url" placeholder="paste a live YouTube URL..."
-          style="width:220px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; font-family:monospace; font-size:11px; padding:3px;">
-        <button id="custom-url-submit" style="font-family:monospace; font-size:11px; background:#0a0e14; color:#7fd4ff; border:1px solid #234; cursor:pointer;">Submit</button>
-        <span id="submit-status" style="color:#567; font-size:11px;"></span>
-      </div>
-      <div id="body-panel" class="stats" style="margin-top:14px;"></div>
-    </div>
-  </div>
-  <div class="sub" style="margin-top:24px;">its perception tree -- the current ACCEPTED genome's response tree. Movement (pan / tilt / zoom) is driven by its recurrent brain (fishbowl/controller.py), not a tree.</div>
-  <div class="row" id="trees"></div>
+  <span class="chip">generation <b id="h-gen">--</b></span>
+  <span class="chip">fitness <b id="h-fit">--</b></span>
+  <span class="chip">peak ever <b id="h-peak">--</b></span>
+  <span class="chip">watching <b id="h-src">--</b></span>
+  <span class="chip">look size <b id="h-look">--</b></span>
+  <span class="chip">CPU quota <b id="h-quota">--</b></span>
+  <span class="chip" id="h-stale"></span>
+</header>
 
-  <div class="sub" style="margin-top:24px;">what drives it -- FIXED, never-evolved pressures (fishbowl/reflexes.py, conspec.py, run_vision.py). Every one below is a REWARD or PUNISHMENT graded against real signals; none forces a specific behavior -- the organism evolves its own way to satisfy or avoid them.</div>
-  <div class="drives">
-    <div><span class="plus">+ luminance_change</span> -- notice global brightness change. The most primitive orienting response that exists.</div>
-    <div><span class="plus">+ motion_energy</span> -- notice ANY change in the world, direction-blind.</div>
-    <div><span class="plus">+ directional_motion</span> -- notice WHICH WAY something moved (a real Hassenstein-Reichardt correlator, the classic model of insect motion detection).</div>
-    <div><span class="plus">+ loom</span> (heaviest weight) -- startle at something expanding/approaching. A real threat/food asymmetry: missing a threat costs more than missing an opportunity.</div>
-    <div><span class="plus">+ conspec_drive</span> -- stay engaged with a being-like pattern. Dampened by habituation for familiar, harmless presence ("cats and humans are harmless noise"); a real threat paired with a being resensitizes it instead.</div>
-    <div><span class="plus">+ curiosity</span> -- cover more of the reachable field of view over a run, instead of fixating by default.</div>
-    <div><span class="plus">+ optokinetic_pursuit</span> -- move the eye in the SAME direction real motion is going. A real reflex found across nearly all motile visual animals.</div>
-    <div><span class="plus">+ seek</span> -- get physically closer to a detected being, not just correlate with noticing it. Literal orienting, not a proxy.</div>
-    <div><span class="minus">- dead_field_penalty</span> -- a SUSTAINED stretch with nothing happening in the world. Can't be dodged by moving the eye (that loophole's closed); curiosity above is the honest way to earn out of it.</div>
-    <div><span class="minus">- movement_cost</span> -- real motor effort, every frame, whether or not it actually moved (a push against a wall still costs something). Doesn't cap or forbid a big jump -- pursuit/seek above can still justify one -- it just means an UNJUSTIFIED one is no longer free.</div>
-    <div><span class="minus">- corner_penalty</span> -- sitting in a corner specifically (both axes maxed out at once, not just one edge). Soft, not a hard constraint -- real reward can still outweigh it.</div>
-    <div><span class="minus">- edge_penalty</span> -- hard against just one edge. Real but smaller than corner_penalty -- a single edge is less wasteful than a true corner, so it costs less, not nothing.</div>
-    <div><span class="minus">- homeostatic drive</span> (weight 3, the biggest single term) -- its BODY (fishbowl/state.py, Gemini's plan): every frame costs energy (basal burn, more when aroused; motor effort; a wider look costs more, and more still when CPU is scarce). It only eats by taking in genuinely NEW visual structure through its look -- a still room starves it, and panning over what it has already seen doesn't feed it. Threat (from something approaching anywhere in the whole field) and fatigue (from violent movement) also count against it.</div>
-    <div><span class="minus">- giant-fiber reflex</span> -- not a reward: when something approaches fast (locust-LGMD-style expansion across the whole field), the reflex takes over the brain for that frame and widens the look. Innate, not learned.</div>
-    <div><span class="plus">+ alarm</span> -- its brain's alarm output tracking real approaching objects.</div>
-  </div>
-  <div class="sub" style="margin-top:10px;">real tensions it has to balance, not resolve for it: loom's urgency to startle vs. curiosity's pull to keep exploring (a real predator/prey visual-field tradeoff, "scalding vs. freezing" -- a threat on one side, going numb on the other); habituation's dampening of familiar beings vs. resensitizing to any real threat paired with one; dead_field's "don't go numb" vs. seek's "stay locked on what you found." No fixed right answer to any of these is built in -- only the pressure to find its own.</div>
-
-  <div class="sub" style="margin-top:24px;">growth over time -- real history from evolution_log.jsonl (last ~500 generations), refreshed every 20s, not live-polled every second like the panels above. User: "show exactly when complexity increases and whether it earns its structural cost."</div>
-  <div class="row">
-    <div class="chart-panel">
-      <div class="sub"><span style="color:#4fa">fitness (live)</span> / <span style="color:#567">peak ever</span></div>
-      <canvas id="chart-fitness" width="420" height="160"></canvas>
+<div class="vision">
+  <div class="panel" id="field-panel">
+    <h2>visual field</h2>
+    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">look</b>, replayed along its real path over its latest ~40 s run at real speed (15 frames/s), trail = last 3 s.</div>
+    <canvas id="field" class="px"></canvas>
+    <div class="legend cap" style="margin-top:8px">
+      <span><b style="color:var(--green)">&#9633;</b> look, centered</span>
+      <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
+      <span><b style="color:var(--orange)">&#9633;</b> on an edge</span>
+      <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
+      <span><b style="color:var(--magenta)">&#9679;</b> where the whole field saw motion (size = how much)</span>
+      <span><b style="color:var(--red)">red frame</b> something dark approaching / reflex fired</span>
     </div>
-    <div class="chart-panel">
-      <div class="sub">tree size -- <span style="color:#7fd4ff">total</span> / <span style="color:#f90">response</span> / <span style="color:#0af">pan</span> / <span style="color:#f6f">tilt</span> (nodes)</div>
-      <canvas id="chart-nodes" width="420" height="160"></canvas>
-    </div>
-    <div class="chart-panel">
-      <div class="sub">tree depth -- <span style="color:#f90">response</span> / <span style="color:#0af">pan</span> / <span style="color:#f6f">tilt</span></div>
-      <canvas id="chart-depth" width="420" height="160"></canvas>
-    </div>
-    <div class="chart-panel">
-      <div class="sub">fitness delta, accepted generations only (how much each accepted structural change actually earned)</div>
-      <canvas id="chart-delta" width="420" height="160"></canvas>
-    </div>
-    <div class="chart-panel">
-      <div class="sub">accepted mutation type over time (which real change won each accepted generation)</div>
-      <canvas id="chart-mutation" width="420" height="160"></canvas>
-    </div>
+    <div class="cap" id="replay-clock">--</div>
   </div>
 
-  <script>
-    function nodeLabel(n) {
-      if (n.kind === 'var') return 'x' + n.index;
-      if (n.kind === 'const') return n.value.toFixed(2);
-      return n.op;
-    }
-    function layout(n, depth, order) {
-      // order: mutable {next: int} counter, in-order leaf position.
-      if (!n.children || n.children.length === 0) {
-        const x = order.next++;
-        return { node: n, depth, x, children: [] };
-      }
-      const kids = n.children.map(c => layout(c, depth + 1, order));
-      const x = kids.reduce((s, k) => s + k.x, 0) / kids.length;
-      return { node: n, depth, x, children: kids };
-    }
-    function drawTree(ctx, laid, maxDepth, leafCount, w, h) {
-      const xStep = w / Math.max(1, leafCount + 1);
-      // maxDepth+2, not maxDepth+1 -- there are maxDepth+1 distinct
-      // depth values (0..maxDepth), and the +1 slot pads BOTH edges
-      // the same way xStep's own leafCount+1 already does for x.
-      // Real bug, caught from a live screenshot: the old maxDepth+1
-      // put the deepest row's y exactly AT h (the canvas's bottom
-      // edge), so half of every leaf circle and its label rendered
-      // outside the canvas -- padded on top only, clipped on bottom.
-      const yStep = h / Math.max(1, maxDepth + 2);
-      function pos(l) { return [(l.x + 1) * xStep, (l.depth + 1) * yStep]; }
-      function walk(l) {
-        const [px, py] = pos(l);
-        for (const c of l.children) {
-          const [cx, cy] = pos(c);
-          ctx.strokeStyle = '#345';
-          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, cy); ctx.stroke();
-          walk(c);
-        }
-      }
-      walk(laid);
-      function drawNodes(l) {
-        const [x, y] = pos(l);
-        ctx.fillStyle = l.node.kind === 'op' ? '#0a2a1a' : '#1a1a2a';
-        ctx.strokeStyle = '#4fa';
-        ctx.beginPath(); ctx.arc(x, y, 16, 0, 7); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#7fd4ff';
-        ctx.font = '10px monospace';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(nodeLabel(l.node), x, y);
-        for (const c of l.children) drawNodes(c);
-      }
-      drawNodes(laid);
-    }
-    function maxDepthOf(l) { return l.children.length ? 1 + Math.max(...l.children.map(maxDepthOf)) : 0; }
+  <div class="panel" id="look-panel">
+    <h2>look</h2>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a much smaller patch (<span id="look-px">--</span>), magnified here. The only place it sees detail, and the only way it eats. This is its view at the end of its latest run.</div>
+    <canvas id="look" class="px"></canvas>
+    <div class="cap" style="margin-top:8px" id="look-scale"></div>
+  </div>
 
-    function renderTrees(trees, stats, treeLimits) {
-      const container = document.getElementById('trees');
-      container.innerHTML = '';
-      for (const name of ['response', 'pan', 'tilt']) {
-        const tree = trees[name];
-        if (!tree) continue;
-        const wrap = document.createElement('div');
-        wrap.className = 'tree-panel';
-        const label = document.createElement('div');
-        label.className = 'sub';
-        // Real node_count/depth next to the real ceiling -- honest
-        // context for why a tree looks small: it's small because
-        // growth hasn't been ACCEPTED yet (fitness-gated, same as
-        // everywhere else in this project), not because it hit a
-        // ceiling that isn't visible here.
-        const s = (stats && stats[name]) || null;
-        const budget = s && treeLimits
-          ? ` -- ${s.nodes} / ${treeLimits.max_nodes} nodes, depth ${s.depth} / ${treeLimits.max_depth}`
-          : '';
-        label.textContent = name + budget;
-        wrap.appendChild(label);
-        const canvas = document.createElement('canvas');
-        wrap.appendChild(canvas);
-        container.appendChild(wrap);
+  <div class="panel">
+    <h2>body</h2>
+    <div class="cap">Gemini's homeostasis (fishbowl/state.py) at the end of its latest run.</div>
+    <div id="gauges"></div>
+    <canvas id="energy-trace" height="60"></canvas>
+    <div class="section"><h2>eating</h2>
+      <div class="cap">Food = genuinely new visual structure through its look, checked against its memory of each spot. A still room starves it; re-looking at what it has already seen does not feed it.</div>
+      <div id="food-gauge"></div>
+      <canvas id="food-trace" height="60"></canvas>
+    </div>
+    <div class="section"><h2>how it moves</h2>
+      <div class="cap">Measured, not rewarded. Yardstick: Land 1969, jumping-spider retinae (fixate / glide / saccade, scanning still things, tracking moving ones).</div>
+      <div id="movement"></div>
+    </div>
+    <div id="url-picker" class="section" style="display:none">
+      <input type="text" id="custom-url" placeholder="paste a live YouTube URL..." style="width:230px">
+      <button id="custom-url-submit">Submit</button> <span id="submit-status" class="cap"></span>
+    </div>
+  </div>
+</div>
 
-        // Layout FIRST, size the canvas to what was actually laid out
-        // SECOND -- User: "Borders should adapt as they grow." A fixed
-        // canvas size meant a genuinely grown tree (more nodes than
-        // today's small ones) would just get cramped/overlapping
-        // instead of the canvas expanding to fit it. Real per-node
-        // spacing floor (45px horizontal, 55px vertical -- enough for
-        // the 16px-radius circles and their labels not to collide),
-        // with a minimum so a tiny tree still gets a readable panel.
-        // The existing CSS max-width:100% still scales this back down
-        // to fit narrow/mobile screens regardless of the real size.
-        const order = { next: 0 };
-        const laid = layout(tree, 0, order);
-        const leafCount = Math.max(1, order.next);
-        const maxDepth = maxDepthOf(laid);
-        canvas.width = Math.max(260, (leafCount + 1) * 45);
-        canvas.height = Math.max(160, (maxDepth + 2) * 55);
+<div class="brainrow">
+  <div class="panel">
+    <h2>its brain</h2>
+    <div class="cap">Gemini's recurrent network (fishbowl/controller.py) that moves the look: 18 inputs &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm. Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <canvas id="brain" height="520"></canvas>
+  </div>
+  <div class="panel">
+    <h2>its perception tree</h2>
+    <div class="cap">The genome's evolved "response" tree: reads the look's 12x12 cells (x0-x143), the previous frame's (x144-x287) and its own last movement (x288-x289). Graded by the hand-written scores below.</div>
+    <div id="trees"></div>
+  </div>
+</div>
 
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        drawTree(ctx, laid, maxDepth, leafCount, canvas.width, canvas.height);
+<div class="charts" id="charts"></div>
+
+<div class="panel" style="margin-top:16px">
+  <h2>what drives it</h2>
+  <div class="cap">Every pressure currently in the fitness, with its real weight in run_vision.py. <span class="tag body">body</span> = comes from staying alive (the direction this is going: Dennett's "whole iguana"). <span class="tag hand">hand-written</span> = an older score bolted on from outside, to be retired one at a time as the body takes over. <span class="tag innate">innate</span> = hard-wired, not scored.</div>
+  <table class="drives">
+    <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
+    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of (1-energy)&sup2; + threat&sup2; + fatigue&sup2;. The biggest term. Energy is spent every frame on basal metabolism (0.003 + 0.003 &times; arousal), muscle force (0.010 &times; force&sup2;) and look size (0.01 &times; area &times; 150 / CPU quota, so a wide look costs more when CPU is scarce), and only restored by eating (up to 0.012 per frame).</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while energy is low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
+    <tr><td><span class="tag innate">innate</span></td><td>&mdash;</td><td>giant-fiber reflex</td><td>When something dark expands fast anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013) or threat is high, the reflex overrides the brain for that frame: jump and widen the look.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>alarm</td><td>Its brain's alarm output tracking real approaching objects.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+0.5 / +0.75 / +0.75</td><td>luminance_change / motion_energy / directional_motion</td><td>The response tree's output correlating with global brightness change, any change, and which way things move (Hassenstein-Reichardt).</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+2.0</td><td>loom (old detector)</td><td>Response tree correlating with reflexes.loom_score. Known flaw, measured: it scores sideways motion ~10x higher than a real approach. The body uses the corrected expansion detector; this score is first in line for retirement.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.5</td><td>conspec_drive</td><td>Staying engaged with a face-like pattern (Morton &amp; Johnson's CONSPEC), dampened by habituation to familiar harmless presence.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Rate of reaching new gaze positions (5x5 grid). Overlaps with eating novelty now.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0 / +1.0</td><td>optokinetic_pursuit / seek</td><td>Moving the look the way real motion goes; ending up near a detected face-like pattern.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead_field / movement_cost</td><td>Sustained stretches with nothing happening in the world; pushing the eye at all (on top of the body's energy cost for force).</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>corner / edge penalty</td><td>Sitting in a corner, or hard against one edge.</td></tr>
+  </table>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'energy', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity'];
+  const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm'];
+  const REPLAY_FPS = 15;
+  let D = null, t0 = performance.now();
+
+  function innerWidth(el) { const cs = getComputedStyle(el); return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); }
+
+  function drawGrid(ctx, values, shape, x, y, w, h) {
+    const [rows, cols] = shape;
+    for (let i = 0; i < rows; i++) {
+      const y0 = Math.round(y + i * h / rows), y1 = Math.round(y + (i + 1) * h / rows);
+      for (let j = 0; j < cols; j++) {
+        const x0 = Math.round(x + j * w / cols), x1 = Math.round(x + (j + 1) * w / cols);
+        const g = Math.round(Math.max(0, Math.min(1, values[i * cols + j])) * 255);
+        ctx.fillStyle = `rgb(${g},${g},${g})`;
+        ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
       }
     }
+  }
+  function crop(d, f) { return [2 * Math.floor(d.frame_w * f / 2), 2 * Math.floor(d.frame_h * f / 2)]; }
+  function boxColor(cx, cy, f) {
+    const hr = 0.5 - f / 2;
+    const nx = hr > 1e-9 ? (cx - 0.5) / hr : 0, ny = hr > 1e-9 ? (cy - 0.5) / hr : 0;
+    const corner = Math.abs(nx * ny), edge = Math.max(Math.abs(nx), Math.abs(ny));
+    return corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#4fa';
+  }
 
-    function drawGrid(canvas, values, shape) {
-      const ctx = canvas.getContext('2d');
-      if (values && shape) {
-        const [rows, cols] = shape;
-        for (let i = 0; i < rows; i++) {
-          const y0 = Math.round(i * canvas.height / rows);
-          const y1 = Math.round((i + 1) * canvas.height / rows);
-          for (let j = 0; j < cols; j++) {
-            const x0 = Math.round(j * canvas.width / cols);
-            const x1 = Math.round((j + 1) * canvas.width / cols);
-            const v = Math.max(0, Math.min(1, values[i * cols + j]));
-            const g = Math.round(v * 255);
-            ctx.fillStyle = `rgb(${g},${g},${g})`;
-            ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-          }
-        }
-      } else {
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Visual field + replay of the look's real path, frame by frame, no interpolation.
+  function drawField(now) {
+    requestAnimationFrame(drawField);
+    const d = D;
+    if (!d || !d.frame_w || !d.world_grid) return;
+    const c = $('field'), W = Math.max(200, Math.floor(innerWidth($('field-panel'))));
+    const H = Math.round(W * d.frame_h / d.frame_w);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d');
+    drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H);
+    const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx, d.fovea_cy, d.fovea_fraction || 0.35]];
+    const i = Math.floor((now - t0) / 1000 * REPLAY_FPS) % traj.length;
+    const ev = d.field_events && d.field_events[i];
+    if (ev) {
+      const [mx, my, act, loom, reflex] = ev;
+      if (act > 0.05) {
+        ctx.fillStyle = 'rgba(255, 68, 255, 0.75)';
+        ctx.beginPath(); ctx.arc(mx * W, my * H, 3 + act * 14, 0, 7); ctx.fill();
       }
-      return ctx;
+      if (reflex || loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
     }
+    ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    const k0 = Math.max(0, i - 45);
+    for (let k = k0; k <= i; k++) { const px = traj[k][0] * W, py = traj[k][1] * H; k === k0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
+    ctx.stroke();
+    const [cx, cy, f] = traj[i];
+    const [cw, ch] = crop(d, f), s = W / d.frame_w;
+    ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 3;
+    ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
+    $('replay-clock').textContent = `replay: frame ${i + 1} / ${traj.length}  (t = ${(i / REPLAY_FPS).toFixed(1)} s of ${(traj.length / REPLAY_FPS).toFixed(0)} s)` + (ev && ev[4] ? '  -- REFLEX' : '');
+  }
+  requestAnimationFrame(drawField);
 
+  function drawLook(d) {
+    if (!d.grid || !d.frame_w) return;
+    const f = d.fovea_fraction || 0.35, [cw, ch] = crop(d, f);
+    const c = $('look'), W = Math.max(160, Math.floor(innerWidth($('look-panel')))), H = Math.round(W * ch / cw);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    drawGrid(c.getContext('2d'), d.grid, d.grid_shape, 0, 0, W, H);
+    $('look-px').textContent = `${cw}x${ch} real pixels`;
+    $('field-px').textContent = `${d.frame_w}x${d.frame_h} real pixels`;
+    $('look-scale').textContent = `shown ${(W / cw).toFixed(1)}x its real size; the visual field is shown ${(innerWidth($('field-panel')) / d.frame_w).toFixed(1)}x.`;
+  }
 
-    // Replays the look's REAL per-frame path (cx, cy, aperture) from the
-    // latest evaluated run, one analyzed frame per step at ~15/s (camera
-    // at 30 fps, every 2nd frame analyzed) -- no interpolation, so a jump
-    // shows as a jump and a glide as a glide. User: "Your box is still
-    // jumping from place to place."
-    let field = null;
-    const REPLAY_FPS = 15;
-    function cropSize(d, f) {
-      return [2 * Math.floor(d.frame_w * f / 2), 2 * Math.floor(d.frame_h * f / 2)];
-    }
-    function animateField(now) {
-      if (field && field.d.frame_w && field.d.frame_h) {
-        const { d, scale } = field;
-        const wc = document.getElementById('visual-field');
-        const wctx = drawGrid(wc, d.world_grid, d.world_grid_shape);
-        const traj = (d.trajectory && d.trajectory.length) ? d.trajectory
-          : (d.fovea_cx !== undefined ? [[d.fovea_cx, d.fovea_cy, d.fovea_fraction || 0.35]] : []);
-        if (traj.length) {
-          const i = Math.floor((now - field.t0) / 1000 * REPLAY_FPS) % traj.length;
-          wctx.strokeStyle = 'rgba(127, 212, 255, 0.35)';
-          wctx.lineWidth = 1;
-          wctx.beginPath();
-          for (let k = Math.max(0, i - 45); k <= i; k++) {
-            const px = traj[k][0] * wc.width, py = traj[k][1] * wc.height;
-            if (k === Math.max(0, i - 45)) wctx.moveTo(px, py); else wctx.lineTo(px, py);
-          }
-          wctx.stroke();
-          const [cx, cy, f] = traj[i];
-          const [cw, ch] = cropSize(d, f);
-          const bw = cw * scale, bh = ch * scale;
-          // Same corner/edge penalties run_vision.py grades on: red = a
-          // true corner; orange = hard against one edge; yellow =
-          // approaching either; green = centered.
-          const halfRange = 0.5 - f / 2;
-          const nx = halfRange > 1e-9 ? (cx - 0.5) / halfRange : 0;
-          const ny = halfRange > 1e-9 ? (cy - 0.5) / halfRange : 0;
-          const corner = Math.abs(nx * ny), edge = Math.max(Math.abs(nx), Math.abs(ny));
-          wctx.strokeStyle = corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#4fa';
-          wctx.lineWidth = 2;
-          wctx.strokeRect(cx * wc.width - bw / 2, cy * wc.height - bh / 2, bw, bh);
-        }
-      }
-      requestAnimationFrame(animateField);
-    }
-    requestAnimationFrame(animateField);
-
-    // Gemini's homeostatic gauges -- the candidate's body at the end of
-    // its latest run, its energy over that run, and how often the
-    // giant-fiber escape reflex took over from the brain.
-    function spark(id, series, color, label) {
-      const c = document.getElementById(id);
-      if (!c || !series || series.length < 2) return;
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, c.width, c.height);
-      ctx.strokeStyle = '#1c2a36';
-      [0, 0.5, 1].forEach(v => { const y = (1 - v) * (c.height - 14) + 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke(); });
+  function gauge(name, v, color, note) {
+    const x = Math.max(0, Math.min(1, v || 0));
+    return `<div class="gauge"><span>${name}</span><div class="track"><div class="fill" style="width:${(x * 100).toFixed(1)}%;background:${color}"></div></div><span class="v">${(v || 0).toFixed(2)}</span></div>` + (note ? `<div class="note">${note}</div>` : '');
+  }
+  function spark(id, series, color, label) {
+    const c = $(id); if (!c) return;
+    c.width = Math.max(200, Math.floor(innerWidth(c.parentElement)));
+    const ctx = c.getContext('2d'), W = c.width, H = c.height;
+    ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#1c2a36'; [0, 0.5, 1].forEach(v => { const y = (1 - v) * (H - 16) + 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); });
+    if (series && series.length > 1) {
       ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath();
-      series.forEach((v, k) => { const x = k / (series.length - 1) * c.width, y = (1 - Math.max(0, Math.min(1, v))) * (c.height - 14) + 2; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      series.forEach((v, k) => { const x = k / (series.length - 1) * W, y = (1 - Math.max(0, Math.min(1, v))) * (H - 16) + 2; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
       ctx.stroke();
-      ctx.fillStyle = '#567'; ctx.font = '10px monospace'; ctx.fillText(label + ' (start -> end of latest run, 0..1)', 2, c.height - 2);
     }
+    ctx.fillStyle = '#6f8798'; ctx.font = '10px monospace'; ctx.fillText(label + ' over its latest run (0..1, start -> end)', 2, H - 3);
+  }
+  function drawBody(d) {
+    const b = d.body || {};
+    $('gauges').innerHTML =
+      gauge('energy', b.energy, '#4fa') + gauge('hunger', b.hunger, '#f6a', 'builds while energy is low') +
+      gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
+      gauge('arousal', b.arousal, '#7fd4ff', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
+      gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
+      `<div class="cap" style="margin-top:4px">reflex took over on <b style="color:var(--cyan)">${d.reflex_frames ?? '--'}</b> frames of its latest run</div>`;
+    spark('energy-trace', d.energy_series, '#4fa', 'energy');
+    $('food-gauge').innerHTML = gauge('food', d.mean_food, '#c8f', 'average per frame over its latest run');
+    spark('food-trace', d.food_series, '#c8f', 'food');
+    const m = d.movement || {};
+    $('movement').innerHTML =
+      gauge('fixating', m.fixate, '#6f8798', 'share of frames still') + gauge('gliding', m.glide, '#4fa', 'slow, smooth') +
+      gauge('saccades', m.saccade, '#f90', 'fast jumps') + gauge('scanning', m.scan_while_still, '#7fd4ff', 'gliding while the world is still') +
+      `<div class="gauge"><span>tracking</span><span class="cap" style="margin:0">${m.tracking === null || m.tracking === undefined ? 'not enough movement in the room this run' : 'correlation ' + m.tracking.toFixed(2) + ' with where motion was'}</span><span></span></div>`;
+  }
 
-    // Gemini's homeostatic gauges, plus what it's eating and how it
-    // moves -- the candidate's latest ~40 s run.
-    function renderBody(d) {
-      const el = document.getElementById('body-panel');
-      if (!el || !d.body) return;
-      const bar = (name, v, color, note) =>
-        `<div><span class="label" style="display:inline-block;width:78px">${name}</span>` +
-        `<span style="display:inline-block;width:180px;height:9px;background:#162029;vertical-align:middle">` +
-        `<span style="display:block;width:${Math.round(Math.max(0, Math.min(1, v)) * 180)}px;height:9px;background:${color}"></span></span> ${v.toFixed(2)}${note ? ' <span class="label">' + note + '</span>' : ''}</div>`;
-      const m = d.movement || {};
-      el.innerHTML =
-        '<div class="sub" style="margin:0 0 6px 0">body -- end of its latest run</div>' +
-        bar('energy', d.body.energy, '#4fa') + bar('arousal', d.body.arousal, '#7fd4ff') +
-        bar('threat', d.body.threat, '#f44') +
-        bar('hunger', d.body.hunger ?? 0, '#f6a', 'builds while energy is low') +
-        bar('curiosity', d.body.curiosity ?? 0, '#c8f', 'appetite for something new') +
-        bar('search', d.body.search, '#fd4', 'urge to look around, driven by hunger') +
-        bar('fatigue', d.body.fatigue, '#f90') +
-        `<div><span class="label">reflex took over:</span> ${d.reflex_frames ?? '--'} frames</div>` +
-        '<canvas id="energy-trace" width="340" height="56" style="margin-top:6px"></canvas>' +
-        '<div class="sub" style="margin:12px 0 6px 0">eating -- genuinely new visual structure through its look (a still room starves it; re-looking at what it has already seen does not feed it)</div>' +
-        bar('food', d.mean_food ?? 0, '#c8f', 'average per frame') +
-        '<canvas id="food-trace" width="340" height="56" style="margin-top:6px"></canvas>' +
-        '<div class="sub" style="margin:12px 0 6px 0">how it moves -- measured, not rewarded (Land 1969 yardstick for jumping-spider eyes)</div>' +
-        bar('fixating', m.fixate ?? 0, '#567', 'share of frames still') +
-        bar('gliding', m.glide ?? 0, '#4fa', 'slow, smooth') +
-        bar('saccades', m.saccade ?? 0, '#f90', 'fast jumps') +
-        bar('scanning', m.scan_while_still ?? 0, '#7fd4ff', 'gliding while the world is still') +
-        `<div><span class="label" style="display:inline-block;width:78px">tracking</span> ${m.tracking === null || m.tracking === undefined ? '<span class="label">-- (not enough movement in the room this run)</span>' : m.tracking.toFixed(2) + ' <span class="label">correlation with where the whole field saw motion</span>'}</div>`;
-      spark('energy-trace', d.energy_series, '#4fa', 'energy');
-      spark('food-trace', d.food_series, '#c8f', 'food');
+  // The whole recurrent brain.
+  function drawBrain(d) {
+    const br = d.brain; if (!br) return;
+    const c = $('brain'), W = Math.max(500, Math.floor(innerWidth(c.parentElement))), H = c.height;
+    c.width = W;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
+    const hm = Math.min(220, W * 0.25), netW = W - hm - 40;
+    const xin = 90, xh = xin + (netW - 90) * 0.5, xout = netW - 50;
+    const yAt = (k, n) => 24 + k * (H - 48) / Math.max(1, n - 1);
+    let maxW = 1e-9; br.weights_ih.forEach(r => r.forEach(v => maxW = Math.max(maxW, Math.abs(v)))); br.weights_ho.forEach(r => r.forEach(v => maxW = Math.max(maxW, Math.abs(v))));
+    const edge = (x1, y1, x2, y2, w) => { const a = Math.min(1, Math.abs(w) / maxW); ctx.strokeStyle = w >= 0 ? `rgba(127,212,255,${0.08 + 0.8 * a})` : `rgba(255,153,0,${0.08 + 0.8 * a})`; ctx.lineWidth = 0.5 + 2 * a; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+    for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edge(xin, yAt(i, nIn), xh, yAt(h, nH), br.weights_ih[h][i]);
+    for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edge(xh, yAt(h, nH), xout, yAt(o, nOut) , br.weights_ho[o][h]);
+    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    for (let i = 0; i < nIn; i++) { ctx.fillStyle = '#1a2a38'; ctx.beginPath(); ctx.arc(xin, yAt(i, nIn), 6, 0, 7); ctx.fill(); ctx.fillStyle = '#9fb6c6'; ctx.textAlign = 'right'; ctx.fillText(INPUT_NAMES[i] || ('in ' + i), xin - 10, yAt(i, nIn)); }
+    const hid = d.brain_hidden || [];
+    for (let h = 0; h < nH; h++) { const a = hid[h] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.arc(xh, yAt(h, nH), 9, 0, 7); ctx.fill(); ctx.stroke(); }
+    for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#4fa'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#4fa'; ctx.textAlign = 'left'; ctx.fillText(OUTPUT_NAMES[o] || ('out ' + o), xout + 16, yAt(o, nOut)); }
+    const hx = W - hm - 10, hy = 30, cell = hm / nH;
+    let mh = 1e-9; br.weights_hh.forEach(r => r.forEach(v => mh = Math.max(mh, Math.abs(v))));
+    for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) { const v = br.weights_hh[r][q], a = Math.abs(v) / mh; ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${a})` : `rgba(255,153,0,${a})`; ctx.fillRect(hx + q * cell, hy + r * cell, cell - 1, cell - 1); }
+    ctx.fillStyle = '#6f8798'; ctx.textAlign = 'left'; ctx.fillText('recurrent weights', hx, hy - 12);
+    ctx.fillText('from unit ->  (rows: to unit)', hx, hy + hm + 14);
+  }
+
+  // Trees (every tree the genome has).
+  function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
+  function layout(n, depth, order) {
+    if (!n.children || n.children.length === 0) return { node: n, depth, x: order.next++, children: [] };
+    const kids = n.children.map(c => layout(c, depth + 1, order));
+    return { node: n, depth, x: kids.reduce((s, k) => s + k.x, 0) / kids.length, children: kids };
+  }
+  function maxDepthOf(l) { return l.children.length ? 1 + Math.max(...l.children.map(maxDepthOf)) : 0; }
+  function renderTrees(trees, stats, limits) {
+    const box = $('trees'); box.innerHTML = '';
+    for (const name of Object.keys(trees)) {
+      const wrap = document.createElement('div');
+      const s = stats && stats[name];
+      wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''}</div>`;
+      const c = document.createElement('canvas'); wrap.appendChild(c); box.appendChild(wrap);
+      const order = { next: 0 }, laid = layout(trees[name], 0, order), leaves = Math.max(1, order.next), md = maxDepthOf(laid);
+      c.width = Math.max(300, (leaves + 1) * 52); c.height = Math.max(180, (md + 2) * 58);
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, c.width, c.height);
+      const xs = c.width / (leaves + 1), ys = c.height / (md + 2), pos = l => [(l.x + 1) * xs, (l.depth + 1) * ys];
+      (function edges(l) { const [px, py] = pos(l); for (const k of l.children) { const [qx, qy] = pos(k); ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(qx, qy); ctx.stroke(); edges(k); } })(laid);
+      (function nodes(l) { const [x, y] = pos(l); const op = l.node.kind === 'op'; ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#4fa' : '#7fd4ff'; ctx.beginPath(); ctx.arc(x, y, 18, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#cfe3f0'; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(nodeLabel(l.node), x, y); l.children.forEach(nodes); })(laid);
     }
+  }
 
-    async function tick() {
-      let el = document.getElementById('stats');
-      try {
-        const res = await fetch('/state');
-        const d = await res.json();
-        if (!d || d.generation === undefined) {
-          el.innerHTML = '<div class="stale">no live_status.json yet -- run_vision.py hasn\\'t written one</div>';
-          setTimeout(tick, 2000);
-          return;
-        }
-        // YouTube URL box only when a YouTube source is actually in use
-        // -- on the camera it would restart the service and change nothing.
-        document.getElementById('url-picker').style.display = d.is_live ? 'block' : 'none';
-        const watchingName = d.clip_name || d.clip || '';
-        const watchingLive = d.is_live
-          ? ` <a href="${d.clip}" target="_blank" rel="noopener" style="color:#4fa">(live &#8599;)</a>`
-          : '';
-        el.innerHTML = `
-          <div><span class="label">generation:</span> ${d.generation}</div>
-          <div><span class="label">fitness (live):</span> ${d.best_fitness}</div>
-          <div><span class="label">peak ever:</span> ${d.peak_fitness_seen !== undefined ? d.peak_fitness_seen : '--'}</div>
-          <div><span class="label">response:</span> ${d.response}</div>
-          <div><span class="label">habituation:</span> ${d.habituation_exposure}</div>
-          <div><span class="label">look size:</span> ${d.fovea_fraction_accepted !== undefined ? d.fovea_fraction_accepted : d.fovea_fraction} of frame (CPU quota ${d.quota_pct !== undefined ? d.quota_pct + '%' : '--'})</div>
-          <div><span class="label">watching:</span> ${watchingName}${watchingLive}</div>
-        `;
+  // History charts.
+  const CHARTS = [
+    { id: 'c-fit', title: 'fitness', cap: 'current genome, re-scored each generation / peak ever', series: [['fitness', '#4fa', r => r.best_fitness], ['peak ever', '#6f8798', r => r.peak_fitness_seen]] },
+    { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#4fa', r => r.mean_energy], ['food', '#c8f', r => r.mean_food]] },
+    { id: 'c-drive', title: 'homeostatic drive', cap: 'mean drive per run -- lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
+    { id: 'c-look', title: 'look size', cap: 'inherited look size at birth, and mean look size over each run (fraction of frame)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
+    { id: 'c-quota', title: 'CPU quota granted', cap: 'resource_handler: grows with real improvement, shrinks under system strain (%)', series: [['quota %', '#fd4', r => r.quota_pct]] },
+    { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#6f8798', r => r.mv && r.mv.fixate], ['glide', '#4fa', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
+    { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#7fd4ff', r => r.tree_depth]] },
+    { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#4fa', r => r.accepted_delta]] },
+    { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
+  ];
+  const MUT = ['mutate_brain', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  (function buildCharts() {
+    $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
+      (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +
+      `<canvas id="${ch.id}" height="190"></canvas></div>`).join('');
+  })();
+  function lineChart(ch, recs) {
+    const c = $(ch.id); c.width = Math.max(300, Math.floor(innerWidth(c.parentElement)));
+    const ctx = c.getContext('2d'), W = c.width, H = c.height; ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    const pad = { l: 46, r: 8, t: 8, b: 18 }, pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+    let lo = Infinity, hi = -Infinity;
+    ch.series.forEach(s => recs.forEach(r => { const v = s[2](r); if (v !== null && v !== undefined && isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }));
+    if (ch.fixed) { lo = ch.fixed[0]; hi = ch.fixed[1]; }
+    if (!isFinite(lo)) { ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText('no data yet (recorded from this build on)', pad.l, H / 2); return; }
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const n = recs.length, px = i => pad.l + (n <= 1 ? 0 : i / (n - 1)) * pw, py = v => pad.t + (1 - (v - lo) / (hi - lo)) * ph;
+    ctx.strokeStyle = '#1c2a36'; ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + ph); ctx.lineTo(pad.l + pw, pad.t + ph); ctx.stroke();
+    ctx.fillStyle = '#6f8798'; ctx.font = '10px monospace'; ctx.textAlign = 'right'; ctx.fillText(hi.toFixed(2), pad.l - 4, pad.t + 8); ctx.fillText(lo.toFixed(2), pad.l - 4, pad.t + ph);
+    ctx.textAlign = 'left'; ctx.fillText(recs.label_left || 'older', pad.l, H - 4); ctx.textAlign = 'right'; ctx.fillText('now', pad.l + pw, H - 4);
+    ch.series.forEach(s => { ctx.strokeStyle = s[1]; ctx.lineWidth = 1.5; ctx.beginPath(); let on = false;
+      recs.forEach((r, i) => { const v = s[2](r); if (v === null || v === undefined || !isFinite(v)) { on = false; return; } on ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v)); on = true; }); ctx.stroke(); });
+  }
+  function mutChart(ch, recs) {
+    const c = $(ch.id); c.width = Math.max(300, Math.floor(innerWidth(c.parentElement)));
+    const ctx = c.getContext('2d'), W = c.width, H = c.height; ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    const pad = { l: 104, r: 8, t: 8, b: 18 }, pw = W - pad.l - pad.r, rh = (H - pad.t - pad.b) / MUT.length;
+    ctx.font = '10px monospace'; ctx.textAlign = 'left';
+    MUT.forEach((t, k) => { ctx.fillStyle = MUT_COLOR[t]; ctx.fillText(t, 2, pad.t + k * rh + rh / 2 + 3); });
+    const n = recs.length;
+    recs.forEach((r, i) => (r.accepted_types || []).forEach(t => { const k = MUT.indexOf(t); if (k < 0) return; ctx.fillStyle = MUT_COLOR[t]; ctx.beginPath(); ctx.arc(pad.l + (n <= 1 ? 0 : i / (n - 1)) * pw, pad.t + k * rh + rh / 2, 3, 0, 7); ctx.fill(); }));
+  }
+  async function fetchHistory() {
+    try {
+      const h = await (await fetch('/history')).json();
+      const recs = h.records || []; recs.label_left = h.span_generations ? `${h.span_generations} generations ago` : 'older';
+      CHARTS.forEach(ch => ch.mutations ? mutChart(ch, recs) : lineChart(ch, recs));
+    } catch (e) { }
+    setTimeout(fetchHistory, 20000);
+  }
+  fetchHistory();
 
-        // User: "the visual field is always, BY DEFINITION, bigger than
-        // the looking part." ONE shared real-pixel scale for BOTH
-        // canvases below -- fixes a real bug where "look" (real crop
-        // 112x62) was independently capped at the same 240px max as
-        // "visual field" (real 320x179), making the smaller thing
-        // render as big as or bigger than the larger one. frac/cropW/
-        // cropH mirror fovea.py's own extract() math exactly
-        // (half_w = floor(w*frac/2), crop = 2*half) -- verified live
-        // against the actual running fovea.py, not re-derived blind.
-        const frac = d.fovea_fraction || 0.35;
-        let scale = 1, cropW = 0, cropH = 0;
-        if (d.frame_w && d.frame_h) {
-          scale = Math.min(720, window.innerWidth - 36) / Math.max(d.frame_w, d.frame_h);
-          const halfW = Math.floor(d.frame_w * frac / 2);
-          const halfH = Math.floor(d.frame_h * frac / 2);
-          cropW = 2 * halfW; cropH = 2 * halfH;
-        }
+  async function tick() {
+    try {
+      const d = await (await fetch('/state')).json();
+      if (d && d.generation !== undefined) {
+        if (!D || D.trajectory !== d.trajectory) { if (!D) t0 = performance.now(); }
+        D = d;
+        $('h-gen').textContent = d.generation;
+        $('h-fit').textContent = d.best_fitness;
+        $('h-peak').textContent = d.peak_fitness_seen;
+        $('h-src').textContent = d.clip_name || d.clip || '--';
+        $('h-look').textContent = `${d.fovea_fraction_accepted ?? '--'} of frame at birth`;
+        $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
+        $('h-stale').innerHTML = '';
+        $('url-picker').style.display = d.is_live ? 'block' : 'none';
+        drawLook(d); drawBody(d); drawBrain(d);
+        if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
+      } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
+    } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }
+    setTimeout(tick, 1000);
+  }
+  tick();
 
-        // "look" -- fovea.py's own real crop (112x62 here), scaled by
-        // the SAME factor as "visual field" below, so it renders
-        // genuinely smaller, never equal or bigger.
-        const lookC = document.getElementById('look');
-        if (cropW && cropH) {
-          lookC.width = Math.round(cropW * scale);
-          lookC.height = Math.round(cropH * scale);
-        }
-        drawGrid(lookC, d.grid, d.grid_shape);
-
-        // "visual field" -- the full real frame (320x179 here), same
-        // scale.
-        const wc = document.getElementById('visual-field');
-        if (d.frame_w && d.frame_h) {
-          wc.width = Math.round(d.frame_w * scale);
-          wc.height = Math.round(d.frame_h * scale);
-        }
-
-        // The look's box is drawn by animateField() below, replaying its
-        // real path -- keep this generation's data for it.
-        if (!field || field.d !== d) field = { d, scale, t0: field ? field.t0 : performance.now() };
-
-        renderBody(d);
-
-        // Real pixel counts, computed live -- User: "get the right
-        // pixel counts for each." Never a static guess.
-        const lookPx = document.getElementById('look-pixels');
-        const fieldPx = document.getElementById('field-pixels');
-        if (lookPx) lookPx.textContent = cropW && cropH ? `${cropW}x${cropH} real pixels` : '--';
-        if (fieldPx) fieldPx.textContent = d.frame_w && d.frame_h ? `${d.frame_w}x${d.frame_h} real pixels` : '--';
-
-        if (d.trees) {
-          renderTrees(d.trees, d.tree_stats, d.tree_limits);
-        }
-      } catch (e) {
-        el.innerHTML = '<div class="stale">error polling /state</div>';
-      }
-      setTimeout(tick, 1000);
-    }
-    tick();
-
-    // -- Growth-over-time charts (real history, /history) -----------
-    function drawLineChart(canvasId, xs, series) {
-      const c = document.getElementById(canvasId);
-      const ctx = c.getContext('2d');
-      const w = c.width, h = c.height;
-      ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, w, h);
-      if (!xs.length) {
-        ctx.fillStyle = '#567'; ctx.font = '11px monospace';
-        ctx.fillText('not enough history yet', 8, h / 2);
-        return;
-      }
-      const pad = { l: 40, r: 8, t: 8, b: 16 };
-      const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
-      const xMin = xs[0], xMax = xs[xs.length - 1];
-      let yMin = Infinity, yMax = -Infinity;
-      for (const s of series) {
-        for (const v of s.values) {
-          if (v === null || v === undefined || !isFinite(v)) continue;
-          yMin = Math.min(yMin, v); yMax = Math.max(yMax, v);
-        }
-      }
-      if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
-      if (yMin === yMax) { yMin -= 1; yMax += 1; }
-      const yPad = (yMax - yMin) * 0.08;
-      yMin -= yPad; yMax += yPad;
-      const px = x => pad.l + (xMax === xMin ? 0 : (x - xMin) / (xMax - xMin)) * plotW;
-      const py = y => pad.t + (1 - (y - yMin) / (yMax - yMin)) * plotH;
-
-      ctx.strokeStyle = '#234'; ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + plotH); ctx.lineTo(pad.l + plotW, pad.t + plotH);
-      ctx.stroke();
-      ctx.fillStyle = '#567'; ctx.font = '9px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(yMax.toFixed(2), pad.l - 4, pad.t + 8);
-      ctx.fillText(yMin.toFixed(2), pad.l - 4, pad.t + plotH);
-      ctx.textAlign = 'left';
-      ctx.fillText('oldest', pad.l, h - 4);
-      ctx.textAlign = 'right';
-      ctx.fillText('newest', pad.l + plotW, h - 4);
-
-      for (const s of series) {
-        ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        let started = false;
-        for (let i = 0; i < xs.length; i++) {
-          const v = s.values[i];
-          if (v === null || v === undefined || !isFinite(v)) { started = false; continue; }
-          const x = px(xs[i]), y = py(v);
-          if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
-        }
-        ctx.stroke();
-      }
-    }
-
-    const MUTATION_TYPES = ['mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree', 'mutate_fovea'];
-    const MUTATION_COLORS = { mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66', mutate_fovea: '#c8f' };
-
-    function drawMutationChart(records) {
-      const c = document.getElementById('chart-mutation');
-      const ctx = c.getContext('2d');
-      const w = c.width, h = c.height;
-      ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, w, h);
-      const accepted = records.filter(r => r.accepted && MUTATION_TYPES.includes(r.mutation_type));
-      const pad = { l: 78, r: 8, t: 8, b: 16 };
-      const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
-      const rowH = plotH / MUTATION_TYPES.length;
-      ctx.font = '9px monospace'; ctx.fillStyle = '#567'; ctx.textAlign = 'left';
-      MUTATION_TYPES.forEach((t, i) => ctx.fillText(t, 2, pad.t + i * rowH + rowH / 2 + 3));
-      if (!accepted.length) {
-        ctx.fillStyle = '#567'; ctx.fillText('no accepted mutations in this window yet', pad.l, h / 2);
-        return;
-      }
-      // Real bug fix, User: "What's happening to the charts?" --
-      // box.generation resets to 1 every hourly restart, but this
-      // window can span multiple restarts, so raw generation numbers
-      // aren't monotonic across it. Positioned by RECORD INDEX
-      // instead (the tail is already in real chronological/file
-      // order), which is always correct regardless of restarts.
-      const n = records.length;
-      const px = i => pad.l + (n <= 1 ? 0 : i / (n - 1)) * plotW;
-      records.forEach((r, i) => {
-        if (!r.accepted || !MUTATION_TYPES.includes(r.mutation_type)) return;
-        const row = MUTATION_TYPES.indexOf(r.mutation_type);
-        const x = px(i), y = pad.t + row * rowH + rowH / 2;
-        ctx.fillStyle = MUTATION_COLORS[r.mutation_type];
-        ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill();
-      });
-    }
-
-    function treeNodes(r, ch) { return r.tree_stats && r.tree_stats[ch] ? r.tree_stats[ch].nodes : null; }
-    function treeDepth(r, ch) { return r.tree_stats && r.tree_stats[ch] ? r.tree_stats[ch].depth : null; }
-
-    async function fetchHistory() {
-      try {
-        const res = await fetch('/history');
-        const records = await res.json();
-        if (records && records.length) {
-          const xs = records.map((r, i) => i);
-          drawLineChart('chart-fitness', xs, [
-            { values: records.map(r => r.best_fitness), color: '#4fa' },
-            { values: records.map(r => r.peak_fitness_seen), color: '#567' },
-          ]);
-          drawLineChart('chart-nodes', xs, [
-            { values: records.map(r => {
-                const total = ['response', 'pan', 'tilt'].reduce((s, ch) => s + (treeNodes(r, ch) || 0), 0);
-                return r.tree_stats ? total : null;
-              }), color: '#7fd4ff' },
-            { values: records.map(r => treeNodes(r, 'response')), color: '#f90' },
-            { values: records.map(r => treeNodes(r, 'pan')), color: '#0af' },
-            { values: records.map(r => treeNodes(r, 'tilt')), color: '#f6f' },
-          ]);
-          drawLineChart('chart-depth', xs, [
-            { values: records.map(r => treeDepth(r, 'response')), color: '#f90' },
-            { values: records.map(r => treeDepth(r, 'pan')), color: '#0af' },
-            { values: records.map(r => treeDepth(r, 'tilt')), color: '#f6f' },
-          ]);
-          drawLineChart('chart-delta', xs, [
-            { values: records.map(r => r.accepted ? r.fitness_delta : null), color: '#4fa' },
-          ]);
-          drawMutationChart(records);
-        }
-      } catch (e) { /* history is a nice-to-have; a failed fetch shouldn't break the live panels above */ }
-      setTimeout(fetchHistory, 20000);
-    }
-    fetchHistory();
-
-    // User: "'Submit' should trigger a restart of
-    // cambrian-perception.service" -- /select now does that itself
-    // (real sudo systemctl restart, confirmed passwordless) once the
-    // URL's confirmed live, so this really does take effect right
-    // away, not on some future restart. "watching:" in the stats
-    // panel above (already polled every 1s) is the honest way to
-    // confirm it actually applied -- User: "How do I know if it's
-    // watching?" -- once the restart completes and the new process
-    // writes its own live_status.json, that line updates on its own.
-    document.getElementById('custom-url-submit').addEventListener('click', async () => {
-      const input = document.getElementById('custom-url');
-      const status = document.getElementById('submit-status');
-      const url = input.value.trim();
-      if (!url) return;
-      status.textContent = 'checking it\\'s really live...';
-      try {
-        const res = await fetch('/select?url=' + encodeURIComponent(url));
-        const d = await res.json();
-        status.textContent = d.ok ? 'restarting -- watch "watching:" above' : ('failed: ' + (d.error || 'unknown'));
-        if (d.ok) { input.value = ''; }
-      } catch (err) { status.textContent = 'failed'; }
-    });
-  </script>
+  $('custom-url-submit').addEventListener('click', async () => {
+    const url = $('custom-url').value.trim(); if (!url) return;
+    $('submit-status').textContent = 'checking it is really live...';
+    try { const r = await (await fetch('/select?url=' + encodeURIComponent(url))).json();
+      $('submit-status').textContent = r.ok ? 'restarting -- watch "watching" above' : ('failed: ' + (r.error || 'unknown')); }
+    catch (e) { $('submit-status').textContent = 'failed'; }
+  });
+</script>
 </body>
 </html>
 """
@@ -754,7 +561,7 @@ class Handler(BaseHTTPRequestHandler):
             # complexity increases and whether it earns its structural
             # cost." A real tail of evolution_log.jsonl, not the whole
             # (potentially ~20000-line) file.
-            body = json.dumps(_tail_jsonl(EVOLUTION_LOG_PATH)).encode("utf-8")
+            body = json.dumps(_history_summary(_tail_jsonl(EVOLUTION_LOG_PATH))).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
