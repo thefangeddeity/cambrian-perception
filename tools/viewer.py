@@ -534,12 +534,12 @@ PAGE = r"""<!doctype html>
   <div class="panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap">The recurrent network that moves the gaze (fishbowl/controller.py): 28 inputs (senses, body, sleep, the day's light, the perception tree's output, its prey sense) &rarr; a recurrent hidden layer of <b id="brain-units">--</b> units (it grows by duplicating a unit, born unconnected, and shrinks; each unit costs energy for its arithmetic) &rarr; pan / tilt / zoom / alarm / tempo / sleep, plus any <b>channels</b> it has grown: an extra output wired back in as an input -- a <em>loop</em> (duplicated from an existing output, a working memory or a signal to itself) or a <em>predictor</em> (it guesses one of its inputs and gets back how wrong it was). A newborn channel changes nothing; its loop costs energy only once evolution wires it up. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <div class="cap">The recurrent network that moves the gaze (fishbowl/controller.py): 28 inputs (senses, body, sleep, the day's light, the perception tree's output, its prey sense) &rarr; a recurrent hidden layer of <b id="brain-units">--</b> units, with <b id="brain-layers">--</b> stacked on top (a mutation stacks a silent copy of its top layer; a mutation that opens its gate switches it on, and only then does it cost anything) (it grows by duplicating a unit, born unconnected, and shrinks; each unit costs energy for its arithmetic) &rarr; pan / tilt / zoom / alarm / tempo / sleep, plus any <b>channels</b> it has grown: an extra output wired back in as an input -- a <em>loop</em> (duplicated from an existing output, a working memory or a signal to itself) or a <em>predictor</em> (it guesses one of its inputs and gets back how wrong it was). A newborn channel changes nothing; its loop costs energy only once evolution wires it up. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): a square of small square receptors (<span id="look-px">--</span>), each 1/64 of the frame's height, shown where it really is in its whole visual field (the panel), at its true size. How many receptors it has is inherited and evolves a ring at a time, each one paid for per look -- growing the eye is more receptors, not the same ones stretched (it has no zoom). Dashed: the biggest eye it could evolve. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). In step with the picture and the visual field (same replay clock); its receptors are rebuilt in your browser from the frame on screen with the same averaging its eye does -- a reconstruction, not its exact input. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): a square of small square receptors (<span id="look-px">--</span>), each 1/64 of the frame's height, shown where it really is in its whole visual field (the panel), at its true size. How many receptors it has is inherited and evolves a ring at a time, each one paid for per look -- growing the eye is more receptors, not the same ones stretched (it has no zoom). Dashed: the biggest eye it could evolve. The only place it sees detail, and the only way it eats. Its receptors are rods and cones: the cones, a central patch (dotted orange) whose size is inherited and evolves a ring at a time, are the only ones that can see colour -- once it has evolved colour channels -- and each costs energy for every colour channel it serves; the rods around them see grey and cost less. (The visual field stays monochrome, like a jumping spider's secondary eyes.) In step with the picture and the visual field (same replay clock); its receptors are rebuilt in your browser from the frame on screen with the same averaging its eye does -- a reconstruction, not its exact input. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
 </div>
@@ -756,6 +756,7 @@ PAGE = r"""<!doctype html>
     const d = D;
     if (!d || !d.frame_w) return;
     const R = replayAt(d, now, CLK, REPLAY_FPS), fmax = d.max_fraction || 0.6, N = d.receptors || 12;
+    const C = Math.min(N, d.cones ?? N), c0 = (N - C) >> 1;  // its cones: the central C x C (rods around them)
     const img = $('cam');
     let cells = null;
     if (typeof F !== 'undefined' && F.shown != null && img.naturalWidth) {
@@ -779,7 +780,8 @@ PAGE = r"""<!doctype html>
       for (let r = 0; r < N; r++) for (let q = 0; q < N; q++) {
         const [Rv, Gv, Bv] = cells[r * N + q];
         const grey = Math.round(0.299 * Rv + 0.587 * Gv + 0.114 * Bv);
-        ctx.fillStyle = colour ? `rgb(${Math.round(Rv)},${Math.round(Gv)},${Math.round(Bv)})` : `rgb(${grey},${grey},${grey})`;
+        const cone = r >= c0 && r < c0 + C && q >= c0 && q < c0 + C;
+        ctx.fillStyle = colour && cone ? `rgb(${Math.round(Rv)},${Math.round(Gv)},${Math.round(Bv)})` : `rgb(${grey},${grey},${grey})`;
         const xa = Math.round(lx + q * lw / N), xb = Math.round(lx + (q + 1) * lw / N);
         const ya = Math.round(ly + r * lh / N), yb = Math.round(ly + (r + 1) * lh / N);
         ctx.fillRect(xa, ya, xb - xa, yb - ya);
@@ -788,10 +790,14 @@ PAGE = r"""<!doctype html>
       if (d.colour_grid && d.colour_grid.length >= d.grid.length) drawColourGrid(ctx, d.grid, d.colour_grid, d.grid_shape, lx, ly, lw, lh);
       else drawGrid(ctx, d.grid, d.grid_shape, lx, ly, lw, lh);
     }
+    if (C > 0 && C < N) {  // the cone patch
+      ctx.strokeStyle = 'rgba(255, 190, 90, 0.8)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.strokeRect(lx + c0 * lw / N, ly + c0 * lh / N, C * lw / N, C * lh / N); ctx.setLineDash([]);
+    }
     ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
     ctx.fillText(cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
-    $('look-px').textContent = `${N}x${N} receptors, ${cw}x${ch} real pixels`;
+    $('look-px').textContent = `${N}x${N} receptors (the central ${C}x${C} cones, the rest rods), ${cw}x${ch} real pixels`;
     $('field-px').textContent = `${(d.world_grid_shape || [12, 12])[1]}x${(d.world_grid_shape || [12, 12])[0]} square receptors over ${d.frame_w}x${d.frame_h} real pixels`;
     $('look-scale').textContent = `Its eye is ${N}x${N} receptors, ${f.toFixed(3)} of the frame's height, centred at (${gx.toFixed(2)}, ${gy.toFixed(2)}); dashed: the biggest eye it could evolve (${fmax.toFixed(2)}). Shown ${s.toFixed(1)}x real size.`;
   }
@@ -850,6 +856,7 @@ PAGE = r"""<!doctype html>
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
+    if ($('brain-layers')) { const ls = br.layers || [], on = ls.filter(l => l.gate && l.gate[0] !== 0); $('brain-layers').textContent = `${on.length} layer${on.length === 1 ? '' : 's'}` + (ls.length > on.length ? ` (+${ls.length - on.length} silent)` : '') + (on.length ? ` -- gates ${on.map(l => l.gate[0].toFixed(2)).join(', ')}` : ''); }
     const c = $('brain'), W = Math.max(200, fitWidth($('brain').closest('.panel'), quadAspect()));
     // Same shape as the other three; a narrow phone screen gets extra height
     // so its 19 input labels stay legible.
@@ -915,8 +922,8 @@ PAGE = r"""<!doctype html>
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#4fa', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
       (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +

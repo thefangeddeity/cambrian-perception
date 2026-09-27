@@ -33,21 +33,23 @@ from .controller import MosquitoBrain
 # mutate_brain perturbs the recurrent motor brain (controller.py).
 # mutate_pace changes its pace of life (how often it looks; see run_vision.py).
 # mutate_colour adds or removes a colour-opponent channel in the gaze (see retina.py).
+# mutate_cones grows or shrinks the gaze's central patch of cones (colour receptors) by a ring (fovea.py).
 # grow_unit / shrink_unit add (a duplicated, unconnected copy) or remove a hidden unit.
+# duplicate_layer / remove_layer stack a silent copy of the brain's top layer or remove one (controller.py).
 # grow_channel / add_prediction / shrink_channel add or remove a brain
 # channel -- an output wired back in as an input (controller.py): a latch
 # duplicated from an existing output, or a predictor of one of its inputs.
 # mutate_stabilizer changes its image-stabilization reflex gain (run_vision.py).
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace",
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
-            "mutate_prey_sense", "grow_unit", "shrink_unit")
+            "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones")
 STABILIZER_SIGMA = 0.1
 # Prey sense (run_vision.py): 0 = eyes only, 1 = scent (prey somewhere in
 # view), 2 = + a coarse direction to it. mutate_prey_sense steps it by one.
 MAX_PREY_SENSE = 2
 # Structural additions that change nothing at birth (run_vision.py keeps
 # them on a tie, so they can drift until they are useful).
-NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "grow_unit")
+NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "grow_unit", "duplicate_layer")
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
 BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
@@ -143,6 +145,7 @@ class Genome:
         colour_channels: int = 0,
         stabilizer: float = 0.0,
         prey_sense: int = 0,
+        cones: int | None = None,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -150,6 +153,9 @@ class Genome:
         self.n_vars = n_vars
         # Its eye: receptors per side (fovea.py), 0 for a task without one.
         self.receptors = fovea.even_receptors(receptors) if receptors else 0
+        # Its cones: the central cones x cones of its receptors (the rest are
+        # rods); by default all of them, like the eye before rods and cones.
+        self.cones = self.receptors if cones is None else int(np.clip(cones, 0, self.receptors))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -184,6 +190,7 @@ class Genome:
             self.colour_channels,
             self.stabilizer,
             self.prey_sense,
+            self.cones,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -335,7 +342,12 @@ class Genome:
             old = self.receptors
             if old:
                 self.receptors = fovea.even_receptors(old + rng.choice((-2, 2)))  # one ring
+                self.cones = min(self.cones, self.receptors)
             return "fovea", (choice if self.receptors != old else "noop_inapplicable")
+        if choice == "mutate_cones":
+            old = self.cones
+            self.cones = int(np.clip(old + rng.choice((-2, 2)), 0, self.receptors))  # one ring of cones
+            return "fovea", (choice if self.cones != old else "noop_inapplicable")
         if choice == "mutate_pace":
             old = self.pace
             self.pace = int(np.clip(old + rng.choice((-1, 1)), MIN_PACE, MAX_PACE))
@@ -362,6 +374,10 @@ class Genome:
             return "brain", (choice if self.brain.grow_unit(rng) else "noop_inapplicable")
         if choice == "shrink_unit":
             return "brain", (choice if self.brain.shrink_unit(rng) else "noop_inapplicable")
+        if choice == "duplicate_layer":
+            return "brain", (choice if self.brain.duplicate_layer(rng) else "noop_inapplicable")
+        if choice == "remove_layer":
+            return "brain", (choice if self.brain.remove_layer(rng) else "noop_inapplicable")
         if choice == "shrink_channel":
             return "brain", (choice if self.brain.shrink_channel(rng) else "noop_inapplicable")
         if choice == "grow":
@@ -453,6 +469,7 @@ class Genome:
             "n_vars": self.n_vars,
             "op_success": self.op_success,
             "receptors": self.receptors,
+            "cones": self.cones,
             "brain": self.brain.to_dict(),
             "pace": self.pace,
             "colour_channels": self.colour_channels,
@@ -505,6 +522,7 @@ class Genome:
             colour_channels=int(np.clip(data.get("colour_channels", 0), 0, MAX_COLOUR_CHANNELS)),
             stabilizer=float(np.clip(data.get("stabilizer", 0.0), 0.0, 1.0)),
             prey_sense=int(np.clip(data.get("prey_sense", 0), 0, MAX_PREY_SENSE)),
+            cones=data.get("cones"),
         )
 
 

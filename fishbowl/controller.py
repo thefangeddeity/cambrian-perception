@@ -45,6 +45,24 @@ original 16-unit brain) x CPU scarcity, so a host with cores to spare can
 afford a big brain and a starved one keeps a lean one. The perception tree
 reads the first TREE_HIDDEN units.
 
+Stacked layers by duplication (after a deep-learning panel -- Net2Net's
+function-preserving "deeper net", Chen, Goodfellow & Shlens 2016, in its
+residual form; and the vertebrate genome's two rounds of whole-genome
+duplication, Ohno 1970, most duplicates later lost, the survivors taking on
+new or divided jobs, Force et al. 1999). A mutation stacks a copy of the top
+layer on top of the brain:
+
+    h_k = h_(k-1) + gate_k * tanh(b_k + W_k h_(k-1) + U_k h_k(previous step))
+
+born with gate 0 -- so it changes nothing, and is kept on a tie -- and
+silent layers are not computed and cost nothing (a duplicated gene that is
+not expressed); a mutation that opens the gate switches it on, from then on
+priced by its arithmetic like the rest of the brain. The motor outputs read
+the top layer; the perception tree reads the first layer. Another mutation
+removes a stacked layer. All layers have the same units (the skip needs
+it), so growing or removing a unit does it in every layer. No depth is
+chosen by hand: how deep it gets is what pays.
+
 Runs on numpy (a matrix step, 10-20x faster than the old Python loops).
 """
 
@@ -62,6 +80,7 @@ INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
 HIDDEN = 16         # a newborn brain's hidden layer
 TREE_HIDDEN = 16    # how many hidden units the perception tree reads (its inputs keep fixed positions)
 MIN_HIDDEN, MAX_HIDDEN = 4, 256  # MAX is a safety bound only; the price is what limits growth
+MAX_LAYERS = 16  # stacked layers: a safety bound only, like MAX_HIDDEN
 BASE_OUTPUTS = 6  # [pan, tilt, zoom (unused), alarm, tempo, sleep]
 OUTPUTS = BASE_OUTPUTS
 MAX_CHANNELS = 4
@@ -98,13 +117,20 @@ REFERENCE_MACS = _macs(HIDDEN, BASE_INPUTS, BASE_OUTPUTS)  # the original brain:
 
 
 class MosquitoBrain:
-    def __init__(self, weights_ih, weights_hh, weights_ho, bias_h, bias_o, channels: list[dict] | None = None):
+    def __init__(self, weights_ih, weights_hh, weights_ho, bias_h, bias_o, channels: list[dict] | None = None,
+                 layers: list[dict] | None = None):
         self.weights_ih = np.array(weights_ih, dtype=float)  # (hidden, inputs)
         self.weights_hh = np.array(weights_hh, dtype=float)  # (hidden, hidden)
         self.weights_ho = np.array(weights_ho, dtype=float)  # (outputs, hidden)
         self.bias_h = np.array(bias_h, dtype=float)
         self.bias_o = np.array(bias_o, dtype=float)
         self.channels = [dict(c) for c in (channels or [])]
+        # Stacked layers (see the module docstring): W from the layer below,
+        # U its own recurrence, b, and its gate (a 1-element array, so a
+        # mutation can nudge it like any weight).
+        self.layers = [{"W": np.array(l["W"], dtype=float), "U": np.array(l["U"], dtype=float),
+                        "b": np.array(l["b"], dtype=float), "gate": np.array(l["gate"], dtype=float).reshape(1)}
+                       for l in (layers or [])]
         self.reset_hidden()
 
     @classmethod
@@ -126,6 +152,7 @@ class MosquitoBrain:
 
     def reset_hidden(self) -> None:
         self.hidden = np.zeros(self.n_hidden)
+        self.layer_hidden = [np.zeros(self.n_hidden) for _ in self.layers]
         self.loop_in = np.zeros(len(self.channels))  # what each channel feeds back this step
         self._pred = np.zeros(len(self.channels))    # each predictor's last prediction
 
@@ -174,7 +201,13 @@ class MosquitoBrain:
         x = np.concatenate([base, self.loop_in]) if self.channels else base
         # Recurrent hidden update h = tanh(W_ih x + W_hh h_prev + b_h); motor readout o = tanh(W_ho h + b_o).
         self.hidden = np.tanh(self.bias_h + self.weights_ih @ x + self.weights_hh @ self.hidden)
-        outputs = np.tanh(self.bias_o + self.weights_ho @ self.hidden)
+        top = self.hidden
+        for k, layer in enumerate(self.layers):
+            g = float(layer["gate"][0])
+            if g != 0.0:  # a silent layer is not computed (and costs nothing)
+                self.layer_hidden[k] = np.tanh(layer["b"] + layer["W"] @ top + layer["U"] @ self.layer_hidden[k])
+                top = top + g * self.layer_hidden[k]
+        outputs = np.tanh(self.bias_o + self.weights_ho @ top)
         for k, ch in enumerate(self.channels):
             o = outputs[BASE_OUTPUTS + k]
             if ch["kind"] == "predict":
@@ -185,8 +218,14 @@ class MosquitoBrain:
 
     # ---- what it costs to think -------------------------------------------------
     def think_factor(self) -> float:
-        """This brain's arithmetic per step relative to the original 16-unit brain."""
-        return _macs(self.n_hidden, self.weights_ih.shape[1], self.weights_ho.shape[0]) / REFERENCE_MACS
+        """This brain's arithmetic per step relative to the original 16-unit
+        brain (a stacked layer counts only while its gate is open)."""
+        h = self.n_hidden
+        stacked = sum(2 * h * h + h for l in self.layers if float(l["gate"][0]) != 0.0)
+        return (_macs(h, self.weights_ih.shape[1], self.weights_ho.shape[0]) + stacked) / REFERENCE_MACS
+
+    def active_layers(self) -> int:
+        return sum(1 for l in self.layers if float(l["gate"][0]) != 0.0)
 
     def loop_synapses(self) -> float:
         """Total weight on the channels' way back in (their energy price)."""
@@ -209,6 +248,11 @@ class MosquitoBrain:
         self.weights_hh = np.vstack([np.hstack([self.weights_hh, np.zeros((h, 1))]), listens])
         self.weights_ho = np.hstack([self.weights_ho, np.zeros((self.weights_ho.shape[0], 1))])
         self.bias_h = np.append(self.bias_h, self.bias_h[src])
+        for l in self.layers:  # the same unit in every stacked layer: listens like its original, unread
+            for key in ("W", "U"):
+                m = l[key]
+                l[key] = np.vstack([np.hstack([m, np.zeros((h, 1))]), np.append(m[src], m[src, src] if key == "U" else 0.0)])
+            l["b"] = np.append(l["b"], l["b"][src])
         self.reset_hidden()
         return True
 
@@ -221,6 +265,30 @@ class MosquitoBrain:
         self.weights_hh = np.delete(np.delete(self.weights_hh, k, axis=0), k, axis=1)
         self.weights_ho = np.delete(self.weights_ho, k, axis=1)
         self.bias_h = np.delete(self.bias_h, k)
+        for l in self.layers:
+            l["W"] = np.delete(np.delete(l["W"], k, axis=0), k, axis=1)
+            l["U"] = np.delete(np.delete(l["U"], k, axis=0), k, axis=1)
+            l["b"] = np.delete(l["b"], k)
+        self.reset_hidden()
+        return True
+
+    # ---- stacked layers ------------------------------------------------------------
+    def duplicate_layer(self, rng: random.Random) -> bool:
+        """Stacks a copy of the top expressed layer on top, silent (gate 0):
+        its W and U copy that layer's recurrence, its bias that layer's. A
+        silent copy doesn't mutate (only its gate does), so while one waits a
+        second would be the identical copy again: refused."""
+        if len(self.layers) >= MAX_LAYERS or any(float(l["gate"][0]) == 0.0 for l in self.layers):
+            return False
+        src = self.layers[-1] if self.layers else {"U": self.weights_hh, "b": self.bias_h}
+        self.layers.append({"W": src["U"].copy(), "U": src["U"].copy(), "b": src["b"].copy(), "gate": np.zeros(1)})
+        self.reset_hidden()
+        return True
+
+    def remove_layer(self, rng: random.Random) -> bool:
+        if not self.layers:
+            return False
+        del self.layers[rng.randrange(len(self.layers))]
         self.reset_hidden()
         return True
 
@@ -258,15 +326,20 @@ class MosquitoBrain:
 
     def clone(self) -> MosquitoBrain:
         return MosquitoBrain(self.weights_ih.copy(), self.weights_hh.copy(), self.weights_ho.copy(),
-                             self.bias_h.copy(), self.bias_o.copy(), channels=self.channels)
+                             self.bias_h.copy(), self.bias_o.copy(), channels=self.channels,
+                             layers=[{k: v.copy() for k, v in l.items()} for l in self.layers])
 
     def mutate(self, rng: random.Random, sigma: float = 0.05) -> int:
         """
         Nudges 1-3 randomly chosen weights/biases (every one equally likely)
         by a small step -- heavy-tailed, see HEAVY_TAIL_P. Small steps give
         selection something it can climb; the rare big ones get it off plateaus.
+        A silent stacked layer offers only its gate (its weights wait unexpressed,
+        and don't dilute the search -- Hinton's caveat on growing networks).
         """
-        arrays = (self.weights_ih, self.weights_hh, self.weights_ho, self.bias_h, self.bias_o)
+        arrays = (self.weights_ih, self.weights_hh, self.weights_ho, self.bias_h, self.bias_o,
+                  *(l[key] for l in self.layers
+                    for key in (("W", "U", "b", "gate") if float(l["gate"][0]) != 0.0 else ("gate",))))
         sizes = np.cumsum([a.size for a in arrays])
         k = rng.randint(1, 3)
         for flat in rng.sample(range(int(sizes[-1])), k):
@@ -287,6 +360,7 @@ class MosquitoBrain:
             "bias_h": self.bias_h.tolist(),
             "bias_o": self.bias_o.tolist(),
             "channels": self.channels,
+            "layers": [{k: v.tolist() for k, v in l.items()} for l in self.layers],
             "base_inputs": BASE_INPUTS,
             "base_outputs": BASE_OUTPUTS,
         }
@@ -306,4 +380,5 @@ class MosquitoBrain:
         ho, bo = [list(r) for r in data["weights_ho"]], list(data["bias_o"])
         weights_ho = ho[:n_out_saved] + [[0.0] * n_hid for _ in range(BASE_OUTPUTS - n_out_saved)] + ho[n_out_saved:]
         bias_o = bo[:n_out_saved] + [0.0] * (BASE_OUTPUTS - n_out_saved) + bo[n_out_saved:]
-        return cls(weights_ih, data["weights_hh"], weights_ho, data["bias_h"], bias_o, channels=channels)
+        return cls(weights_ih, data["weights_hh"], weights_ho, data["bias_h"], bias_o, channels=channels,
+                   layers=data.get("layers"))

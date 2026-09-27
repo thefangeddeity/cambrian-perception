@@ -121,14 +121,26 @@ def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
     return frame_to_vector(_window(full_frame_gray, state), (state.n, state.n))
 
 
-def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int) -> np.ndarray:
+def cone_mask(n: int, cones: int) -> np.ndarray:
+    """Which of the n x n receptors are cones: the central cones x cones (the
+    rest are rods)."""
+    m = np.zeros((n, n), dtype=bool)
+    lo = (n - min(cones, n)) // 2
+    m[lo:lo + min(cones, n), lo:lo + min(cones, n)] = True
+    return m
+
+
+def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int, cones: int | None = None) -> np.ndarray:
     """The gaze's colour receptors: `channels` opponent grids (0, 1 = red-green,
-    2 = + blue-yellow) over the same receptors as extract(), flattened; empty if 0."""
+    2 = + blue-yellow) over the same receptors as extract(), flattened; empty if
+    0. Only cones see colour: outside the central cones x cones patch (rods)
+    the colour planes read 0, as a receptor it doesn't have."""
     if channels <= 0 or full_frame_bgr is None:
         return np.zeros(0)
     rg, by = opponent_planes(_window(full_frame_bgr, state))  # black -> neutral (0.5)
     planes = [rg, by][:channels]
-    return np.concatenate([frame_to_vector(pl, (state.n, state.n)) for pl in planes])
+    mask = cone_mask(state.n, state.n if cones is None else cones).reshape(-1)
+    return np.concatenate([np.where(mask, frame_to_vector(pl, (state.n, state.n)), 0.0) for pl in planes])
 
 
 def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[FoveaState, float, float]:

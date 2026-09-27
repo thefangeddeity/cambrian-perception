@@ -35,7 +35,7 @@ def main() -> int:
         return 1
     old = G.Genome.from_dict(ck["genome"])
     fresh = G.random_genome(random.Random(), n_vars=old.n_vars, receptors=old.receptors)
-    fresh.pace, fresh.prey_sense = old.pace, old.prey_sense
+    fresh.pace, fresh.prey_sense, fresh.cones = old.pace, old.prey_sense, old.cones
     fresh.colour_channels, fresh.stabilizer = old.colour_channels, old.stabilizer
 
     backup = sandbox.CHECKPOINT_PATH.with_name(f"checkpoint.json.bak-mind-{time.strftime('%Y%m%d-%H%M%S')}")

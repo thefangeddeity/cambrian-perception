@@ -53,9 +53,14 @@ def _receptor_cost(n: int, quota_pct: float) -> float:
 # pays for what it computes. With the waking burn scaling with tempo
 # (state.py), this is what makes a fast pace of life expensive.
 THINK_COST = 2e-5  # per gaze, x scarcity
-# Each colour-opponent channel (receptors + processing) costs energy per
-# gaze: colour vision only evolves if seeing colour pays for itself.
-COLOUR_COST = 1e-5
+# Colour is seen by cones only (fovea.py: a central patch of the gaze, its
+# size inherited, genome.cones; the rest are rods -- grey, and cheaper for
+# lacking the colour circuitry). Each cone costs energy per gaze for each
+# colour-opponent channel it serves: colour vision, and how much of the eye
+# has it, only evolve if seeing colour pays for itself. Anchored on the old
+# eye's price: 1e-5 per channel for its 144 receptors.
+COLOUR_COST = 1e-5                 # per channel, for the old eye's 144 receptors -- the anchor
+CONE_COST = COLOUR_COST / 144      # per cone, per channel, per gaze, x scarcity
 # A brain channel's loop (controller.py) costs energy in proportion to the
 # weight on its way back in: a loop that does nothing is free, one that
 # matters has to pay for itself (a synaptic cost, like any real circuit).
@@ -276,6 +281,7 @@ class Organism:
         # Colour vision: how many opponent channels this genome's gaze has
         # (0-2). A plane it doesn't have reads zero.
         self.colour_n = int(getattr(g, "colour_channels", 0)) if colour else 0
+        self.cones = int(min(getattr(g, "cones", self.state.n), self.state.n))
         self.last_colour = None
         self.quota_pct = quota_pct
         self.scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
@@ -380,7 +386,7 @@ class Organism:
         # The perception tree reads its receptors by position (the look, the
         # previous look, its colour planes) and, as plain inputs, its own
         # last movement and the brain's recurrent memory.
-        col = fovea.extract_colour(colour_frame, state, colour_on) if colour_on else np.zeros(0)
+        col = fovea.extract_colour(colour_frame, state, colour_on, self.cones) if colour_on else np.zeros(0)
         if colour_on:
             self.last_colour = col
         planes = np.zeros((1, RETINA_PLANES, n, n))
@@ -454,7 +460,8 @@ class Organism:
         asleep = p["asleep"]
         gaze_cost = 0.0 if asleep else _receptor_cost(self.state.n, self.quota_pct)
         body.update(p["periph_motion"], p["loom"], p["effort"],
-                    gaze_cost + (THINK_COST * brain.think_factor() + COLOUR_COST * p["colour_on"] + CHANNEL_COST * brain.loop_synapses()
+                    gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"]
+                                 + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),

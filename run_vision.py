@@ -1311,6 +1311,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "fitness_delta": (candidate_fitness - parent_fitness) if both_finite else None,
             "fovea_fraction": genome.fovea_fraction,
             "receptors": genome.receptors,
+            "cones": genome.cones,
             "quota_pct": quota_pct,
             "pace": genome.pace,
             "tree_stats": {
@@ -1344,6 +1345,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "world_epoch": feed_epoch,
             "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
             "receptors": genome.receptors,
+            "cones": genome.cones,
             "quota_pct": quota_pct,
             # Gemini's homeostasis: the candidate's body at the end of this
             # generation's run, its energy over time, how many frames the
