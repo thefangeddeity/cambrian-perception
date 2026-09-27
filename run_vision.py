@@ -57,6 +57,7 @@ import numpy as np
 from fishbowl import fovea, genome as G, reflexes, sandbox, video_source
 from fishbowl.state import MosquitoState
 from fishbowl import prey as prey_lib
+from fishbowl.bouts import FeedingRecord, fit_bout_criterion
 from fishbowl.controller import TREE_HIDDEN
 # The organism itself and the world's fixed physics it lives by -- one
 # implementation, shared with any live host (fishbowl/organism.py).
@@ -568,6 +569,10 @@ def evaluate_genome(
         # (cx, cy, gaze side as a fraction of the frame's height, frame index): gazes are unevenly spaced now,
         # so the viewer replays each at its real moment.
         "trajectory": [[round(float(x), 4), round(float(y), 4), round(float(f), 4), i] for i, (x, y, f) in enumerate(fp)],
+        # Its feeding acts: the frames of the looks that caught prey / any
+        # surprise (fishbowl/bouts.py groups them into meals and snacks).
+        "meal_acts": [int(k) for k, p in zip(idxs, prey_eaten) if p > 0],
+        "snack_acts": [int(k) for k, s in zip(idxs, foods) if s > 0],
     }
 
     responses = np.array(responses)
@@ -1014,6 +1019,22 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         b.idle(away)
         body_now = b.to_dict()
         print(f"Body: {away / 60:.1f} min since last save charged as idle time (energy now {body_now['energy']:.3f}).")
+    # Its feeding record (gaps between feeding acts, over its life), from
+    # which what counts as one meal / one snack is measured (fishbowl/bouts.py).
+    feeding = {kind: FeedingRecord((checkpoint or {}).get("feeding_record", {}).get(kind)) for kind in ("meal", "snack")}
+    bouts_cache: dict = {}
+
+    def _bouts() -> dict:
+        out = {}
+        for kind, rec in feeding.items():
+            key = (kind, len(rec.gaps), rec.gaps[-1] if rec.gaps else None)
+            if key not in bouts_cache:  # refit only when the record changed
+                if len(bouts_cache) > 8:
+                    bouts_cache.clear()
+                bouts_cache[key] = fit_bout_criterion(rec.gaps)
+            out[kind] = {"fit": bouts_cache[key], "gaps": len(rec.gaps)}
+        return out
+
     # Surprise memory persists too (NaN = never seen, stored as null).
     memory_now = None
     if checkpoint and checkpoint.get("memory"):
@@ -1040,6 +1061,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "body": body_now,
             "memory": {"mean": [[None if np.isnan(x) else round(float(x), 4) for x in row] for row in memory_now[0]],
                        "var": [[round(float(x), 6) for x in row] for row in memory_now[1]]} if memory_now is not None else None,
+            "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })
 
     # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
@@ -1213,9 +1235,16 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         # Advance the lasting body toward the survivor's end-of-window body,
         # by the fraction of the window's real duration that actually passed.
         end_body = (live_info if accepted else parent_info).get("body")
-        survivor_memory = (live_info if accepted else parent_info).get("_memory")
+        survivor = live_info if accepted else parent_info
+        survivor_memory = survivor.get("_memory")
         if survivor_memory is not None:
             memory_now = survivor_memory
+        # Its feeding record: the survivor's acts on frames not lived before
+        # (a live feed only -- a file is re-watched, not lived).
+        if world.first_index is not None:
+            for kind in ("meal", "snack"):
+                feeding[kind].add([world.first_index + k for k in survivor.get(kind + "_acts", [])],
+                                  world.first_index + len(world.frames) - 1, world.fps, feed_epoch)
         if end_body:
             now = time.time()
             fps_real = feed.frames_per_second() if feed is not None else 15.0
@@ -1337,6 +1366,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "tree_guess": live_info.get("tree_guess"),
             "snacks": live_info.get("snacks"),
             "stroke": lineage_notes.get("stroke"),
+            # What counts as one meal / snack, measured from its own feeding
+            # gaps (fishbowl/bouts.py): null fit = still calibrating.
+            "bouts": _bouts(),
             "teacher_label": live_info.get("teacher_label"),
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),

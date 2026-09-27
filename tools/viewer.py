@@ -357,17 +357,20 @@ LOCK_HUD_JS = r"""
     const b = d.body_now || d.body || {}, threat = Math.max(0, Math.min(1, b.threat || 0));
     if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
     // Meals and snacks it had, counted as the feed plays (since this page
-    // opened): a meal = prey coming into its gaze centre (in a livecam, a
-    // snapshot); a snack = a burst of surprise.
-    if (fs.frame != null && fs.frame !== st.lastFrame) {
-      // A new meal / snack only after a second without one: in a crowd the
-      // gaze centre brushes in and out of people frame to frame.
-      const gap = fs.fps || 15, eating = fs.eat > 0.01, snacking = (fs.snack || 0) > 0.05;
-      if (eating && (st.lastEat == null || fs.frame - st.lastEat > gap)) st.meals = (st.meals || 0) + 1;
-      if (snacking && (st.lastSnack == null || fs.frame - st.lastSnack > gap)) st.snacks = (st.snacks || 0) + 1;
-      if (eating) st.lastEat = fs.frame;
-      if (snacking) st.lastSnack = fs.frame;
-      st.lastFrame = fs.frame;
+    // opened): a feeding act is a look that caught prey (in a livecam, a
+    // snapshot) or any surprise; acts closer together than its bout
+    // criterion -- measured from its own feeding gaps (d.bouts, run_vision /
+    // fishbowl/bouts.py) -- are one meal / snack. No criterion yet: calibrating.
+    const gazeFrame = fs.traj && fs.traj[fs.i] ? (d.world_first_index ?? 0) + (fs.traj[fs.i][3] ?? fs.i) : null;
+    if (gazeFrame != null && (st.lastGaze == null || gazeFrame > st.lastGaze)) {
+      st.lastGaze = gazeFrame;
+      const fps = fs.fps || 15, bouts = d.bouts || {};
+      [['meal', fs.eat > 0, 'meals', 'lastEat'], ['snack', (fs.snack || 0) > 0, 'snacks', 'lastSnack']].forEach(([kind, act, count, last]) => {
+        const fit = bouts[kind] && bouts[kind].fit;
+        if (!act || !fit) return;
+        if (st[last] == null || gazeFrame - st[last] > fit.criterion_s * fps) st[count] = (st[count] || 0) + 1;
+        st[last] = gazeFrame;
+      });
     }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
     const tag = (fs.delay != null ? 'DELAYED' : 'REPLAY') + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
@@ -382,8 +385,9 @@ LOCK_HUD_JS = r"""
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
     }
-    rows.push([`snacks ${st.snacks || 0}`, '#d8b4ff', '11px monospace']);
-    rows.push([`meals ${st.meals || 0}`, '#ff9fb8', '11px monospace']);
+    const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
+    rows.push([`snacks ${boutText('snack', st.snacks)}`, '#d8b4ff', '11px monospace']);
+    rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
     ctx.textAlign = 'right';
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, bw - 16, 18 + 16 * k); });
     lockShadow(ctx, false);
@@ -830,9 +834,10 @@ PAGE = r"""<!doctype html>
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
     spark('energy-trace', d.energy_series, '#4fa', 'blood sugar (purple band: asleep)', d.sleep_series);
-    $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'a person or animal held in the center of its gaze (YOLO) -- its real food');
+    const boutNote = kind => { const bt = d.bouts && d.bouts[kind]; if (!bt) return ''; return bt.fit ? `; one ${kind} = looks less than ${bt.fit.criterion_s.toFixed(1)} s apart (measured from its own ${bt.gaps} feeding gaps: within a ${kind} ~${bt.fit.within_bout_mean_s.toFixed(1)} s, between ~${bt.fit.between_bouts_mean_s.toFixed(0)} s)` : `; what counts as one ${kind}: calibrating (${bt.gaps} feeding gaps so far, no bout structure yet)`; };
+    $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'a person or animal held in the center of its gaze (YOLO) -- its real food' + boutNote('meal'));
     spark('prey-trace', d.prey_series, '#ff5fa2', 'prey eaten');
-    $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', 'genuinely new structure in the gaze center -- too little to live on alone');
+    $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', 'genuinely new structure in the gaze center -- too little to live on alone' + boutNote('snack'));
     spark('food-trace', d.food_series, '#c8f', 'surprise');
     const m = d.movement || {};
     $('movement').innerHTML =
