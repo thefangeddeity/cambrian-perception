@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+"""
+The whole visual field's signals, frame by frame -- for a host that lives
+live (a livecam's CV loop) instead of scoring a recorded snapshot. The same
+numbers the evolution loop computes for a whole snapshot at once
+(run_vision.World: reflexes.expansion_score, reflexes.motion_energy_score,
+organism.peripheral_motion_centroid, the field's mean light and
+organism.global_shift), computed incrementally, so a live organism feels its
+world exactly as the one that evolved did (tested equal, frame for frame).
+"""
+
+import cv2
+import numpy as np
+
+from . import organism as org
+from .retina import field_shape, frame_to_vector
+
+EXPANSION_THRESHOLD, EXPANSION_ADAPT = 0.08, 0.05  # reflexes.expansion_score's defaults
+
+
+class FieldSignals:
+    """Feed it each grey frame (the organism's resolution) with step(); it
+    returns that frame's whole-field signals (organism.SIGNAL_KEYS) and the
+    frame's global shift since the previous one (for the stabilizer)."""
+
+    def __init__(self):
+        self.prev = None           # previous frame's whole-field receptors
+        self.background = None     # the looming detector's slow background
+        self.prev_area = self.prev_growth = 0.0
+        self.t = 0
+        self.prev_small = None
+        self.window = None
+        self.last_vector = None
+
+    def step(self, grey: np.ndarray) -> tuple[dict, tuple[float, float]]:
+        shape = field_shape(*grey.shape[:2])
+        v = frame_to_vector(grey, shape)
+        self.last_vector = v
+        # Looming (reflexes.expansion_score, streamed).
+        if self.background is None:
+            self.background = v.astype(np.float64).copy()
+        area = float(((self.background - v) > EXPANSION_THRESHOLD).mean())
+        growth = area - self.prev_area
+        expansion = growth if (self.t >= 2 and growth > 0 and self.prev_growth > 0) else 0.0
+        self.prev_area, self.prev_growth = area, growth
+        self.background += EXPANSION_ADAPT * (v - self.background)
+        # Movement and where it is (motion_energy_score, peripheral_motion_centroid).
+        motion, mcx, mcy = 0.0, 0.5, 0.5
+        if self.prev is not None:
+            d = np.abs(v - self.prev)
+            motion = float(d.mean())
+            grid = d.reshape(shape)
+            tot = grid.sum()
+            if tot > 1e-9:
+                rows, cols = shape
+                yy, xx = np.mgrid[0:rows, 0:cols]
+                mcx = float(((xx + 0.5) * grid).sum() / tot / cols)
+                mcy = float(((yy + 0.5) * grid).sum() / tot / rows)
+        self.prev = v
+        # The frame's global shift (organism.global_shifts, streamed).
+        size = org.shift_size(grey.shape)
+        small = cv2.resize(grey, size, interpolation=cv2.INTER_AREA).astype(np.float32)
+        shift = (0.0, 0.0)
+        if self.prev_small is not None and self.prev_small.shape == small.shape:
+            if self.window is None or self.window.shape != small.shape:
+                self.window = cv2.createHanningWindow(size, cv2.CV_32F)
+            shift = org.global_shift(self.prev_small, small, self.window)
+        self.prev_small = small
+        self.t += 1
+        sig = {"expansion": expansion, "motion_energy": motion, "motion_cx": mcx, "motion_cy": mcy,
+               "field_light": float(v.mean())}
+        return sig, shift

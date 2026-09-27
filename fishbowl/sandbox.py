@@ -253,6 +253,20 @@ def _read_json(path: Path, default):
         return default
 
 
+CHAMPION_PATH = LIVE_STATUS_PATH.with_name("champion.json")
+
+
+def save_champion(data: dict) -> None:
+    """Its current champion (genome, meal criterion, where it lives), for a
+    host that runs the organism live (fishbowl/live.py, e.g. a livecam's CV):
+    world-readable, next to the live status, rewritten when it changes."""
+    _write_json_atomic(CHAMPION_PATH, data, compact=True)
+    try:
+        os.chmod(CHAMPION_PATH, 0o644)
+    except OSError:
+        pass
+
+
 def _write_json_atomic(path: Path, data, compact: bool = False, durable: bool = False) -> None:
     # The ONE whitelisted place any brain-influenced value ever
     # reaches disk from (inside STATE_DIR, or the RAM runtime dir for the

@@ -46,6 +46,7 @@ for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_var, "1")
 import random
 import signal
+import socket
 import subprocess
 import time
 import sys
@@ -1054,6 +1055,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
 
+    def _publish_champion() -> None:
+        sandbox.save_champion({"genome": genome.to_dict(), "bouts": _bouts(), "generation": box.generation,
+                               "host": socket.gethostname(), "saved_at": time.time(),
+                               "frames_per_second": round(world.fps, 2)})
+
+    _publish_champion()
+
     def _save():
         sandbox.save_checkpoint({
             "genome": genome.to_dict(),
@@ -1234,6 +1242,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             genome = candidate
             best_fitness = candidate_fitness
             margin = max(0.005, margin * 0.995)
+            _publish_champion()
         elif both_finite:
             # Keep best_fitness in sync with reality even on a reject
             # -- it's the PARENT's own freshly-scored real fitness now,
