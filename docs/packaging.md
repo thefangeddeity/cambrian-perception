@@ -38,12 +38,13 @@ supervisor, the CPU budget, where frames live, and the camera.
 |---|---|---|---|
 | Code | `/srv/cambrian/cambrian-perception` | `~/Library/Application Support/cambrian-perception` | `C:\ProgramData\cambrian\cambrian-perception` |
 | Runs as | system user `cambrian` | the installing user | the installing user (S4U: no stored password) |
-| Supervisor | systemd `cambrian.target` (organism, viewer, handler timer) | launchd agents, and `tools/cambrian_service.py` | a Task Scheduler boot task running `tools/cambrian_service.py` |
+| Supervisor | systemd `cambrian.target` (organism, viewer, handler timer) | a boot LaunchDaemon (`org.cambrian.perception`, runs as the user) running `tools/cambrian_service.py` | a Task Scheduler boot task running `tools/cambrian_service.py` |
 | CPU budget | cgroup `CPUQuota` | `taskpolicy` / nice (no hard cap in macOS) | Job Object CPU-rate hard cap |
-| Frames (RAM only) | `/dev/shm` | a RAM disk made at login | none: no RAM disk in Windows, so no frame replay (everything else in the viewer works) |
+| Frames (RAM only) | `/dev/shm` | held in the organism's memory, served to the viewer on 127.0.0.1 (`video_source.FrameRing`) | the same as macOS: no RAM disk in Windows |
 | Idle measure | `/proc/stat` | `host_processor_info` (via `sysctl`/`top`) | `GetSystemTimes` |
-| Install | `.deb` / PKGBUILD running `deploy/install.sh` | a `.pkg`, later; `deploy/macos/install.sh` first | `deploy/windows/install.ps1` (an MSI later, like hls-livecam-win) |
+| Install | `.deb` / PKGBUILD running `deploy/install.sh` | `deploy/macos/install.sh` (Homebrew's Python 3.12+ and ffmpeg, else python.org's Python); a `.pkg` later | `deploy/windows/install.ps1` (an MSI later, like hls-livecam-win) |
 | Camera device | `/dev/video0` | index 0 (AVFoundation) | index 0 (Media Foundation) |
+| Streams, web video | OpenCV's own FFmpeg | an `ffmpeg` process (the macOS OpenCV wheels have no FFmpeg; H.264 decodes bit-exact either way) | OpenCV's own FFmpeg |
 
 **Why a Python supervisor on Windows and macOS.** systemd restarts the
 organism whenever it exits: every hour by design, and on every video switch.
@@ -68,4 +69,4 @@ host's (`-Checkpoint` / `--checkpoint`).
 2. Windows installer, tested on hera.
 3. `.deb`, tested on tina.
 4. AUR, which needs an Arch box.
-5. macOS, on ariana.
+5. macOS, on ariana (done: `deploy/macos/install.sh`).
