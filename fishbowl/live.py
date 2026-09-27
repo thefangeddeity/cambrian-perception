@@ -97,7 +97,7 @@ class LiveActor:
         self.champion_bouts = (champion.get("bouts") or {}).get("meal", {}).get("fit")
         if self.org is not None:
             old = self.org
-            self.org = Organism(self.genome, body=old.body.to_dict(), memory=(old.memory, old.variance),
+            self.org = Organism(self.genome, body=old.body.to_dict(), memory=(old.memory, old.variance, old.mb.weights),
                                 fps=old.fps, colour=self.colour, prey=True)
 
     # ---- actions on meals (the snapshot-ready hook) ---------------------------

@@ -93,6 +93,17 @@ yardsticks are found.
 | `META_DECAY` | 0.9995 | M | validated on the synthetic task (15000 generations x 12 seeds) |
 | `MAX_CONST` | 5 | B | the tree language's bound |
 
+### fishbowl/mushroom.py (lifetime reward learning)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| `KC_INPUTS` | 7 | S | inputs per Kenyon cell (Caron et al. 2013) |
+| `KC_ACTIVE` | 5% | S | share of Kenyon cells responding (Turner et al. 2008; Honegger et al. 2011) |
+| `MAX_KC` | 4096 | B | the price limits it |
+| `KC_STEP` (genome) | 64 | P | cells added or removed per mutation |
+| `LEARNING_MIN`, `LEARNING_MAX`, `LEARNING_SIGMA` (genome) | 0.001, 1, 0.5 | P / M | the maximum is principled: above 1, one update overshoots its own prediction error |
+| reward scale | 1 = a full look at prey | P | the energy it ate, in meals |
+
 ### fishbowl/prey.py, bouts.py, video_source.py
 
 | Constant | Value | Kind | Notes |

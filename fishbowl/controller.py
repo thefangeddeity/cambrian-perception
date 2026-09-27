@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 28  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y
+BASE_INPUTS = 29  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
 HIDDEN = 16         # a newborn brain's hidden layer
@@ -95,7 +95,7 @@ HEAVY_TAIL_MAX = 2.0
 INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "eye size", "blood sugar",
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
-               "prey scent", "prey dir x", "prey dir y")
+               "prey scent", "prey dir x", "prey dir y", "food value")
 OUTPUT_NAMES = ("pan", "tilt", "zoom (unused)", "alarm", "tempo", "sleep")
 
 
@@ -181,6 +181,7 @@ class MosquitoBrain:
         prey_scent: float = 0.0,
         prey_dx: float = 0.0,
         prey_dy: float = 0.0,
+        food_value: float = 0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -193,6 +194,7 @@ class MosquitoBrain:
             state.gut, state.reserve, state.sleep_pressure, state.asleep,
             field_light, state.light_trend,
             prey_scent, prey_dx, prey_dy,
+            food_value,  # its mushroom body's learned value of what it sees (fishbowl/mushroom.py)
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):

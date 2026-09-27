@@ -25,6 +25,7 @@ import numpy as np
 
 from . import blocks, fovea
 from .controller import MosquitoBrain
+from .mushroom import MAX_KC
 
 # mutate_fovea grows or shrinks its eye by one ring of receptors
 # (genome.receptors, fovea.py) instead of touching a tree -- same fitness
@@ -36,20 +37,30 @@ from .controller import MosquitoBrain
 # mutate_cones grows or shrinks the gaze's central patch of cones (colour receptors) by a ring (fovea.py).
 # grow_unit / shrink_unit add (a duplicated, unconnected copy) or remove a hidden unit.
 # duplicate_layer / remove_layer stack a silent copy of the brain's top layer or remove one (controller.py).
+# grow_kc / shrink_kc add or remove a cohort of Kenyon cells, mutate_learning changes the learning
+# rate of its mushroom body (fishbowl/mushroom.py: lifetime reward learning).
 # grow_channel / add_prediction / shrink_channel add or remove a brain
 # channel -- an output wired back in as an input (controller.py): a latch
 # duplicated from an existing output, or a predictor of one of its inputs.
 # mutate_stabilizer changes its image-stabilization reflex gain (run_vision.py).
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace",
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
-            "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones")
+            "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
+            "grow_kc", "shrink_kc", "mutate_learning")
 STABILIZER_SIGMA = 0.1
 # Prey sense (run_vision.py): 0 = eyes only, 1 = scent (prey somewhere in
 # view), 2 = + a coarse direction to it. mutate_prey_sense steps it by one.
 MAX_PREY_SENSE = 2
 # Structural additions that change nothing at birth (run_vision.py keeps
 # them on a tie, so they can drift until they are useful).
-NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "grow_unit", "duplicate_layer")
+NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "grow_unit", "duplicate_layer",
+                      "grow_kc", "mutate_learning")
+# The mushroom body (fishbowl/mushroom.py): Kenyon cells come and go a cohort
+# at a time; a first learning rate is drawn log-uniformly from 0.001 up to 1
+# (above 1 a single update overshoots its own prediction error), later ones
+# step multiplicatively. Both chosen, documented in the constants audit.
+KC_STEP = 64
+LEARNING_MIN, LEARNING_MAX, LEARNING_SIGMA = 1e-3, 1.0, 0.5
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
 BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
@@ -146,6 +157,9 @@ class Genome:
         stabilizer: float = 0.0,
         prey_sense: int = 0,
         cones: int | None = None,
+        kc: int = 0,
+        kc_seed: int | None = None,
+        learning_rate: float = 0.0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -156,6 +170,10 @@ class Genome:
         # Its cones: the central cones x cones of its receptors (the rest are
         # rods); by default all of them, like the eye before rods and cones.
         self.cones = self.receptors if cones is None else int(np.clip(cones, 0, self.receptors))
+        # Its mushroom body: Kenyon cells, their wiring, how fast it learns.
+        self.kc = int(np.clip(kc, 0, MAX_KC))
+        self.kc_seed = int(kc_seed) if kc_seed is not None else random.randrange(2 ** 31)
+        self.learning_rate = float(np.clip(learning_rate, 0.0, LEARNING_MAX))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -191,6 +209,9 @@ class Genome:
             self.stabilizer,
             self.prey_sense,
             self.cones,
+            self.kc,
+            self.kc_seed,
+            self.learning_rate,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -344,6 +365,21 @@ class Genome:
                 self.receptors = fovea.even_receptors(old + rng.choice((-2, 2)))  # one ring
                 self.cones = min(self.cones, self.receptors)
             return "fovea", (choice if self.receptors != old else "noop_inapplicable")
+        if choice == "grow_kc":
+            old = self.kc
+            self.kc = min(MAX_KC, old + KC_STEP)
+            return "brain", (choice if self.kc != old else "noop_inapplicable")
+        if choice == "shrink_kc":
+            old = self.kc
+            self.kc = max(0, old - KC_STEP)
+            return "brain", (choice if self.kc != old else "noop_inapplicable")
+        if choice == "mutate_learning":
+            old = self.learning_rate
+            if old <= 0.0:
+                self.learning_rate = float(LEARNING_MIN * (LEARNING_MAX / LEARNING_MIN) ** rng.random())
+            else:
+                self.learning_rate = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), LEARNING_MIN, LEARNING_MAX))
+            return "brain", (choice if self.learning_rate != old else "noop_inapplicable")
         if choice == "mutate_cones":
             old = self.cones
             self.cones = int(np.clip(old + rng.choice((-2, 2)), 0, self.receptors))  # one ring of cones
@@ -470,6 +506,9 @@ class Genome:
             "op_success": self.op_success,
             "receptors": self.receptors,
             "cones": self.cones,
+            "kc": self.kc,
+            "kc_seed": self.kc_seed,
+            "learning_rate": self.learning_rate,
             "brain": self.brain.to_dict(),
             "pace": self.pace,
             "colour_channels": self.colour_channels,
@@ -523,6 +562,9 @@ class Genome:
             stabilizer=float(np.clip(data.get("stabilizer", 0.0), 0.0, 1.0)),
             prey_sense=int(np.clip(data.get("prey_sense", 0), 0, MAX_PREY_SENSE)),
             cones=data.get("cones"),
+            kc=int(data.get("kc", 0)),
+            kc_seed=data.get("kc_seed"),
+            learning_rate=float(data.get("learning_rate", 0.0)),
         )
 
 

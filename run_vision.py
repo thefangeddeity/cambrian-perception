@@ -532,6 +532,7 @@ def evaluate_genome(
         "fovea_cx": state.cx, "fovea_cy": state.cy,
         "fovea_fraction": state.extent,
         "receptors": state.n,
+        "cones": org.cones,
         "last_response": responses[-1] if responses else 0.0,
         # The actual receptor values the organism just processed -- a
         # blocky n x n luminance grid, not an image, so it doesn't touch
@@ -559,7 +560,8 @@ def evaluate_genome(
         "snacks": [round(float(foods[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]), 3) if foods else 0.0 for k in range(nf)],
         "tree_guess": [_round2(teacher_p[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_p else None for k in range(nf)],
         "teacher_label": [_round2(teacher_y[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_y else None for k in range(nf)],
-        "_memory": (memory, variance),
+        "_memory": (memory, variance, org.mb.weights),
+        "food_value": round(org.food_value, 3),
         "movement": movement,
         "field_events": [[round(float(world_signals["motion_cx"][k]), 3), round(float(world_signals["motion_cy"][k]), 3),
                           round(float(min(1.0, world_signals["motion_energy"][k] * PERIPH_MOTION_GAIN)), 3),
@@ -653,6 +655,8 @@ def evaluate_genome(
     breakdown["mean_aperture"] = float(np.mean(fracs)) if fracs else 0.0
     breakdown["movement"] = live_info["movement"]
     breakdown["missed_looks"] = org.missed
+    breakdown["kc"] = org.mb.n_kc
+    breakdown["value_error"] = float(np.mean(org.value_errors)) if org.value_errors else None
 
     flinch = live_info["flinch"]
     fitness += FLINCH_WEIGHT * flinch["score"]
@@ -1049,7 +1053,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     if checkpoint and checkpoint.get("memory"):
         m = checkpoint["memory"]
         memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
-                      np.array(m["var"], dtype=float))
+                      np.array(m["var"], dtype=float),
+                      np.array(m.get("learned") or [], dtype=float))
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
@@ -1076,7 +1081,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "saved_at": time.time(),
             "body": body_now,
             "memory": {"mean": [[None if np.isnan(x) else round(float(x), 4) for x in row] for row in memory_now[0]],
-                       "var": [[round(float(x), 6) for x in row] for row in memory_now[1]]} if memory_now is not None else None,
+                       "var": [[round(float(x), 6) for x in row] for row in memory_now[1]],
+                       "learned": [round(float(x), 5) for x in memory_now[2]] if len(memory_now) > 2 else []}
+                      if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })
 
@@ -1331,6 +1338,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "fovea_fraction": genome.fovea_fraction,
             "receptors": genome.receptors,
             "cones": genome.cones,
+            "kc": genome.kc,
+            "learning_rate": genome.learning_rate,
             "quota_pct": quota_pct,
             "host_speed": round(hostspeed.speed_factor(host_rate), 3),
             "pace": genome.pace,
@@ -1364,8 +1373,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "world_first_index": world.first_index,
             "world_epoch": feed_epoch,
             "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
-            "receptors": genome.receptors,
-            "cones": genome.cones,
+            # The eye of the run shown (its grid and path): a child's, when it differs.
+            "receptors": live_info.get("receptors", genome.receptors),
+            "cones": live_info.get("cones", genome.cones),
+            "kc": genome.kc,
+            "learning_rate": round(genome.learning_rate, 5),
+            "food_value": live_info.get("food_value"),
             "quota_pct": quota_pct,
             # Gemini's homeostasis: the candidate's body at the end of this
             # generation's run, its energy over time, how many frames the

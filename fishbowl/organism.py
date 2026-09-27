@@ -27,8 +27,10 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
+from .controller import REFERENCE_MACS
 from .genome import RETINA_PLANES
-from .state import LEGACY_UNIT, TEMPO_SHARE, WAKE_FLOOR, MosquitoState
+from .mushroom import MushroomBody, macs as kc_macs
+from .state import FOOD_PER_LOOK, LEGACY_UNIT, PREY_FOOD_PER_LOOK, TEMPO_SHARE, WAKE_FLOOR, MosquitoState
 from . import reflexes
 
 # --- Prices (the body pays per gaze, x CPU scarcity) -----------------------
@@ -288,6 +290,13 @@ class Organism:
             self.memory, self.variance = memory[0].copy(), memory[1].copy()
         else:
             self.memory, self.variance = new_memory()
+        # Its mushroom body (fishbowl/mushroom.py): what it has LEARNED is
+        # memory, carried like the surprise memory (the third item of memory).
+        learned = memory[2] if memory is not None and len(memory) > 2 else None
+        self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned)
+        self.learning_rate = float(getattr(g, "learning_rate", 0.0))
+        self.food_value = 0.0
+        self.value_errors = []
         # Colour vision: how many opponent channels this genome's gaze has
         # (0-2). A plane it doesn't have reads zero.
         self.colour_n = int(getattr(g, "colour_channels", 0)) if colour else 0
@@ -388,6 +397,9 @@ class Organism:
         periph_dy = float(sig["motion_cy"]) - state.cy
         field_light = float(sig["field_light"])
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level)
+        # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
+        kc_active = self.mb.active(v, n) if not was_asleep else np.zeros(0, dtype=int)
+        self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
         if (self.sec_per_mac and self.last_out is not None
                 and self.sec_per_mac * brain.macs() > self.last_interval / max(1.0, self.fps)):
             out = self.last_out  # still thinking: this look is missed
@@ -396,6 +408,7 @@ class Organism:
             out = brain.step(
                 lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
+                self.food_value,
             )
             self.last_out = out
         # (out.zoom is unused: its eye has no zoom -- fovea.py.)
@@ -442,6 +455,11 @@ class Organism:
         else:
             prey_now = prey_lib.prey_in_gaze(boxes, state.cx, state.cy, *state.half_extents(self.aspect))
             snack = feed_on_novelty(self.memory, v, state, self.variance, self.aspect)
+            # Lifetime learning: what it ate this look (in meals: a full look at
+            # prey = 1) teaches its mushroom body what the look showed.
+            reward = (PREY_FOOD_PER_LOOK * prey_now + FOOD_PER_LOOK * snack) / PREY_FOOD_PER_LOOK
+            if len(kc_active) and self.learning_rate > 0.0:
+                self.value_errors.append(abs(self.mb.learn(kc_active, reward, self.learning_rate)))
             interval = int(np.clip(round(self.pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
             if body.degraded:
                 interval = min(MAX_INTERVAL, interval * 2)
@@ -453,7 +471,7 @@ class Organism:
         # Eye physics every FRAME until the next gaze: the brain's force is
         # held, and the damped eye keeps moving meanwhile.
         self.stab_dx = self.stab_dy = 0.0
-        self.pending = {"pan": pan, "tilt": tilt, "asleep": asleep, "colour_on": colour_on,
+        self.pending = {"pan": pan, "tilt": tilt, "asleep": asleep, "colour_on": colour_on, "kc_on": bool(len(kc_active)),
                         "interval": interval, "done": 0, "effort": 0.0, "force": (0.0, 0.0),
                         "cx0": state.cx, "cy0": state.cy, "periph_motion": periph_motion, "loom": loom,
                         "field_light": field_light, "prey_now": prey_now, "snack": snack}
@@ -488,6 +506,7 @@ class Organism:
                     gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"]
                                  + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
+                                 + (THINK_COST * kc_macs(self.mb.n_kc) / REFERENCE_MACS if p["kc_on"] else 0.0)
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),
                     field_light=p["field_light"])

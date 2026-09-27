@@ -36,6 +36,9 @@ def main() -> int:
     old = G.Genome.from_dict(ck["genome"])
     fresh = G.random_genome(random.Random(), n_vars=old.n_vars, receptors=old.receptors)
     fresh.pace, fresh.prey_sense, fresh.cones = old.pace, old.prey_sense, old.cones
+    fresh.kc, fresh.kc_seed, fresh.learning_rate = old.kc, old.kc_seed, old.learning_rate
+    if ck.get("memory"):
+        ck["memory"]["learned"] = []  # what it learned goes with the mind
     fresh.colour_channels, fresh.stabilizer = old.colour_channels, old.stabilizer
 
     backup = sandbox.CHECKPOINT_PATH.with_name(f"checkpoint.json.bak-mind-{time.strftime('%Y%m%d-%H%M%S')}")
