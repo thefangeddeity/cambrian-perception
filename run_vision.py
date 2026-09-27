@@ -1439,6 +1439,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "colour_grid": live_info.get("colour_grid"),
             "colour_channels": genome.colour_channels,
             "stabilizer": genome.stabilizer,
+            "zoom_gain": genome.zoom,
             "prey_sense": genome.prey_sense,
             # Its lasting body right now (persists across generations and
             # restarts), vs "body" = the candidate's at the end of its window.

@@ -31,9 +31,17 @@ from .retina import frame_to_vector, opponent_planes
 # or shrinks a ring at a time, so the centre stays the centre and every
 # receptor keeps its position relative to it (the perception tree reads them
 # by that position). Growing the eye is real growth: more receptors, more
-# detail over more area, each one paid for (organism.RECEPTOR_COST). There is
-# no zoom: nothing stretches a fixed set of receptors over a bigger patch (the
-# brain's old zoom output is unused -- the slot a pupil could take later).
+# detail over more area, each one paid for (organism.RECEPTOR_COST). Nothing ever
+# stretches a fixed set of receptors over a bigger patch (the old zoom eye's
+# "pixel inflation": blocks bigger than what the camera resolved).
+#
+# Zoom IN only -- an attentional lens (Eriksen & St. James 1986's zoom lens;
+# receptive fields shrink around what is attended, Moran & Desimone 1985):
+# the same n x n receptors concentrate on a smaller patch, each receptor
+# smaller, down to exactly one pixel of the frame it samples and never
+# below -- so a receptor always averages real pixels, never an upsampled
+# one. What it pays is area: it sees less of the world. Its brain's zoom
+# output drives it through an inherited gain (genome.zoom, born 0: off).
 #
 # Receptor size: 1/64 of the frame's height (square in pixels). Chosen when the
 # zoom eye was retired so that no living lineage lost a receptor across its
@@ -45,6 +53,19 @@ DEFAULT_RECEPTORS = 22   # a newborn's eye: 22 x 22 (0.34 of the frame's height;
 MIN_RECEPTORS = 4        # the smallest eye with a centre and a ring around it
 MAX_RECEPTORS = 38       # 0.59 of the frame: past ~0.6 the gaze stops being a gaze and becomes the field
 # (measured under the zoom eye: at 0.9 it snapped wide open, could barely move and fitness collapsed)
+
+
+def max_mag(frame_h: int) -> float:
+    """The strongest zoom a frame allows: one receptor per pixel of it
+    (RECEPTOR_PITCH x its height; 2.8 on the 320x180 frames it sees)."""
+    return max(1.0, RECEPTOR_PITCH * frame_h)
+
+
+def magnification(zoom_output: float, gain: float, frame_h: int) -> float:
+    """The lens for a look: 1 (none) up to max_mag, from the brain's zoom
+    output (tanh, -1..1) times its inherited gain. Zoom in only: a negative
+    output relaxes it to 1, never wider."""
+    return 1.0 + (max_mag(frame_h) - 1.0) * float(np.clip(gain, 0.0, 1.0)) * max(0.0, float(zoom_output))
 
 
 def even_receptors(n: float) -> int:
@@ -88,11 +109,12 @@ class FoveaState:
     n: int = DEFAULT_RECEPTORS  # receptors per side (its genome's; fixed for a life)
     vx: float = 0.0  # look velocity (fraction of frame per frame)
     vy: float = 0.0
+    mag: float = 1.0  # its lens: 1 = none; up to max_mag (zoom in only)
 
     @property
     def extent(self) -> float:
-        """The gaze's side, as a fraction of the frame's height."""
-        return extent(self.n)
+        """The gaze's side, as a fraction of the frame's height (smaller zoomed in)."""
+        return extent(self.n) / max(1.0, self.mag)
 
     def half_extents(self, aspect: float) -> tuple[float, float]:
         """Half the gaze's width and height as fractions of the frame's width
@@ -167,4 +189,4 @@ def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[Fove
         vx = 0.0
     if new_cy != raw_cy:
         vy = 0.0
-    return FoveaState(cx=new_cx, cy=new_cy, n=state.n, vx=vx, vy=vy), fx, fy
+    return FoveaState(cx=new_cx, cy=new_cy, n=state.n, vx=vx, vy=vy, mag=state.mag), fx, fy

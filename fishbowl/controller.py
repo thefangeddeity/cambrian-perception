@@ -14,7 +14,7 @@ Modeled on insect neurobiology (e.g. Diptera / mosquito):
   - Central Complex (Recurrent Ring):
       A 16-unit recurrent neural circuit (RNN) with temporal hidden memory.
       Maintains smooth gaze stabilization, pursuit, and active visual casting.
-  - Outputs: pan, tilt, (zoom -- unused: the eye is a fixed mosaic), alarm, tempo, sleep. There is no hard-wired
+  - Outputs: pan, tilt, zoom (in only, through its inherited lens gain -- fovea.py), alarm, tempo, sleep. There is no hard-wired
     escape reflex: a fast reaction to looming is rewarded instead
     (run_vision.py), so the flinch has to evolve. Sleep is its own choice
     (the body adds only physiological overrides -- state.py).
@@ -81,7 +81,7 @@ HIDDEN = 16         # a newborn brain's hidden layer
 TREE_HIDDEN = 16    # how many hidden units the perception tree reads (its inputs keep fixed positions)
 MIN_HIDDEN, MAX_HIDDEN = 4, 256  # MAX is a safety bound only; the price is what limits growth
 MAX_LAYERS = 16  # stacked layers: a safety bound only, like MAX_HIDDEN
-BASE_OUTPUTS = 6  # [pan, tilt, zoom (unused), alarm, tempo, sleep]
+BASE_OUTPUTS = 6  # [pan, tilt, zoom, alarm, tempo, sleep]
 OUTPUTS = BASE_OUTPUTS
 MAX_CHANNELS = 4
 # Mutation steps are heavy-tailed, like real mutations' effects (mostly tiny,
@@ -96,7 +96,7 @@ INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y"
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
                "prey scent", "prey dir x", "prey dir y", "food value")
-OUTPUT_NAMES = ("pan", "tilt", "zoom (unused)", "alarm", "tempo", "sleep")
+OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
 
 
 class Motor(NamedTuple):

@@ -43,11 +43,13 @@ from .mushroom import MAX_KC
 # channel -- an output wired back in as an input (controller.py): a latch
 # duplicated from an existing output, or a predictor of one of its inputs.
 # mutate_stabilizer changes its image-stabilization reflex gain (run_vision.py).
+# mutate_zoom changes the gain of its zoom lens (fovea.magnification: 0 = off).
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace",
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
-            "grow_kc", "shrink_kc", "mutate_learning")
+            "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom")
 STABILIZER_SIGMA = 0.1
+ZOOM_SIGMA = STABILIZER_SIGMA  # a reflex gain, 0..1, mutates as the stabilizer's does
 # Prey sense (run_vision.py): 0 = eyes only, 1 = scent (prey somewhere in
 # view), 2 = + a coarse direction to it. mutate_prey_sense steps it by one.
 MAX_PREY_SENSE = 2
@@ -160,6 +162,7 @@ class Genome:
         kc: int = 0,
         kc_seed: int | None = None,
         learning_rate: float = 0.0,
+        zoom: float = 0.0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -178,6 +181,8 @@ class Genome:
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
         self.stabilizer = float(np.clip(stabilizer, 0.0, 1.0))
+        # Its zoom lens's gain (fovea.magnification): 0 = its zoom output does nothing.
+        self.zoom = float(np.clip(zoom, 0.0, 1.0))
         self.prey_sense = int(np.clip(prey_sense, 0, MAX_PREY_SENSE))
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
@@ -212,6 +217,7 @@ class Genome:
             self.kc,
             self.kc_seed,
             self.learning_rate,
+            self.zoom,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -400,6 +406,10 @@ class Genome:
             old = self.stabilizer
             self.stabilizer = float(np.clip(old + rng.gauss(0.0, STABILIZER_SIGMA), 0.0, 1.0))
             return "stabilizer", (choice if self.stabilizer != old else "noop_inapplicable")
+        if choice == "mutate_zoom":
+            old = self.zoom
+            self.zoom = float(np.clip(old + rng.gauss(0.0, ZOOM_SIGMA), 0.0, 1.0))
+            return "zoom", (choice if self.zoom != old else "noop_inapplicable")
         if choice == "mutate_brain":
             return "brain", (choice if self.brain.mutate(rng) > 0 else "noop_inapplicable")
         if choice == "grow_channel":
@@ -514,6 +524,7 @@ class Genome:
             "colour_channels": self.colour_channels,
             "stabilizer": self.stabilizer,
             "prey_sense": self.prey_sense,
+            "zoom": self.zoom,
         }
 
     @staticmethod
@@ -565,6 +576,7 @@ class Genome:
             kc=int(data.get("kc", 0)),
             kc_seed=data.get("kc_seed"),
             learning_rate=float(data.get("learning_rate", 0.0)),
+            zoom=float(np.clip(data.get("zoom", 0.0), 0.0, 1.0)),
         )
 
 

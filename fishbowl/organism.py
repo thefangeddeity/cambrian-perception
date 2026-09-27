@@ -314,6 +314,8 @@ class Organism:
         self.last_interval = max(1, int(getattr(g, "pace", 1)))
         self.missed = 0
         self.stab = float(getattr(g, "stabilizer", 0.0))
+        self.zoom_gain = float(getattr(g, "zoom", 0.0))
+        self.frame_h = 180  # the frame's height in pixels, from its first frame (for its lens's limit)
         self.prey_level = int(getattr(g, "prey_sense", 0)) if prey else 0
         self.stab_dx = self.stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
         self.prev_v = np.zeros(self.n_cells)
@@ -338,6 +340,7 @@ class Organism:
         """
         if self.k == 0:
             self.aspect = frame.shape[1] / max(1, frame.shape[0])
+            self.frame_h = frame.shape[0]
         if self.pending is not None:
             self._substep(shift, in_world=True)
             if self.pending["done"] == self.pending["interval"]:
@@ -377,7 +380,7 @@ class Organism:
         # less what the stabilizer moved it -- so a saccade across a still
         # scene doesn't register as motion, and a shake it held still reads
         # as stillness.
-        h1 = (fovea.extract(self.prev_frame, fovea.FoveaState(cx=state.cx - self.stab_dx, cy=state.cy - self.stab_dy, n=n))
+        h1 = (fovea.extract(self.prev_frame, fovea.FoveaState(cx=state.cx - self.stab_dx, cy=state.cy - self.stab_dy, n=n, mag=state.mag))
               if self.prev_frame is not None and not was_asleep else v)
         hist = np.array([h1, v])
         lum = float(v.mean())
@@ -411,7 +414,6 @@ class Organism:
                 self.food_value,
             )
             self.last_out = out
-        # (out.zoom is unused: its eye has no zoom -- fovea.py.)
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
         # Sleep is its own choice (its sleep output); the body adds only the
         # physiological overrides -- collapse, hunger, a big change (state.py).
@@ -420,6 +422,9 @@ class Organism:
         # An empty body runs on less (soft floor): colour off, slower gazing.
         # Asleep, the eye is shut: no colour either.
         colour_on = self.colour_n if not (asleep or body.degraded) else 0
+        # Its lens for the next look (zoom in only, fovea.magnification);
+        # asleep, the eye is shut and the lens relaxes.
+        state.mag = 1.0 if asleep else fovea.magnification(out.zoom, self.zoom_gain, self.frame_h)
         # The perception tree reads its receptors by position (the look, the
         # previous look, its colour planes) and, as plain inputs, its own
         # last movement and the brain's recurrent memory.
@@ -485,7 +490,7 @@ class Organism:
             nx = float(np.clip(state.cx + self.stab * shift[0], 0.0, 1.0))
             ny = float(np.clip(state.cy + self.stab * shift[1], 0.0, 1.0))
             self.stab_dx, self.stab_dy = self.stab_dx + nx - state.cx, self.stab_dy + ny - state.cy
-            state = fovea.FoveaState(cx=nx, cy=ny, n=state.n, vx=state.vx, vy=state.vy)
+            state = fovea.FoveaState(cx=nx, cy=ny, n=state.n, vx=state.vx, vy=state.vy, mag=state.mag)
         self.state = state
         p["effort"] += force_x * force_x + force_y * force_y
         p["force"] = (force_x, force_y)

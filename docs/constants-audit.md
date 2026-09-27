@@ -77,6 +77,7 @@ yardsticks are found.
 | `DEFAULT_RECEPTORS`, `MIN_RECEPTORS`, `MAX_RECEPTORS` | 22, 4, 38 | P / B / M (dated) | MAX from the zoom eye's measured collapse past 0.6 |
 | `FIELD_RECEPTORS` | 144 | P | the old whole-field count, now square |
 | `DAMPING`, `FORCE_GAIN`, `SPRING` | 0.5, 0.2, 0.08 | P | overdamped oculomotor plant (Robinson); saccade speed and hold cost documented |
+| `max_mag` (zoom lens limit) | `RECEPTOR_PITCH` x frame height (2.81 at 180 rows) | M | measured from each frame: one receptor per pixel, so it never upsamples (no pixel inflation); zoom in only (added 2026-09-27) |
 
 ### fishbowl/controller.py, genome.py, blocks.py (brain and search)
 
@@ -87,6 +88,7 @@ yardsticks are found.
 | `MAX_CHANNELS` | 4 | **G** | a hand cap on loops; could become a bound only, as for units |
 | `HEAVY_TAIL_P`, `HEAVY_TAIL_SCALE`, `HEAVY_TAIL_MAX` | 0.1, 0.1, 2.0 | **G** | heavy-tailed mutations are grounded (the distribution of fitness effects is leptokurtic, Eyre-Walker & Keightley 2007); the mix is not |
 | `STABILIZER_SIGMA` | 0.1 | **G** | |
+| `ZOOM_SIGMA` | = `STABILIZER_SIGMA` | **G** | a 0..1 reflex gain, mutated at the same scale; the zoom gain is born 0 (off) |
 | `MIN_PACE`, `MAX_PACE` | 1, 6 | **G** | |
 | `BRAIN_FLOOR` | 0.3 | **G** | an audit fix against operator starvation |
 | `OP_SUCCESS_EMA_ALPHA` | 0.05 | **G** | |
