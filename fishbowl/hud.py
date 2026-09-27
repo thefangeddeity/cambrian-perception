@@ -4,7 +4,9 @@ from __future__ import annotations
 The organism's target lock, burned into a host's picture (the viewer's
 client HUD, in Python): corner brackets on its gaze -- cyan SCAN, yellow
 TRACK (prey in its gaze), red LOCK (eating: prey held in its gaze centre,
-the snapshot moment) -- that glide between its looks; pink corners on the
+the snapshot moment), dim violet SLEEP (eyes shut: the gaze sees nothing,
+parked; the picture stays, since the world doesn't go dark when it
+sleeps) -- that glide between its looks; pink corners on the
 living things the host's detector found; the mode and what it is on at the
 top right. When it locks on, the brackets snap in from the picture's edges
 onto its gaze with a soft flash, at most once a second.
@@ -18,7 +20,7 @@ import math
 import cv2
 import numpy as np
 
-COLOURS = {"SCAN": (127, 212, 255), "TRACK": (255, 221, 68), "LOCK": (255, 77, 109)}  # RGB
+COLOURS = {"SCAN": (127, 212, 255), "TRACK": (255, 221, 68), "LOCK": (255, 77, 109), "SLEEP": (170, 136, 204)}  # RGB
 PREY_COLOUR = (255, 95, 162)
 SNAP_S, SNAP_EVERY_S, FLASH_ALPHA = 0.28, 1.0, 0.12  # the viewer's client snap, in seconds
 GLIDE_PER_S = 0.0005  # the viewer's glide: the share of the gap left after a second
@@ -74,7 +76,9 @@ class LockHUD:
         for b in state.get("boxes") or []:
             _corners(canvas, b[2] * w, b[3] * h, b[4] * w, b[5] * h, min((b[4] - b[2]) * w, (b[5] - b[3]) * h) * 0.2,
                      _ink(PREY_COLOUR, self.order), thin)
-        _corners(canvas, x - side / 2, y - side / 2, x + side / 2, y + side / 2, side * 0.16, colour, 2 * thin)
+        # Asleep, its eyes are shut: short, thin brackets (the reticle half-closed).
+        arm, weight = (side * 0.08, thin) if mode == "SLEEP" else (side * 0.16, 2 * thin)
+        _corners(canvas, x - side / 2, y - side / 2, x + side / 2, y + side / 2, arm, colour, weight)
         # The snap: when it locks on, brackets close in from the picture's edges.
         if mode == "LOCK" and self.mode != "LOCK" and now - self.snap_t > SNAP_EVERY_S:
             self.snap_t = now

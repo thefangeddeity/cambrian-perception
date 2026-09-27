@@ -560,6 +560,8 @@ def evaluate_genome(
         "snacks": [round(float(foods[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]), 3) if foods else 0.0 for k in range(nf)],
         "tree_guess": [_round2(teacher_p[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_p else None for k in range(nf)],
         "teacher_label": [_round2(teacher_y[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_y else None for k in range(nf)],
+        # Per frame: asleep (1), eyes shut -- for the viewer's SLEEP.
+        "asleep": [int(asleeps[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] >= 0.5) if asleeps else 0 for k in range(nf)],
         "_memory": (memory, variance, org.mb.weights),
         "food_value": round(org.food_value, 3),
         "movement": movement,
@@ -1418,6 +1420,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             # gaps (fishbowl/bouts.py): null fit = still calibrating.
             "bouts": _bouts(),
             "teacher_label": live_info.get("teacher_label"),
+            "asleep_frames": live_info.get("asleep"),
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.extent(fovea.MAX_RECEPTORS),

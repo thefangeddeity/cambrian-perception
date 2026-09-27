@@ -254,6 +254,7 @@ LOCK_HUD_JS = r"""
       fw: (traj[i][2] || 0.35) * (d.frame_h || 9) / (d.frame_w || 16),
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
       guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null, snack: at(d.snacks) || 0,
+      asleep: !!at(d.asleep_frames),
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
       delay,
     };
@@ -286,6 +287,9 @@ LOCK_HUD_JS = r"""
   //   TRACK prey (person/animal) somewhere in its gaze
   //   LOCK  prey held in its gaze center: it is eating -- in a livecam, the
   //         moment to take a snapshot
+  //   SLEEP asleep: eyes shut, the gaze sees nothing and is parked. The
+  //         picture stays -- the world doesn't go dark when it sleeps, and
+  //         the whole field still reaches it, as light through closed eyes.
   // ID = the prey nearest its gaze center, per the detector; pink corner
   // marks = all prey the detector found in that frame.
   const LOCK_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
@@ -295,6 +299,7 @@ LOCK_HUD_JS = r"""
     ctx.stroke();
   }
   function lockState(fs) {
+    if (fs.asleep) return { mode: 'SLEEP', id: null };
     const cx = fs.cx, cy = fs.cy, hx = (fs.fw ?? fs.f) / 2, hy = fs.f / 2;
     const overlap = (b, k) => Math.max(0, Math.min(b[4], cx + hx * k) - Math.max(b[2], cx - hx * k)) * Math.max(0, Math.min(b[5], cy + hy * k) - Math.max(b[3], cy - hy * k));
     let id = null, best = 0, inGaze = false;
@@ -313,7 +318,8 @@ LOCK_HUD_JS = r"""
   function drawLock(ctx, bw, bh, fs, d, picture, imgAspect, now, st, opts) {
     const dt = Math.min(1, (now - (st.lastT || now)) / 1000); st.lastT = now;
     const L = lockState(fs), aspect = bw / bh;
-    const col = L.mode === 'LOCK' ? '#ff4d6d' : L.mode === 'TRACK' ? '#fd4' : '#7fd4ff';
+    const sleeping = L.mode === 'SLEEP';
+    const col = L.mode === 'LOCK' ? '#ff4d6d' : L.mode === 'TRACK' ? '#fd4' : sleeping ? '#a8c' : '#7fd4ff';
     const blink = Math.floor(now / 350) % 2 === 0;
     if (picture) {
       const ia = imgAspect || aspect;
@@ -329,8 +335,9 @@ LOCK_HUD_JS = r"""
       st.ry = st.ry == null ? fs.cy : st.ry + (fs.cy - st.ry) * k;
       st.rs = st.rs == null ? fs.f : st.rs + (fs.f - st.rs) * k;
       const x = st.rx * w, y = st.ry * h, gw = st.rs * h, gh = st.rs * h;  // square: its side is a fraction of the height
-      ctx.strokeStyle = col; ctx.lineWidth = 2;
-      lockCorners(ctx, x - gw / 2, y - gh / 2, x + gw / 2, y + gh / 2, Math.min(gw, gh) * 0.16);
+      // Asleep, its eyes are shut: short, thin brackets and no centre (it can't eat).
+      ctx.strokeStyle = col; ctx.lineWidth = sleeping ? 1 : 2;
+      lockCorners(ctx, x - gw / 2, y - gh / 2, x + gw / 2, y + gh / 2, Math.min(gw, gh) * (sleeping ? 0.08 : 0.16));
       // Client view only (opts.snap): when it locks on -- starts eating, where a
       // livecam would take its snapshot -- the brackets snap in from the edges of
       // the picture onto its gaze (with a soft shutter flash, below). At most
@@ -348,12 +355,14 @@ LOCK_HUD_JS = r"""
       }
       // its center (the central half of the gaze, where it eats): a diamond that spins on LOCK
       const r = Math.min(gw, gh) / 4;
-      ctx.save(); ctx.translate(x, y); ctx.rotate(L.mode === 'LOCK' ? now / 300 : Math.PI / 4);
-      ctx.strokeRect(-r / Math.SQRT2, -r / Math.SQRT2, 2 * r / Math.SQRT2, 2 * r / Math.SQRT2);
-      ctx.restore();
-      ctx.beginPath();
-      [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([sx, sy]) => { ctx.moveTo(x + sx * r * 1.15, y + sy * r * 1.15); ctx.lineTo(x + sx * r * 1.6, y + sy * r * 1.6); });
-      ctx.stroke();
+      if (!sleeping) {
+        ctx.save(); ctx.translate(x, y); ctx.rotate(L.mode === 'LOCK' ? now / 300 : Math.PI / 4);
+        ctx.strokeRect(-r / Math.SQRT2, -r / Math.SQRT2, 2 * r / Math.SQRT2, 2 * r / Math.SQRT2);
+        ctx.restore();
+        ctx.beginPath();
+        [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([sx, sy]) => { ctx.moveTo(x + sx * r * 1.15, y + sy * r * 1.15); ctx.lineTo(x + sx * r * 1.6, y + sy * r * 1.6); });
+        ctx.stroke();
+      }
       if (L.mode !== 'LOCK' || blink) {
         ctx.font = 'bold 12px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
         const label = L.mode + lockIdText(L.id), ly = Math.min(h - 18, y + gh / 2 + 6);
@@ -788,7 +797,12 @@ PAGE = r"""<!doctype html>
     ctx.strokeStyle = '#2a3c4c'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
     ctx.setLineDash([6, 5]); ctx.strokeRect(cx - fmax * H / 2, cy - fmax * H / 2, fmax * H, fmax * H); ctx.setLineDash([]);
     const lw = f * H, lh = f * H, lx = cx - lw / 2, ly = cy - lh / 2;  // square: its side is f of the height
-    if (cells) {
+    const shut = cells && R.asleep;  // asleep: its eyes are shut, the gaze sees nothing
+    if (shut) {
+      ctx.fillStyle = '#000'; ctx.fillRect(lx, ly, lw, lh);
+      ctx.fillStyle = '#a8c'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('eyes shut', cx, cy + 4); ctx.textAlign = 'left';
+    } else if (cells) {
       const colour = (d.colour_channels ?? 0) > 0;
       for (let r = 0; r < N; r++) for (let q = 0; q < N; q++) {
         const [Rv, Gv, Bv] = cells[r * N + q];
@@ -807,9 +821,9 @@ PAGE = r"""<!doctype html>
       ctx.strokeStyle = 'rgba(255, 190, 90, 0.8)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
       ctx.strokeRect(lx + c0 * lw / N, ly + c0 * lh / N, C * lw / N, C * lh / N); ctx.setLineDash([]);
     }
-    ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
+    ctx.strokeStyle = shut ? '#a8c' : '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
-    ctx.fillText(cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
+    ctx.fillText(shut ? 'asleep -- the gaze sees nothing' : cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
     $('look-px').textContent = `${N}x${N} receptors (the central ${C}x${C} cones, the rest rods), ${cw}x${ch} real pixels`;
     $('field-px').textContent = `${(d.world_grid_shape || [12, 12])[1]}x${(d.world_grid_shape || [12, 12])[0]} square receptors over ${d.frame_w}x${d.frame_h} real pixels`;
     $('look-scale').textContent = `${f.toFixed(2)} of the frame's height, at (${gx.toFixed(2)}, ${gy.toFixed(2)}); shown ${s.toFixed(1)}x real size.`;
@@ -1041,7 +1055,7 @@ PAGE = r"""<!doctype html>
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = eating: a snapshot moment); pink corners = prey found; top right: its own prey guess vs YOLO (green = agree). Client view: /live.';
+  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = eating: a snapshot moment / SLEEP = eyes shut); pink corners = prey found; top right: its own prey guess vs YOLO (green = agree). Client view: /live.';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');

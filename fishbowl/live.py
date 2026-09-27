@@ -51,9 +51,13 @@ def load_champion(*paths) -> dict | None:
     return None
 
 
-def lock_state(cx: float, cy: float, hx: float, hy: float, eating: float, boxes: list) -> tuple[str, list | None]:
+def lock_state(cx: float, cy: float, hx: float, hy: float, eating: float, boxes: list,
+               asleep: bool = False) -> tuple[str, list | None]:
     """SCAN / TRACK (prey in its gaze) / LOCK (eating: prey held in its gaze
-    centre), and the box it is on -- the viewer's lockState, in Python."""
+    centre) / SLEEP (eyes shut: its gaze sees nothing), and the box it is
+    on -- the viewer's lockState, in Python."""
+    if asleep:
+        return "SLEEP", None
     def overlap(b, k):
         return (max(0.0, min(b[4], cx + hx * k) - max(b[2], cx - hx * k))
                 * max(0.0, min(b[5], cy + hy * k) - max(b[3], cy - hy * k)))
@@ -145,7 +149,7 @@ class LiveActor:
         out = self.org.frame(grey, sig, boxes, bgr if self.colour else None, shift)
         st = self.org.state
         hx, hy = st.half_extents(w / h)
-        mode, target = lock_state(st.cx, st.cy, hx, hy, out["eating"], boxes)
+        mode, target = lock_state(st.cx, st.cy, hx, hy, out["eating"], boxes, out["asleep"])
         # Meals: its feeding acts (looks that caught prey), grouped by its bout criterion.
         self.kept += 1
         if out["gazed"] and out["eating"] > 0:

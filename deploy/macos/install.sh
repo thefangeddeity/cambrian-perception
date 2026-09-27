@@ -59,6 +59,16 @@ if [ -z "$PY" ]; then
     PY=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3
 fi
 echo "  python: $PY ($($PY --version))"
+# Web video needs TLS: Homebrew's OpenSSL finds its CA bundle through a
+# cert.pem link its postinstall step makes, which can go missing.
+if ! "$PY" -c 'import urllib.request; urllib.request.urlopen("https://www.youtube.com", timeout=15)' 2>/dev/null; then
+    if command -v brew >/dev/null && [ "${PY#"$(brew --prefix)"}" != "$PY" ]; then
+        echo "  Python can't verify TLS certificates -- re-running Homebrew's openssl@3 postinstall"
+        brew postinstall openssl@3 || true
+    else
+        echo "  WARNING: Python can't verify TLS certificates -- web video won't open"
+    fi
+fi
 [ -x "$DIR/.venv/bin/python" ] || "$PY" -m venv "$DIR/.venv"
 "$DIR/.venv/bin/python" -m pip install -q --disable-pip-version-check -r "$DIR/requirements.lock"
 
