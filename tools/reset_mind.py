@@ -34,8 +34,8 @@ def main() -> int:
         print("No checkpoint -- nothing to reset (a first run starts fresh anyway).")
         return 1
     old = G.Genome.from_dict(ck["genome"])
-    fresh = G.random_genome(random.Random(), n_vars=int(ck.get("n_vars", old.n_vars)))
-    fresh.fovea_fraction, fresh.pace = old.fovea_fraction, old.pace
+    fresh = G.random_genome(random.Random(), n_vars=old.n_vars, receptors=old.receptors)
+    fresh.pace, fresh.prey_sense = old.pace, old.prey_sense
     fresh.colour_channels, fresh.stabilizer = old.colour_channels, old.stabilizer
 
     backup = sandbox.CHECKPOINT_PATH.with_name(f"checkpoint.json.bak-mind-{time.strftime('%Y%m%d-%H%M%S')}")
@@ -48,7 +48,7 @@ def main() -> int:
     sandbox.save_checkpoint(ck)
     print(f"Fresh mind at generation {ck.get('total_generation')}: new brain "
           f"({len(fresh.brain.weights_ih[0])} inputs, {len(fresh.brain.weights_ho)} outputs, no channels) and "
-          f"perception tree; body and traits kept (gaze {fresh.fovea_fraction:.2f}, pace {fresh.pace}, "
+          f"perception tree; body and traits kept (eye {fresh.receptors}x{fresh.receptors}, pace {fresh.pace}, "
           f"colour {fresh.colour_channels}, stabilizer {fresh.stabilizer:.2f}). Old mind: {backup.name}")
     return 0
 

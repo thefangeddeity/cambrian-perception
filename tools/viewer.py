@@ -237,6 +237,8 @@ LOCK_HUD_JS = r"""
     const at = a => a && a.length ? a[Math.min(cur, a.length - 1)] : null;
     return {
       traj, fps, lastIdx, cur, i, cx: traj[i][0], cy: traj[i][1], f: traj[i][2] || 0.35,
+      // the gaze is square in pixels: f of the frame's height, fw of its width
+      fw: (traj[i][2] || 0.35) * (d.frame_h || 9) / (d.frame_w || 16),
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
       guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null, snack: at(d.snacks) || 0,
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
@@ -280,11 +282,11 @@ LOCK_HUD_JS = r"""
     ctx.stroke();
   }
   function lockState(fs) {
-    const cx = fs.cx, cy = fs.cy, f = fs.f;
-    const overlap = (b, half) => Math.max(0, Math.min(b[4], cx + half) - Math.max(b[2], cx - half)) * Math.max(0, Math.min(b[5], cy + half) - Math.max(b[3], cy - half));
+    const cx = fs.cx, cy = fs.cy, hx = (fs.fw ?? fs.f) / 2, hy = fs.f / 2;
+    const overlap = (b, k) => Math.max(0, Math.min(b[4], cx + hx * k) - Math.max(b[2], cx - hx * k)) * Math.max(0, Math.min(b[5], cy + hy * k) - Math.max(b[3], cy - hy * k));
     let id = null, best = 0, inGaze = false;
     (fs.boxes || []).forEach(b => {
-      const whole = overlap(b, f / 2), score = 4 * overlap(b, f / 4) + whole;
+      const whole = overlap(b, 1), score = 4 * overlap(b, 0.5) + whole;
       if (whole > 0) inGaze = true;
       if (score > best) { best = score; id = b; }
     });
@@ -313,7 +315,7 @@ LOCK_HUD_JS = r"""
       st.rx = st.rx == null ? fs.cx : st.rx + (fs.cx - st.rx) * k;
       st.ry = st.ry == null ? fs.cy : st.ry + (fs.cy - st.ry) * k;
       st.rs = st.rs == null ? fs.f : st.rs + (fs.f - st.rs) * k;
-      const x = st.rx * w, y = st.ry * h, gw = st.rs * w, gh = st.rs * h;
+      const x = st.rx * w, y = st.ry * h, gw = st.rs * h, gh = st.rs * h;  // square: its side is a fraction of the height
       ctx.strokeStyle = col; ctx.lineWidth = 2;
       lockCorners(ctx, x - gw / 2, y - gh / 2, x + gw / 2, y + gh / 2, Math.min(gw, gh) * 0.16);
       // Client view only (opts.snap): when it locks on -- starts eating, where a
@@ -513,7 +515,7 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
-    <div class="cap">The whole scene as its coarse wide-field eyes get it: 12x12 light receptors (fixed for now -- an evolvable, metabolically priced receptor count is queued) over <span id="field-px">--</span> (like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b> along its real path, played at real speed a few seconds behind live, in step with the picture beside it (its gaze runs on snapshots of its newest ~600 frames); trail = last 3 s.</div>
+    <div class="cap">The whole scene as its coarse wide-field eyes get it: <span id="field-px">--</span> (144 square light receptors laid over the frame at its own shape, like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b> along its real path, played at real speed a few seconds behind live, in step with the picture beside it (its gaze runs on snapshots of its newest ~600 frames); trail = last 3 s.</div>
     <div class="legend cap" style="margin-top:8px">
       <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
       <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
@@ -533,7 +535,7 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): the same 12x12 receptors over a smaller patch (<span id="look-px">--</span>), shown where it really is in its whole visual field (the panel), at its true size, with a dashed outline of the widest it could open there. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). In step with the picture and the visual field (same replay clock); its 12x12 is rebuilt in your browser from the frame on screen with the same averaging its eye does -- a reconstruction, not its exact input. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
+    <div class="cap">Its movable high-acuity eye (the spider's principal retina): a square of small square receptors (<span id="look-px">--</span>), each 1/64 of the frame's height, shown where it really is in its whole visual field (the panel), at its true size. How many receptors it has is inherited and evolves a ring at a time, each one paid for per look -- growing the eye is more receptors, not the same ones stretched (it has no zoom). Dashed: the biggest eye it could evolve. The only place it sees detail, and the only way it eats. Shown in colour when it has evolved colour receptors (like a jumping spider's principal eyes; the visual field stays monochrome like its secondary eyes). In step with the picture and the visual field (same replay clock); its receptors are rebuilt in your browser from the frame on screen with the same averaging its eye does -- a reconstruction, not its exact input. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
 </div>
@@ -554,7 +556,7 @@ PAGE = r"""<!doctype html>
     </div>
     <div class="panel">
       <h2>its perception tree</h2>
-      <div class="cap">The genome's evolved "response" tree: reads the gaze's 12x12 cells (x0-x143), the previous frame's (x144-x287), its own last movement (x288-x289) and the brain's 16 memory units (x290-x305). Its output goes into the brain as the "tree" input -- it is no longer graded by any score of its own, so it only matters if what it perceives helps the body.</div>
+      <div class="cap">The genome's evolved "response" tree: reads its receptors <em>by position</em> from the gaze's centre -- <code>now(x,y)</code> the gaze, <code>prev(x,y)</code> the previous gaze, <code>rg</code>/<code>by</code> its colour receptors -- so it keeps working as its eye grows (a position its eye doesn't have reads 0); and its own last movement (x0-x1) and the brain's 16 memory units (x2-x17). Its output goes into the brain as the "tree" input, and it is graded by its teacher (YOLO) on how much prey fills its gaze.</div>
       <div id="trees"></div>
     </div>
   </div>
@@ -565,7 +567,7 @@ PAGE = r"""<!doctype html>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Its real food is <b style="color:#ff5fa2">prey</b>: a person or animal (found by YOLO, which plays the world's physics of food -- the organism itself still only sees its 12x12 grids) held in the <b>center</b> of its gaze. Following a moving person is literally how it eats. A small <b style="color:#c8f">snack</b> comes from surprise -- change beyond what a spot usually does, remembered across runs, so a swinging fan becomes boring for good. Snacks alone can't sustain it.</div>
+      <div class="cap">Its real food is <b style="color:#ff5fa2">prey</b>: a person or animal (found by YOLO, which plays the world's physics of food -- the organism itself still only sees its receptors) held in the <b>center</b> of its gaze. Following a moving person is literally how it eats. A small <b style="color:#c8f">snack</b> comes from surprise -- change beyond what a spot usually does, remembered across runs, so a swinging fan becomes boring for good. Snacks alone can't sustain it.</div>
       <div id="prey-gauge"></div>
       <canvas id="prey-trace" height="60"></canvas>
       <div id="food-gauge"></div>
@@ -605,8 +607,8 @@ PAGE = r"""<!doctype html>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'zoom', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y'];
-  const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y'];
+  const OUTPUT_NAMES = ['pan', 'tilt', 'zoom (unused)', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
   function channelName(br, k, side) {
@@ -660,7 +662,7 @@ PAGE = r"""<!doctype html>
       }
     }
   }
-  function crop(d, f) { return [2 * Math.floor(d.frame_w * f / 2), 2 * Math.floor(d.frame_h * f / 2)]; }
+  function crop(d, f) { const side = Math.round(d.frame_h * f); return [side, side]; }  // square, f of the frame's height
   function boxColor(cx, cy, f) {
     const nx = (cx - 0.5) / 0.5, ny = (cy - 0.5) / 0.5;  // where its gaze's CENTER is, over the whole frame
     const corner = Math.abs(nx * ny), edge = Math.max(Math.abs(nx), Math.abs(ny));
@@ -716,26 +718,26 @@ PAGE = r"""<!doctype html>
   requestAnimationFrame(drawField);
 
   // The retina panel runs on the same replay clock as the picture and the
-  // visual field: its gaze where the replayed path has it, and its 12x12
+  // visual field: its gaze where the replayed path has it, and its n x n
   // retina rebuilt here from the frame on screen with the same averaging its
   // eye does (grey: 0.299 R + 0.587 G + 0.114 B, like its own). A
   // reconstruction -- from the replay JPEG, not its exact frames; without
   // frames (a file source) it falls back to its retina at the end of its run.
   const LOOK = { key: null, cells: null };
   const lookSrc = document.createElement('canvas');
-  function rebuildRetina(img, cx, cy, f) {
+  function rebuildRetina(img, cx, cy, f, N) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
     if (lookSrc.width !== iw || lookSrc.height !== ih) { lookSrc.width = iw; lookSrc.height = ih; }
     const c2 = lookSrc.getContext('2d', { willReadFrequently: true });
     c2.drawImage(img, 0, 0);
-    const gw = Math.max(1, Math.round(f * iw)), gh = Math.max(1, Math.round(f * ih));
+    const gw = Math.max(N, Math.round(f * ih)), gh = gw;  // square receptors: its side is f of the height
     const x0 = Math.round(cx * iw - gw / 2), y0 = Math.round(cy * ih - gh / 2);
     const sx0 = Math.max(0, x0), sy0 = Math.max(0, y0), sx1 = Math.min(iw, x0 + gw), sy1 = Math.min(ih, y0 + gh);
     const px = sx1 > sx0 && sy1 > sy0 ? c2.getImageData(sx0, sy0, sx1 - sx0, sy1 - sy0).data : null;
     const cells = [];
-    for (let r = 0; r < 12; r++) for (let q = 0; q < 12; q++) {
-      const ya = y0 + Math.floor(r * gh / 12), yb = y0 + Math.floor((r + 1) * gh / 12);
-      const xa = x0 + Math.floor(q * gw / 12), xb = x0 + Math.floor((q + 1) * gw / 12);
+    for (let r = 0; r < N; r++) for (let q = 0; q < N; q++) {
+      const ya = y0 + Math.floor(r * gh / N), yb = y0 + Math.floor((r + 1) * gh / N);
+      const xa = x0 + Math.floor(q * gw / N), xb = x0 + Math.floor((q + 1) * gw / N);
       let R = 0, G = 0, B = 0, n = 0;
       for (let y = ya; y < yb; y++) for (let x = xa; x < xb; x++) {
         n++;  // past the frame's edge counts as black, as its eye sees it
@@ -749,12 +751,12 @@ PAGE = r"""<!doctype html>
     requestAnimationFrame(drawLook);
     const d = D;
     if (!d || !d.frame_w) return;
-    const R = replayAt(d, now, CLK, REPLAY_FPS), fmax = d.max_fraction || 0.6;
+    const R = replayAt(d, now, CLK, REPLAY_FPS), fmax = d.max_fraction || 0.6, N = d.receptors || 12;
     const img = $('cam');
     let cells = null;
     if (typeof F !== 'undefined' && F.shown != null && img.naturalWidth) {
-      const key = F.shown + '|' + R.cx + '|' + R.cy + '|' + R.f;
-      if (LOOK.key !== key) { LOOK.cells = rebuildRetina(img, R.cx, R.cy, R.f); LOOK.key = key; }
+      const key = F.shown + '|' + R.cx + '|' + R.cy + '|' + R.f + '|' + N;
+      if (LOOK.key !== key) { LOOK.cells = rebuildRetina(img, R.cx, R.cy, R.f, N); LOOK.key = key; }
       cells = LOOK.cells;
     }
     // Without frames: its retina and gaze at the end of its latest run.
@@ -766,16 +768,16 @@ PAGE = r"""<!doctype html>
     const ctx = c.getContext('2d'), s = W / d.frame_w, cx = gx * W, cy = gy * H;
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     ctx.strokeStyle = '#2a3c4c'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
-    ctx.setLineDash([6, 5]); ctx.strokeRect(cx - fmax * W / 2, cy - fmax * H / 2, fmax * W, fmax * H); ctx.setLineDash([]);
-    const lw = f * W, lh = f * H, lx = cx - lw / 2, ly = cy - lh / 2;
+    ctx.setLineDash([6, 5]); ctx.strokeRect(cx - fmax * H / 2, cy - fmax * H / 2, fmax * H, fmax * H); ctx.setLineDash([]);
+    const lw = f * H, lh = f * H, lx = cx - lw / 2, ly = cy - lh / 2;  // square: its side is f of the height
     if (cells) {
       const colour = (d.colour_channels ?? 0) > 0;
-      for (let r = 0; r < 12; r++) for (let q = 0; q < 12; q++) {
-        const [Rv, Gv, Bv] = cells[r * 12 + q];
+      for (let r = 0; r < N; r++) for (let q = 0; q < N; q++) {
+        const [Rv, Gv, Bv] = cells[r * N + q];
         const grey = Math.round(0.299 * Rv + 0.587 * Gv + 0.114 * Bv);
         ctx.fillStyle = colour ? `rgb(${Math.round(Rv)},${Math.round(Gv)},${Math.round(Bv)})` : `rgb(${grey},${grey},${grey})`;
-        const xa = Math.round(lx + q * lw / 12), xb = Math.round(lx + (q + 1) * lw / 12);
-        const ya = Math.round(ly + r * lh / 12), yb = Math.round(ly + (r + 1) * lh / 12);
+        const xa = Math.round(lx + q * lw / N), xb = Math.round(lx + (q + 1) * lw / N);
+        const ya = Math.round(ly + r * lh / N), yb = Math.round(ly + (r + 1) * lh / N);
         ctx.fillRect(xa, ya, xb - xa, yb - ya);
       }
     } else if (d.grid) {
@@ -785,9 +787,9 @@ PAGE = r"""<!doctype html>
     ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
     ctx.fillText(cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
-    $('look-px').textContent = `${cw}x${ch} real pixels`;
-    $('field-px').textContent = `${d.frame_w}x${d.frame_h} real pixels`;
-    $('look-scale').textContent = `Its gaze is ${f.toFixed(3)} of the frame, centred at (${gx.toFixed(2)}, ${gy.toFixed(2)}); dashed: the widest it could open there (${fmax}). Shown ${s.toFixed(1)}x real size.`;
+    $('look-px').textContent = `${N}x${N} receptors, ${cw}x${ch} real pixels`;
+    $('field-px').textContent = `${(d.world_grid_shape || [12, 12])[1]}x${(d.world_grid_shape || [12, 12])[0]} square receptors over ${d.frame_w}x${d.frame_h} real pixels`;
+    $('look-scale').textContent = `Its eye is ${N}x${N} receptors, ${f.toFixed(3)} of the frame's height, centred at (${gx.toFixed(2)}, ${gy.toFixed(2)}); dashed: the biggest eye it could evolve (${fmax.toFixed(2)}). Shown ${s.toFixed(1)}x real size.`;
   }
   requestAnimationFrame(drawLook);
 
@@ -871,7 +873,8 @@ PAGE = r"""<!doctype html>
   }
 
   // Trees (every tree the genome has).
-  function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
+  const PLANE_NAMES = ['now', 'prev', 'rg', 'by'];
+  function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'cell' ? `${PLANE_NAMES[n.index] || 'p' + n.index}(${n.kx},${n.ky})` : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
   function layout(n, depth, order) {
     if (!n.children || n.children.length === 0) return { node: n, depth, x: order.next++, children: [] };
     const kids = n.children.map(c => layout(c, depth + 1, order));
@@ -899,7 +902,7 @@ PAGE = r"""<!doctype html>
     { id: 'c-fit', title: 'fitness', cap: 'current genome, re-scored each generation / peak ever', series: [['fitness', '#4fa', r => r.best_fitness], ['peak ever', '#6f8798', r => r.peak_fitness_seen]] },
     { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#4fa', r => r.mean_energy], ['prey', '#ff5fa2', r => r.mean_prey], ['surprise', '#c8f', r => r.mean_food]] },
     { id: 'c-drive', title: 'homeostatic drive', cap: 'mean drive per run -- lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
-    { id: 'c-look', title: 'gaze size', cap: 'inherited gaze size at birth, and mean gaze size over each run (fraction of frame)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
+    { id: 'c-look', title: 'gaze size', cap: 'the side of its eye as a fraction of the frame height (receptors x 1/64; before the eye became a fixed mosaic: the zoom gaze at birth and its mean over each run)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
     { id: 'c-pace', title: 'resting pace', cap: 'inherited resting gaze interval, every Nth frame (its temperament; the brain moves 3x either way around it)', series: [['every Nth frame', '#7fd4ff', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: 'resource_handler: grows with real improvement, shrinks under system strain (%)', series: [['quota %', '#fd4', r => r.quota_pct]] },
     { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#6f8798', r => r.mv && r.mv.fixate], ['glide', '#4fa', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
@@ -998,7 +1001,7 @@ PAGE = r"""<!doctype html>
     $('stream-link-row').style.display = id ? 'block' : 'none';
     if (id) $('stream-link').href = `https://www.youtube.com/watch?v=${id}`;
     $('live-title').textContent = d && d.is_live ? 'the stream, as it saw it' : 'its camera, as it saw it';
-    $('live-cap').textContent = 'The real frames it saw, played at real speed just far enough behind live that it has gazed at every one (a few seconds; its gaze runs on snapshots of its newest frames), in step with the visual field beside it, with its gaze as a target lock. The organism itself only gets the 12x12 grids; these frames are kept in RAM only.';
+    $('live-cap').textContent = 'The real frames it saw, played at real speed just far enough behind live that it has gazed at every one (a few seconds; its gaze runs on snapshots of its newest frames), in step with the visual field beside it, with its gaze as a target lock. The organism itself only gets its receptors; these frames are kept in RAM only.';
     const running = d && d.generation !== undefined ? (d.is_live ? 'video' : 'camera') : null;
     const switching = running && (running !== want || (want === 'video' && youtubeId(d.clip) !== id));
     $('h-src').textContent = switching

@@ -21,7 +21,7 @@ Older correlation scores are still measured and logged, not scored.
 The world (World): a live camera or live stream is read continuously
 (video_source.LiveFeed) and each generation is scored on the newest
 ~600 frames, refreshed every few generations; a local file is one fixed
-clip. Raw frames never leave memory -- only 12x12 grids and prey boxes.
+clip. Raw frames never leave memory -- only receptor grids and prey boxes.
 On a live feed it also keeps a short ring of small JPEG frames in RAM
 for the viewer's replay of its latest run (CAMBRIAN_CAMERA_PREVIEW=0
 turns it off).
@@ -57,18 +57,18 @@ import numpy as np
 from fishbowl import fovea, genome as G, reflexes, sandbox, video_source
 from fishbowl.state import MosquitoState
 from fishbowl import prey as prey_lib
-from fishbowl.controller import HIDDEN as BRAIN_HIDDEN
+from fishbowl.controller import TREE_HIDDEN
 # The organism itself and the world's fixed physics it lives by -- one
 # implementation, shared with any live host (fishbowl/organism.py).
 from fishbowl.organism import (  # noqa: E402
     APERTURE_COST, CHANNEL_COST, COLOUR_COST, CONSOLIDATE_RATE, EXPANSION_GAIN, FLOW_GAIN, FOOD_GAIN, MAX_INTERVAL,
     MEAN_RATE, MEM_H, MEM_W, MOTION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, PREY_SENSE_COST, REFERENCE_QUOTA_PCT,
     SHIFT_MAX, SHIFT_MIN_RESPONSE, SHIFT_WIDTH, STABILIZER_COST, SURPRISE_SIGMAS, TEMPO_RANGE, THINK_COST,
-    UNSEEN_NOVELTY, VAR_RATE, Organism, _aperture_cost,
+    RECEPTOR_COST, UNSEEN_NOVELTY, VAR_RATE, Organism, _receptor_cost,
     feed_on_novelty as _feed_on_novelty, global_shifts as _global_shifts,
     peripheral_motion_centroid as _peripheral_motion_centroid, prey_sense as _prey_sense,
 )
-from fishbowl.retina import GRID, N_CELLS, frame_to_vector
+from fishbowl.retina import field_shape, frame_to_vector
 
 # How much each reflex/drive contributes to total fitness -- loom
 # weighted heaviest, matching the real threat/food asymmetry discussed
@@ -86,7 +86,7 @@ SIGNAL_WEIGHTS = {"luminance_change": 0.5, "motion_energy": 0.75, "directional_m
 # pulled the gaze toward any dark triangle. Finding living things is now
 # prey.py's job -- and YOLO there is itself a SHORTCUT: the goal is for
 # the organism to grow its own prey detector (planned: its own perception
-# learns "prey or not" from its 12x12 grids with YOLO as the teacher, then
+# learns "prey or not" from its receptors with YOLO as the teacher, then
 # YOLO is weaned off). It only ever needs people and animals, not pencils.
 
 # Real orienting pressure, added 2026-09-24 -- on a live kitten cam a
@@ -196,16 +196,17 @@ def _round2(v):
 
 # The flinch, evolved rather than wired: at each onset of a real
 # approach (whole-field dark expansion crossing FLINCH_THRESHOLD), reward
-# reacting within FLINCH_WINDOW frames (~200 ms at 15 frames/s) by
-# widening the look or making a saccade -- more for a faster reaction,
-# nothing for none. No approach in a run means no reward and no penalty.
+# reacting within FLINCH_WINDOW frames (~200 ms at 15 frames/s) with a
+# saccade -- more for a faster reaction, nothing for none. No approach in a
+# run means no reward and no penalty. (Widening the gaze also counted while
+# the eye could zoom; its eye is a fixed mosaic now -- fovea.py.)
 FLINCH_WEIGHT = 1.0
 FLINCH_THRESHOLD = 0.18
 FLINCH_WINDOW = 3
 
-def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float], intervals: list[int]) -> dict:
-    """Onsets of real approach, and whether it widened its gaze or made a
-    saccade within FLINCH_WINDOW real frames -- gazes are unevenly spaced,
+def _flinch(looms: list[float], speeds: np.ndarray, intervals: list[int]) -> dict:
+    """Onsets of real approach, and whether it made a saccade within
+    FLINCH_WINDOW real frames -- gazes are unevenly spaced,
     so latency is counted in real frames (plus, on average, half the
     interval before the gaze that noticed it). A slow tempo pays for it."""
     onsets = [t for t in range(1, len(looms)) if looms[t] > FLINCH_THRESHOLD >= looms[t - 1]]
@@ -214,8 +215,7 @@ def _flinch(looms: list[float], speeds: np.ndarray, fracs: list[float], interval
         lat, elapsed = None, (intervals[t - 1] - 1) / 2.0 if t - 1 < len(intervals) else 0.0
         i = t
         while i < len(speeds) and elapsed <= FLINCH_WINDOW:
-            widened = i + 1 < len(fracs) and fracs[i + 1] - fracs[i] > 0.01
-            if widened or speeds[i] >= 0.05:
+            if speeds[i] >= 0.05:
                 lat = elapsed
                 break
             elapsed += intervals[i] if i < len(intervals) else 1
@@ -428,8 +428,8 @@ def _list_clips(source: str) -> list[str]:
 
 def _world_vectors(frames: list[np.ndarray]) -> np.ndarray:
     """
-    The FULL, un-foveated frame at every timestep, reduced to the same
-    12x12 grid shape retina.py already uses -- computed ONCE per run,
+    The FULL, un-foveated frame at every timestep, reduced to the whole
+    field's square receptors (retina.field_shape) -- computed ONCE per run,
     the same for every genome/generation, since it depends only on the
     real clip, never on any genome's pan/tilt choices. This is what
     closes the self-stimulation loophole an external audit found: when
@@ -505,7 +505,7 @@ def evaluate_genome(
     # Everything about MOVEMENT is measured on the per-frame path over the
     # full world timeline (audit: sampling only at gaze frames let a slow
     # tempo dodge world-graded terms).
-    fp = np.array(frame_path) if frame_path else np.array([[state.cx, state.cy, state.fraction]])
+    fp = np.array(frame_path) if frame_path else np.array([[state.cx, state.cy, state.extent]])
     nf = len(fp)
     fvx = np.diff(fp[:, 0], prepend=fp[0, 0])
     fvy = np.diff(fp[:, 1], prepend=fp[0, 1])
@@ -527,13 +527,14 @@ def evaluate_genome(
     }
     live_info = {
         "fovea_cx": state.cx, "fovea_cy": state.cy,
-        "fovea_fraction": state.fraction,
+        "fovea_fraction": state.extent,
+        "receptors": state.n,
         "last_response": responses[-1] if responses else 0.0,
-        # The actual 144-value grid the organism just processed -- a
-        # blocky 12x12 luminance grid, not an image, so it doesn't touch
+        # The actual receptor values the organism just processed -- a
+        # blocky n x n luminance grid, not an image, so it doesn't touch
         # the no-raw-frames rule.
         "grid": last_grid.tolist() if last_grid is not None else [],
-        "grid_shape": list(GRID),
+        "grid_shape": [state.n, state.n],
         # the gaze's colour receptors at the end of the run (red-green,
         # then blue-yellow), for the viewer; empty without colour vision
         "colour_grid": [round(float(x), 4) for x in last_colour] if last_colour is not None else [],
@@ -560,11 +561,11 @@ def evaluate_genome(
         "field_events": [[round(float(world_signals["motion_cx"][k]), 3), round(float(world_signals["motion_cy"][k]), 3),
                           round(float(min(1.0, world_signals["motion_energy"][k] * PERIPH_MOTION_GAIN)), 3),
                           round(float(min(1.0, world_signals["expansion"][k] * EXPANSION_GAIN)), 3), 0] for k in range(nf)],
-        "flinch": _flinch(list(np.minimum(1.0, np.asarray(world_signals["expansion"][:nf]) * EXPANSION_GAIN)), speeds, list(fp[:, 2]), [1] * nf),
+        "flinch": _flinch(list(np.minimum(1.0, np.asarray(world_signals["expansion"][:nf]) * EXPANSION_GAIN)), speeds, [1] * nf),
         "pace": round(float(iv.mean()), 2),  # mean gaze interval actually used this run
         "tempo_series": [round(float(np.mean(intervals[k:k + step_n])), 2) for k in range(0, len(intervals), step_n)],
         "brain_hidden": [round(h, 3) for h in brain.hidden],
-        # (cx, cy, aperture, frame index): gazes are unevenly spaced now,
+        # (cx, cy, gaze side as a fraction of the frame's height, frame index): gazes are unevenly spaced now,
         # so the viewer replays each at its real moment.
         "trajectory": [[round(float(x), 4), round(float(y), 4), round(float(f), 4), i] for i, (x, y, f) in enumerate(fp)],
     }
@@ -798,13 +799,18 @@ class World:
         self.fps = fps if fps and fps > 0 else 15.0
         self._cache: dict[int, tuple] = {}
 
+    @property
+    def field_shape(self) -> tuple[int, int]:
+        """The whole field's receptors (rows, cols) on this snapshot's frames."""
+        return field_shape(*self.frames[0].shape[:2])
+
     def at_pace(self, pace: int):
         pace = max(1, int(pace))
         if pace not in self._cache:
             wv = self.vectors[::pace]
-            ws = reflexes.all_signals(wv)
+            ws = reflexes.all_signals(wv, self.field_shape)
             ws["expansion"] = reflexes.expansion_score(wv)
-            ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv)
+            ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv, self.field_shape)
             ws["field_light"] = np.asarray(wv).mean(axis=1)
             ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
             self._cache[pace] = (self.frames[::pace], ws)
@@ -832,7 +838,12 @@ def _dessert() -> dict | None:
     return sel
 
 
-def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRAIN_HIDDEN + 2 * N_CELLS) -> None:
+# The perception tree's plain inputs: its own last movement (x, y) and the
+# brain's units it reads; its receptors are read by position besides (blocks.py).
+TREE_PLAIN_INPUTS = 2 + TREE_HIDDEN
+
+
+def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) -> None:
     # Dessert overrides the camera until its deadline; then this run
     # exits and systemd restarts it back on the camera.
     home_source = source
@@ -955,22 +966,25 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
         box.run_start_generation = box.generation
     margin = 0.05
 
-    # Inputs are only ever APPENDED (e.g. the brain's hidden units), so a
-    # checkpoint with fewer inputs is prefix-compatible: every existing
-    # tree index keeps its meaning.
-    if checkpoint is not None and 0 < int(checkpoint.get("n_vars", 0)) <= n_vars:
-        print(f"Resuming from checkpoint (previous best_fitness={checkpoint['best_fitness']:.4f}).")
-        genome = G.Genome.from_dict(checkpoint["genome"])
+    # Plain inputs are only ever APPENDED (e.g. the brain's hidden units), so
+    # a genome with fewer is prefix-compatible: every existing tree index
+    # keeps its meaning. (Genome.from_dict migrates the older flat layout,
+    # receptors included, to receptors read by position.)
+    genome = G.Genome.from_dict(checkpoint["genome"]) if checkpoint is not None else None
+    if genome is not None and 0 < genome.n_vars <= n_vars:
+        print(f"Resuming from checkpoint (previous best_fitness={checkpoint['best_fitness']:.4f}; "
+              f"eye {genome.receptors}x{genome.receptors} receptors).")
         genome.n_vars = n_vars
+        genome.receptors = genome.receptors or fovea.DEFAULT_RECEPTORS
         margin = float(checkpoint.get("margin", margin))
-    elif checkpoint is not None:
+    elif genome is not None:
         # Audit: this used to silently start a brand-new lineage and
         # overwrite the checkpoint. A checkpoint with MORE inputs than this
         # code expects means the code is older than the lineage -- stop.
-        raise SystemExit(f"Checkpoint has n_vars={checkpoint.get('n_vars')} but this code expects {n_vars}; "
+        raise SystemExit(f"Checkpoint has n_vars={genome.n_vars} but this code expects {n_vars}; "
                          "refusing to overwrite the lineage with a fresh genome.")
     else:
-        genome = G.random_genome(rng, n_vars=n_vars)
+        genome = G.random_genome(rng, n_vars=n_vars, receptors=fovea.DEFAULT_RECEPTORS)
 
 
     # NEVER trust a best_fitness carried over from a different world
@@ -1176,13 +1190,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
                 accepted, rechecked_out = False, True
 
         if accepted:
-            # Evolution just chose to pay for a bigger look -- a real,
+            # Evolution just chose to pay for a bigger eye -- a real,
             # organism-derived demand for resources, surfaced as a request
             # resource_handler.py can weigh (with real fitness gain) to
             # grant more quota. Never granted by the organism itself.
-            if applied == "mutate_fovea" and candidate.fovea_fraction > genome.fovea_fraction:
+            if applied == "mutate_fovea" and candidate.receptors > genome.receptors:
                 box.log_request(
-                    f"look grew {genome.fovea_fraction:.3f} -> {candidate.fovea_fraction:.3f} "
+                    f"eye grew {genome.receptors}x{genome.receptors} -> {candidate.receptors}x{candidate.receptors} receptors "
                     f"at quota {quota_pct:.0f}%"
                 )
             genome = candidate
@@ -1267,6 +1281,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "rechecked_out": rechecked_out,
             "fitness_delta": (candidate_fitness - parent_fitness) if both_finite else None,
             "fovea_fraction": genome.fovea_fraction,
+            "receptors": genome.receptors,
             "quota_pct": quota_pct,
             "pace": genome.pace,
             "tree_stats": {
@@ -1299,6 +1314,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "world_first_index": world.first_index,
             "world_epoch": feed_epoch,
             "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
+            "receptors": genome.receptors,
             "quota_pct": quota_pct,
             # Gemini's homeostasis: the candidate's body at the end of this
             # generation's run, its energy over time, how many frames the
@@ -1324,7 +1340,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "teacher_label": live_info.get("teacher_label"),
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
-            "max_fraction": fovea.MAX_FRACTION,
+            "max_fraction": fovea.extent(fovea.MAX_RECEPTORS),
             "colour_grid": live_info.get("colour_grid"),
             "colour_channels": genome.colour_channels,
             "stabilizer": genome.stabilizer,
@@ -1358,7 +1374,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             "is_live": source == "live",
             "grid": [round(x, 4) for x in live_info["grid"]],
             "grid_shape": live_info["grid_shape"],
-            # The WORLD's own 12x12 grid (same reduction
+            # The WORLD's own whole-field grid (same reduction
             # already used for reflex grading, never transmitted
             # before) -- same no-raw-frames justification the fovea
             # grid above already has (already reduced far past
@@ -1368,7 +1384,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
             # third-party video embed -- no YouTube dependency, no
             # embedding restrictions, no autoplay/play-state games.
             "world_grid": [round(x, 4) for x in world.vectors[-1]],
-            "world_grid_shape": list(GRID),
+            "world_grid_shape": list(world.field_shape),
             # The CURRENT ACCEPTED genome's own tree structure (not
             # the just-tried candidate's, even on a rejected
             # generation) -- `genome` only ever changes on an accept,

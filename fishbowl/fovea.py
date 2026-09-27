@@ -16,29 +16,46 @@ included, like an eye that can point its fovea at anything in view: a cat
 walking along the edge of the room can be followed and eaten. Whatever
 part of the gaze hangs past the frame sees nothing (black; neutral for
 colour) -- no light arrives from outside the world, so it feeds nothing
-and still costs its aperture.
+and its receptors still cost their upkeep.
 """
 
 from dataclasses import dataclass
 
 import numpy as np
 
-from .retina import GRID, frame_to_vector, opponent_planes
+from .retina import frame_to_vector, opponent_planes
 
-FOVEA_FRACTION = 0.35  # DEFAULT look size (fraction of the full
-# frame's width/height) for a newborn genome. The live value is a
-# heritable trait, genome.fovea_fraction, evolved within the bounds
-# below and priced by real compute scarcity (see run_vision.py's
-# field cost): it can grow when seeing more pays off and resources
-# allow, and shrinks when resources are scarce.
-# Gemini's aperture range and per-frame zoom rate: the brain can widen
-# or narrow the look every frame (a zoom motor), within these bounds.
-# genome.fovea_fraction is only the aperture at birth.
-MIN_FRACTION = 0.15
-MAX_FRACTION = 0.60  # Gemini's bound, kept for a measured reason: at 0.9 the gaze snapped wide open,
-# could barely move (0.1 of travel left) and fitness collapsed 1.31 -> 0.00 -- past ~0.6 it stops being a
-# gaze (a part of the field it moves around) and becomes the field itself.
-ZOOM_STEP = 0.05
+# The gaze is a square patch of n x n square receptors of a FIXED size (after
+# a design panel: Land, Nilsson -- receptor mosaics are fixed; what evolves is
+# how many receptors there are). n is inherited (genome.receptors) and grows
+# or shrinks a ring at a time, so the centre stays the centre and every
+# receptor keeps its position relative to it (the perception tree reads them
+# by that position). Growing the eye is real growth: more receptors, more
+# detail over more area, each one paid for (organism.RECEPTOR_COST). There is
+# no zoom: nothing stretches a fixed set of receptors over a bigger patch (the
+# brain's old zoom output is unused -- the slot a pupil could take later).
+#
+# Receptor size: 1/64 of the frame's height (square in pixels). Chosen when the
+# zoom eye was retired so that no living lineage lost a receptor across its
+# gaze (the narrowest, 0.185 of the frame, keeps its 12), and still ~2.8 of
+# the processed frame's pixels per receptor (video_source keeps 320 px wide,
+# 180 rows at 16:9).
+RECEPTOR_PITCH = 1.0 / 64
+DEFAULT_RECEPTORS = 22   # a newborn's eye: 22 x 22 (0.34 of the frame's height; the old default gaze was 0.35)
+MIN_RECEPTORS = 4        # the smallest eye with a centre and a ring around it
+MAX_RECEPTORS = 38       # 0.59 of the frame: past ~0.6 the gaze stops being a gaze and becomes the field
+# (measured under the zoom eye: at 0.9 it snapped wide open, could barely move and fitness collapsed)
+
+
+def even_receptors(n: float) -> int:
+    """The nearest allowed receptor count: even (growth is by whole rings), within bounds."""
+    return int(min(MAX_RECEPTORS, max(MIN_RECEPTORS, 2 * round(n / 2.0))))
+
+
+def extent(n: int) -> float:
+    """The gaze's side as a fraction of the frame's height."""
+    return n * RECEPTOR_PITCH
+
 
 # Eye physics: the brain applies a FORCE; the look has velocity, with
 # damping -- an eyeball (or a jumping spider's retinal tube) on muscles.
@@ -68,48 +85,58 @@ SPRING = 0.08
 class FoveaState:
     cx: float = 0.5  # center, normalized [0, 1] within the full frame
     cy: float = 0.5
-    fraction: float = FOVEA_FRACTION  # current aperture; starts at genome.fovea_fraction, then the zoom motor moves it
+    n: int = DEFAULT_RECEPTORS  # receptors per side (its genome's; fixed for a life)
     vx: float = 0.0  # look velocity (fraction of frame per frame)
     vy: float = 0.0
 
+    @property
+    def extent(self) -> float:
+        """The gaze's side, as a fraction of the frame's height."""
+        return extent(self.n)
+
+    def half_extents(self, aspect: float) -> tuple[float, float]:
+        """Half the gaze's width and height as fractions of the frame's width
+        and height (aspect = frame width / height): square in pixels."""
+        e = self.extent / 2.0
+        return e / aspect, e
+
 
 def _window(frame: np.ndarray, state: FoveaState) -> np.ndarray:
-    """The gaze window, centered on (cx, cy) at its real pixel size; any
-    part past the frame's edge is zero (black: no light from there)."""
+    """The gaze window, centered on (cx, cy): a square of n receptors of
+    RECEPTOR_PITCH of the frame's height (at least a pixel each); any part
+    past the frame's edge is zero (black: no light from there)."""
     h, w = frame.shape[:2]
-    half_w = max(1, int(w * state.fraction / 2))
-    half_h = max(1, int(h * state.fraction / 2))
-    x0, y0 = int(state.cx * w) - half_w, int(state.cy * h) - half_h
-    out = np.zeros((2 * half_h, 2 * half_w) + frame.shape[2:], dtype=frame.dtype)
+    side = max(state.n, int(round(state.extent * h)))
+    x0, y0 = int(state.cx * w) - side // 2, int(state.cy * h) - side // 2
+    out = np.zeros((side, side) + frame.shape[2:], dtype=frame.dtype)
     sx0, sy0 = max(0, x0), max(0, y0)
-    sx1, sy1 = min(w, x0 + 2 * half_w), min(h, y0 + 2 * half_h)
+    sx1, sy1 = min(w, x0 + side), min(h, y0 + side)
     if sx1 > sx0 and sy1 > sy0:
         out[sy0 - y0:sy1 - y0, sx0 - x0:sx1 - x0] = frame[sy0:sy1, sx0:sx1]
     return out
 
 
 def extract(full_frame_gray: np.ndarray, state: FoveaState) -> np.ndarray:
-    """Crops the current gaze window out of the real full frame and returns its retina.py-style flat grid vector."""
-    return frame_to_vector(_window(full_frame_gray, state))
+    """The gaze's light receptors on the real full frame: a flat (n * n,) vector."""
+    return frame_to_vector(_window(full_frame_gray, state), (state.n, state.n))
 
 
 def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int) -> np.ndarray:
     """The gaze's colour receptors: `channels` opponent grids (0, 1 = red-green,
-    2 = + blue-yellow) over the same crop as extract(), flattened; empty if 0."""
+    2 = + blue-yellow) over the same receptors as extract(), flattened; empty if 0."""
     if channels <= 0 or full_frame_bgr is None:
         return np.zeros(0)
     rg, by = opponent_planes(_window(full_frame_bgr, state))  # black -> neutral (0.5)
     planes = [rg, by][:channels]
-    return np.concatenate([frame_to_vector(pl) for pl in planes])
+    return np.concatenate([frame_to_vector(pl, (state.n, state.n)) for pl in planes])
 
 
-def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: float = 0.0) -> tuple[FoveaState, float, float, float]:
+def step(state: FoveaState, pan_output: float, tilt_output: float) -> tuple[FoveaState, float, float]:
     """
     Applies the brain's pan/tilt as a FORCE on a damped eye (see
-    DAMPING/FORCE_GAIN above), and zoom as a bounded aperture change.
-    tanh bounds the raw outputs to [-1, 1] first.
+    DAMPING/FORCE_GAIN above). The outputs are clipped to [-1, 1].
 
-    Returns (new_state, force_x, force_y, intended_dz). Motor energy is
+    Returns (new_state, force_x, force_y). Motor energy is
     charged on force (run_vision.py: force squared -- muscle cost grows
     faster than force), whether or not a wall stopped the movement; an
     isometric push against a stop still costs something.
@@ -118,8 +145,6 @@ def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: 
     # second tanh here capped force at tanh(1) = 0.76).
     fx = float(np.clip(pan_output, -1.0, 1.0))
     fy = float(np.clip(tilt_output, -1.0, 1.0))
-    dz = float(np.clip(zoom_output, -1.0, 1.0)) * ZOOM_STEP
-    new_frac = float(np.clip(state.fraction + dz, MIN_FRACTION, MAX_FRACTION))
     vx = DAMPING * state.vx + FORCE_GAIN * fx - SPRING * (state.cx - 0.5)
     vy = DAMPING * state.vy + FORCE_GAIN * fy - SPRING * (state.cy - 0.5)
     raw_cx, raw_cy = state.cx + vx, state.cy + vy
@@ -130,4 +155,4 @@ def step(state: FoveaState, pan_output: float, tilt_output: float, zoom_output: 
         vx = 0.0
     if new_cy != raw_cy:
         vy = 0.0
-    return FoveaState(cx=new_cx, cy=new_cy, fraction=new_frac, vx=vx, vy=vy), fx, fy, dz
+    return FoveaState(cx=new_cx, cy=new_cy, n=state.n, vx=vx, vy=vy), fx, fy

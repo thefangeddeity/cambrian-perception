@@ -17,7 +17,7 @@ Borbely's two-process sleep model, Keramati & Gutkin's homeostatic RL):
     holds steady -- which lets sleep evolve without any rule saying
     "sleep at night".
   - no death: an empty body burns less and degrades instead (the caller
-    switches off colour/zoom and slows gazing), so the homeostatic signal
+    switches off colour and slows gazing), so the homeostatic signal
     never goes flat at zero.
 Sleep:
   - sleep pressure (Process S) builds with time awake and brain load and

@@ -27,20 +27,24 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
-from .retina import GRID, N_CELLS
+from .genome import RETINA_PLANES
 from .state import MosquitoState
 from . import reflexes
 
 # --- Prices (the body pays per gaze, x CPU scarcity) -----------------------
-# Aperture cost = area x scarcity (REFERENCE_QUOTA_PCT / the real CPU quota
-# granted): the gaze can grow when resources allow and shrinks when they
-# are scarce.
+# Every receptor of its gaze (and the wiring behind it) costs upkeep per gaze
+# x scarcity (REFERENCE_QUOTA_PCT / the real CPU quota granted): the eye can
+# grow when resources allow and shrinks when they are scarce (Sterling and
+# Laughlin: neurons are priced per use). Re-anchored from the zoom eye's
+# aperture cost (1e-4 x (fraction of the frame)^2), so an eye of the same
+# extent costs the same as before.
 REFERENCE_QUOTA_PCT = 150.0
-APERTURE_COST = 1e-4  # per gaze, x area x scarcity (real-clock body: see state.py)
+APERTURE_COST = 1e-4  # the zoom eye's price, per gaze, x (extent)^2 -- the anchor
+RECEPTOR_COST = APERTURE_COST * fovea.RECEPTOR_PITCH ** 2  # per receptor, per gaze, x scarcity
 
 
-def _aperture_cost(frac: float, quota_pct: float) -> float:
-    return APERTURE_COST * (frac * frac) * (REFERENCE_QUOTA_PCT / max(1.0, quota_pct))
+def _receptor_cost(n: int, quota_pct: float) -> float:
+    return RECEPTOR_COST * n * n * (REFERENCE_QUOTA_PCT / max(1.0, quota_pct))
 
 
 # Per-look compute cost (the brain and tree running once), priced like
@@ -86,7 +90,7 @@ MAX_INTERVAL = 12   # slowest: one gaze every 12 frames
 # synthetic looming frames).
 MOTION_GAIN = 10.0
 FLOW_GAIN = 20.0
-# The WHOLE visual field (the fixed camera's coarse 12x12 view -- a jumping
+# The WHOLE visual field (the fixed camera's coarse view, retina.field_shape -- a jumping
 # spider's wide-field secondary eyes, or a locust's LGMD/DCMD looming
 # neurons) is what detects threat and where something moved; the look (the
 # spider's movable principal retinae) is for detail and food.
@@ -122,7 +126,8 @@ def new_memory() -> tuple[np.ndarray, np.ndarray]:
     return np.full((MEM_H, MEM_W), np.nan), np.full((MEM_H, MEM_W), NOISE_FLOOR ** 2)
 
 
-def feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: fovea.FoveaState, variance: np.ndarray | None = None) -> float:
+def feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: fovea.FoveaState, variance: np.ndarray | None = None,
+                    aspect: float = 16 / 9) -> float:
     """
     Food = SURPRISE at each spot the gaze covers: how far what it sees
     now is beyond that spot's usual variation (a running estimate of
@@ -134,14 +139,17 @@ def feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: fovea.FoveaState, 
     """
     # The gaze may hang past the frame's edge (fovea.py); only its on-frame
     # part is remembered, each memory cell mapped to its own gaze cell.
-    gx0 = int(round((st.cx - st.fraction / 2) * MEM_W)); gx1 = max(gx0 + 1, int(round((st.cx + st.fraction / 2) * MEM_W)))
-    gy0 = int(round((st.cy - st.fraction / 2) * MEM_H)); gy1 = max(gy0 + 1, int(round((st.cy + st.fraction / 2) * MEM_H)))
+    # aspect = the frame's width / height (the gaze is square in pixels).
+    hx, hy = st.half_extents(aspect)
+    gx0 = int(round((st.cx - hx) * MEM_W)); gx1 = max(gx0 + 1, int(round((st.cx + hx) * MEM_W)))
+    gy0 = int(round((st.cy - hy) * MEM_H)); gy1 = max(gy0 + 1, int(round((st.cy + hy) * MEM_H)))
     x0, y0, x1, y1 = max(0, gx0), max(0, gy0), min(MEM_W, gx1), min(MEM_H, gy1)
     if x1 <= x0 or y1 <= y0:
         return 0.0
-    grid = look.reshape(GRID)
-    rows = np.minimum(GRID[0] - 1, (np.arange(y0, y1) - gy0) * GRID[0] // (gy1 - gy0))
-    cols = np.minimum(GRID[1] - 1, (np.arange(x0, x1) - gx0) * GRID[1] // (gx1 - gx0))
+    n = st.n
+    grid = look.reshape(n, n)
+    rows = np.minimum(n - 1, (np.arange(y0, y1) - gy0) * n // (gy1 - gy0))
+    cols = np.minimum(n - 1, (np.arange(x0, x1) - gx0) * n // (gx1 - gx0))
     patch = grid[np.ix_(rows, cols)]
     region = memory[y0:y1, x0:x1]
     seen = ~np.isnan(region)
@@ -207,14 +215,15 @@ def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     return sx, sy
 
 
-def peripheral_motion_centroid(world_vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Where in the whole field things changed, per frame (0.5, 0.5 when nothing did)."""
+def peripheral_motion_centroid(world_vectors: np.ndarray, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Where in the whole field (receptors shape = (rows, cols)) things
+    changed, per frame (0.5, 0.5 when nothing did)."""
     n = len(world_vectors)
     cx, cy = np.full(n, 0.5), np.full(n, 0.5)
-    rows, cols = GRID
+    rows, cols = shape
     yy, xx = np.mgrid[0:rows, 0:cols]
     for t in range(1, n):
-        d = np.abs(world_vectors[t] - world_vectors[t - 1]).reshape(GRID)
+        d = np.abs(world_vectors[t] - world_vectors[t - 1]).reshape(shape)
         tot = d.sum()
         if tot > 1e-9:
             cx[t] = ((xx + 0.5) * d).sum() / tot / cols
@@ -243,7 +252,9 @@ class Organism:
                  quota_pct: float = REFERENCE_QUOTA_PCT, fps: float = 15.0,
                  colour: bool = False, prey: bool = False, record: bool = False):
         self.g = g
-        self.state = fovea.FoveaState(fraction=float(np.clip(g.fovea_fraction, fovea.MIN_FRACTION, fovea.MAX_FRACTION)))
+        self.state = fovea.FoveaState(n=g.receptors or fovea.DEFAULT_RECEPTORS)
+        self.n_cells = self.state.n * self.state.n
+        self.aspect = 16 / 9  # the frame's width / height, from its first frame
         # Its body as it actually is right now (carried across generations
         # by run_vision.run()), not a fresh full-energy body each window.
         self.body = MosquitoState.from_dict(body) if body else MosquitoState()
@@ -263,9 +274,8 @@ class Organism:
         else:
             self.memory, self.variance = new_memory()
         # Colour vision: how many opponent channels this genome's gaze has
-        # (0-2). Unused slots are zero, so tree inputs keep fixed positions.
+        # (0-2). A plane it doesn't have reads zero.
         self.colour_n = int(getattr(g, "colour_channels", 0)) if colour else 0
-        self.colour_pad = np.zeros(2 * N_CELLS)
         self.last_colour = None
         self.quota_pct = quota_pct
         self.scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
@@ -273,7 +283,7 @@ class Organism:
         self.stab = float(getattr(g, "stabilizer", 0.0))
         self.prey_level = int(getattr(g, "prey_sense", 0)) if prey else 0
         self.stab_dx = self.stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
-        self.prev_v = np.zeros(N_CELLS)
+        self.prev_v = np.zeros(self.n_cells)
         # Response tree's motor-efference input: the brain's real applied movement.
         self.prev_dx, self.prev_dy = 0.0, 0.0
         self.prev_frame = None
@@ -293,17 +303,19 @@ class Organism:
         colour_frame: BGR, if it has colour vision; shift: the whole frame's
         shift from the previous frame (for the stabilizer).
         """
+        if self.k == 0:
+            self.aspect = frame.shape[1] / max(1, frame.shape[0])
         if self.pending is not None:
             self._substep(shift, in_world=True)
             if self.pending["done"] == self.pending["interval"]:
                 self._close()
             elif self.rec is not None:
-                self.rec["frame_path"].append((self.state.cx, self.state.cy, self.state.fraction))
+                self.rec["frame_path"].append((self.state.cx, self.state.cy, self.state.extent))
         gazed = self.pending is None
         if gazed:
             self._gaze(frame, sig, boxes or [], colour_frame)
         self.k += 1
-        return {"cx": self.state.cx, "cy": self.state.cy, "fraction": self.state.fraction,
+        return {"cx": self.state.cx, "cy": self.state.cy, "extent": self.state.extent, "receptors": self.state.n,
                 "asleep": self.body.asleep >= 0.5, "eating": self.eating, "gazed": gazed}
 
     def finish(self) -> None:
@@ -321,17 +333,18 @@ class Organism:
         # still reaches it (light and movement through closed eyes), so a
         # big enough change can wake it.
         was_asleep = body.asleep >= 0.5
-        v = np.zeros(N_CELLS) if was_asleep else fovea.extract(frame, state)
+        n = state.n
+        v = np.zeros(self.n_cells) if was_asleep else fovea.extract(frame, state)
         if rec is not None:
             rec["positions"].append((state.cx, state.cy))
-            rec["fracs"].append(state.fraction)
-            rec["frame_path"].append((state.cx, state.cy, state.fraction))
+            rec["fracs"].append(state.extent)
+            rec["frame_path"].append((state.cx, state.cy, state.extent))
         # What the look sees change, with its own eye movement cancelled out
         # (efference copy): the previous frame sampled where the gaze is now,
         # less what the stabilizer moved it -- so a saccade across a still
         # scene doesn't register as motion, and a shake it held still reads
         # as stillness.
-        h1 = (fovea.extract(self.prev_frame, fovea.FoveaState(cx=state.cx - self.stab_dx, cy=state.cy - self.stab_dy, fraction=state.fraction))
+        h1 = (fovea.extract(self.prev_frame, fovea.FoveaState(cx=state.cx - self.stab_dx, cy=state.cy - self.stab_dy, n=n))
               if self.prev_frame is not None and not was_asleep else v)
         hist = np.array([h1, v])
         lum = float(v.mean())
@@ -339,7 +352,7 @@ class Organism:
         motion = flow_x = flow_y = 0.0
         if self.prev_frame is not None and not was_asleep:
             motion = min(1.0, float(np.abs(v - h1).mean()) * MOTION_GAIN)
-            mx, my = reflexes.directional_motion(hist)
+            mx, my = reflexes.directional_motion(hist, (n, n))
             flow_x = float(np.clip(mx[-1] * FLOW_GAIN, -1.0, 1.0))
             flow_y = float(np.clip(my[-1] * FLOW_GAIN, -1.0, 1.0))
         # Threat and arousal come from the WHOLE visual field, plus where in it
@@ -352,26 +365,30 @@ class Organism:
         field_light = float(sig["field_light"])
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level)
         out = brain.step(
-            lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.fraction, body,
+            lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
             periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
         )
-        pan, tilt, zoom, alarm, tempo = out.pan, out.tilt, out.zoom, out.alarm, out.tempo
+        # (out.zoom is unused: its eye has no zoom -- fovea.py.)
+        pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
         # Sleep is its own choice (its sleep output); the body adds only the
         # physiological overrides -- collapse, hunger, a big change (state.py).
         body.set_sleep(out.sleep > 0.0, loom, periph_motion)
         asleep = body.asleep >= 0.5
-        # An empty body runs on less (soft floor): colour off, a narrow eye,
-        # slower gazing. Asleep, the eye is shut: no colour either.
+        # An empty body runs on less (soft floor): colour off, slower gazing.
+        # Asleep, the eye is shut: no colour either.
         colour_on = self.colour_n if not (asleep or body.degraded) else 0
-        # The perception tree reads the look, the previous look, its own last
-        # movement, the brain's recurrent memory and its colour receptors.
+        # The perception tree reads its receptors by position (the look, the
+        # previous look, its colour planes) and, as plain inputs, its own
+        # last movement and the brain's recurrent memory.
         col = fovea.extract_colour(colour_frame, state, colour_on) if colour_on else np.zeros(0)
-        colour_in = self.colour_pad.copy()
-        colour_in[:len(col)] = col
         if colour_on:
             self.last_colour = col
-        vb = np.concatenate([v, self.prev_v, [self.prev_dx, self.prev_dy], brain.tree_view(), colour_in])[None, :]
-        response = float(g.evaluate("response", vb)[0])
+        planes = np.zeros((1, RETINA_PLANES, n, n))
+        planes[0, 0], planes[0, 1] = v.reshape(n, n), self.prev_v.reshape(n, n)
+        for c in range(len(col) // self.n_cells):
+            planes[0, 2 + c] = col[c * self.n_cells:(c + 1) * self.n_cells].reshape(n, n)
+        plain = np.concatenate([[self.prev_dx, self.prev_dy], brain.tree_view()])[None, :]
+        response = float(g.evaluate("response", plain, planes)[0])
         # The perception tree's output reaches the brain next gaze; the tree
         # is also graded by its teacher (run_vision.TEACHER_WEIGHT).
         self.prev_response = float(np.tanh(response)) if math.isfinite(response) else 0.0
@@ -379,7 +396,7 @@ class Organism:
             # One per gaze (None asleep): its tree's own guess at how much prey
             # fills its gaze, and the teacher's label for it.
             rec["teacher_p"].append(None if was_asleep else 0.5 * (1.0 + self.prev_response))
-            rec["teacher_y"].append(None if was_asleep else prey_lib.prey_in_window(boxes, state.cx, state.cy, state.fraction))
+            rec["teacher_y"].append(None if was_asleep else prey_lib.prey_in_window(boxes, state.cx, state.cy, *state.half_extents(self.aspect)))
             rec["responses"].append(response)
             rec["alarms"].append(alarm)
         self.last_grid = v
@@ -389,24 +406,23 @@ class Organism:
         # genuinely new structure there is a small snack.
         if asleep:
             # Asleep: no eating, no gazing, slow coarse sampling of the field.
-            pan = tilt = zoom = 0.0
+            pan = tilt = 0.0
             prey_now = snack = 0.0
             interval = MAX_INTERVAL
         else:
-            prey_now = prey_lib.prey_in_gaze(boxes, state.cx, state.cy, state.fraction)
-            snack = feed_on_novelty(self.memory, v, state, self.variance)
+            prey_now = prey_lib.prey_in_gaze(boxes, state.cx, state.cy, *state.half_extents(self.aspect))
+            snack = feed_on_novelty(self.memory, v, state, self.variance, self.aspect)
             interval = int(np.clip(round(self.pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
             if body.degraded:
                 interval = min(MAX_INTERVAL, interval * 2)
-                zoom = -1.0
         self.eating = prey_now
         if rec is not None:
             rec["idxs"].append(self.k)
             rec["intervals"].append(interval)
-        # Eye physics every FRAME until the next gaze: the brain's force and
-        # zoom are held, and the damped eye keeps moving meanwhile.
+        # Eye physics every FRAME until the next gaze: the brain's force is
+        # held, and the damped eye keeps moving meanwhile.
         self.stab_dx = self.stab_dy = 0.0
-        self.pending = {"pan": pan, "tilt": tilt, "zoom": zoom, "asleep": asleep, "colour_on": colour_on,
+        self.pending = {"pan": pan, "tilt": tilt, "asleep": asleep, "colour_on": colour_on,
                         "interval": interval, "done": 0, "effort": 0.0, "force": (0.0, 0.0),
                         "cx0": state.cx, "cy0": state.cy, "periph_motion": periph_motion, "loom": loom,
                         "field_light": field_light, "prey_now": prey_now, "snack": snack}
@@ -415,14 +431,14 @@ class Organism:
     def _substep(self, shift: tuple, in_world: bool) -> None:
         """The eye moves one frame on (muscle energy = force squared, per frame pushed)."""
         p = self.pending
-        state, force_x, force_y, intended_dz = fovea.step(self.state, p["pan"], p["tilt"], p["zoom"])
+        state, force_x, force_y = fovea.step(self.state, p["pan"], p["tilt"])
         if self.stab > 0.0 and not p["asleep"] and in_world:
             nx = float(np.clip(state.cx + self.stab * shift[0], 0.0, 1.0))
             ny = float(np.clip(state.cy + self.stab * shift[1], 0.0, 1.0))
             self.stab_dx, self.stab_dy = self.stab_dx + nx - state.cx, self.stab_dy + ny - state.cy
-            state = fovea.FoveaState(cx=nx, cy=ny, fraction=state.fraction, vx=state.vx, vy=state.vy)
+            state = fovea.FoveaState(cx=nx, cy=ny, n=state.n, vx=state.vx, vy=state.vy)
         self.state = state
-        p["effort"] += force_x * force_x + force_y * force_y + abs(intended_dz) / fovea.ZOOM_STEP * 0.1
+        p["effort"] += force_x * force_x + force_y * force_y
         p["force"] = (force_x, force_y)
         p["done"] += 1
 
@@ -436,7 +452,7 @@ class Organism:
             rec["movement_costs"].append(math.hypot(*p["force"]))
             rec["periph_active"].append(p["periph_motion"])
         asleep = p["asleep"]
-        gaze_cost = 0.0 if asleep else _aperture_cost(self.state.fraction, self.quota_pct)
+        gaze_cost = 0.0 if asleep else _receptor_cost(self.state.n, self.quota_pct)
         body.update(p["periph_motion"], p["loom"], p["effort"],
                     gaze_cost + (THINK_COST * brain.think_factor() + COLOUR_COST * p["colour_on"] + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)

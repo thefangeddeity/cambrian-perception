@@ -26,9 +26,10 @@ import numpy as np
 from . import blocks, fovea
 from .controller import MosquitoBrain
 
-# mutate_fovea resizes the look (genome.fovea_fraction) instead of
-# touching a tree -- same fitness gate, same operator-weight learning,
-# so how often resizing gets TRIED is itself learned from evidence.
+# mutate_fovea grows or shrinks its eye by one ring of receptors
+# (genome.receptors, fovea.py) instead of touching a tree -- same fitness
+# gate, same operator-weight learning, so how often resizing gets TRIED is
+# itself learned from evidence.
 # mutate_brain perturbs the recurrent motor brain (controller.py).
 # mutate_pace changes its pace of life (how often it looks; see run_vision.py).
 # mutate_colour adds or removes a colour-opponent channel in the gaze (see retina.py).
@@ -50,7 +51,13 @@ NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "gr
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
 BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
-FOVEA_MUTATION_SIGMA = 0.03
+# The perception tree's receptor planes (blocks.Node kind "cell"): the gaze
+# now, the previous gaze, red-green, blue-yellow (zero without colour vision).
+RETINA_PLANES = 4
+# The tree's inputs before receptors were read by position (a flat vector:
+# 12x12 gaze now, 12x12 previous, 2 movement, the brain's units, 2 x 12x12
+# colour) -- only for migrating older checkpoints.
+_OLD_SIDE, _OLD_CELLS = 12, 144
 
 # Motor control (pan/tilt/zoom) moved to the recurrent brain; the tree
 # genome keeps the perception readout only.
@@ -79,31 +86,47 @@ for _name, (_arity, _fn) in blocks.OPS.items():
     _OPS_BY_ARITY.setdefault(_arity, []).append(_name)
 
 
-def _random_leaf(rng: random.Random, n_vars: int) -> blocks.Node:
+def _random_leaf(rng: random.Random, n_vars: int, n_side: int = 0) -> blocks.Node:
+    """A constant half the time; otherwise any input equally likely -- one of
+    the n_vars plain inputs or one of the receptors its eye has now (n_side x
+    n_side per plane; none for a task without an eye)."""
     if rng.random() < 0.5:
-        return blocks.Node(kind="var", index=rng.randrange(0, n_vars))
+        k = rng.randrange(0, n_vars + RETINA_PLANES * n_side * n_side)
+        if k < n_vars:
+            return blocks.Node(kind="var", index=k)
+        plane, pos = divmod(k - n_vars, n_side * n_side)
+        iy, ix = divmod(pos, n_side)
+        return blocks.Node(kind="cell", index=plane, kx=ix - n_side // 2, ky=iy - n_side // 2)
     return blocks.Node(kind="const", value=rng.uniform(-blocks.MAX_CONST, blocks.MAX_CONST))
 
 
-def _random_small_tree(rng: random.Random, n_vars: int, max_depth: int = 2) -> blocks.Node:
+def _random_small_tree(rng: random.Random, n_vars: int, max_depth: int = 2, n_side: int = 0) -> blocks.Node:
     if max_depth <= 1 or rng.random() < 0.4:
-        return _random_leaf(rng, n_vars)
+        return _random_leaf(rng, n_vars, n_side)
     op = rng.choice(list(blocks.OPS.keys()))
     arity, _ = blocks.OPS[op]
-    children = [_random_small_tree(rng, n_vars, max_depth - 1) for _ in range(arity)]
+    children = [_random_small_tree(rng, n_vars, max_depth - 1, n_side) for _ in range(arity)]
     return blocks.Node(kind="op", op=op, children=children)
 
 
-def random_genome(rng: random.Random, n_vars: int = 3, channels: tuple[str, ...] = DEFAULT_CHANNELS) -> "Genome":
-    # n_vars: how many named input slots a leaf can reference -- 3 for
-    # the original synthetic task, one per retina/fovea cell for the
-    # vision task. Stored on the genome itself so mutation later knows
-    # the valid range without needing it passed around separately.
-    trees = {name: _random_small_tree(rng, n_vars, max_depth=3) for name in channels}
+def _become(target: blocks.Node, other: blocks.Node) -> None:
+    """Turns target into other in place (its parent keeps pointing at it)."""
+    target.kind, target.op, target.children = other.kind, other.op, other.children
+    target.index, target.value, target.kx, target.ky = other.index, other.value, other.kx, other.ky
+
+
+def random_genome(rng: random.Random, n_vars: int = 3, channels: tuple[str, ...] = DEFAULT_CHANNELS,
+                  receptors: int = 0) -> "Genome":
+    # n_vars: how many plain input slots a leaf can reference -- 3 for the
+    # original synthetic task; for vision, its own last movement and the
+    # brain's units, with the eye's receptors read by position besides
+    # (receptors per side; 0 = no eye). Stored on the genome itself so
+    # mutation later knows the valid range without needing it passed around.
+    trees = {name: _random_small_tree(rng, n_vars, max_depth=3, n_side=receptors) for name in channels}
     weights = {name: 1.0 / len(TASK_OPS) for name in TASK_OPS}
     op_success = {name: 0.5 for name in TASK_OPS}
     return Genome(trees=trees, mutation_weights=weights, meta_mutation_rate=0.15, n_vars=n_vars,
-                  op_success=op_success, brain=MosquitoBrain.random(rng))
+                  op_success=op_success, brain=MosquitoBrain.random(rng), receptors=receptors)
 
 
 class Genome:
@@ -114,7 +137,7 @@ class Genome:
         meta_mutation_rate: float,
         n_vars: int = 3,
         op_success: dict[str, float] | None = None,
-        fovea_fraction: float = fovea.FOVEA_FRACTION,
+        receptors: int = 0,
         brain: MosquitoBrain | None = None,
         pace: int = 1,
         colour_channels: int = 0,
@@ -125,7 +148,8 @@ class Genome:
         self.mutation_weights = mutation_weights
         self.meta_mutation_rate = meta_mutation_rate
         self.n_vars = n_vars
-        self.fovea_fraction = float(fovea_fraction)
+        # Its eye: receptors per side (fovea.py), 0 for a task without one.
+        self.receptors = fovea.even_receptors(receptors) if receptors else 0
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -139,6 +163,11 @@ class Genome:
         self.op_success = dict(op_success) if op_success is not None else {name: 0.5 for name in TASK_OPS}
 
     @property
+    def fovea_fraction(self) -> float:
+        """Its gaze's side as a fraction of the frame's height (for the record)."""
+        return fovea.extent(self.receptors)
+
+    @property
     def channels(self) -> tuple[str, ...]:
         return tuple(self.trees.keys())
 
@@ -149,7 +178,7 @@ class Genome:
             self.meta_mutation_rate,
             self.n_vars,
             dict(self.op_success),
-            self.fovea_fraction,
+            self.receptors,
             self.brain.clone(),
             self.pace,
             self.colour_channels,
@@ -157,8 +186,8 @@ class Genome:
             self.prey_sense,
         )
 
-    def evaluate(self, name: str, inputs: np.ndarray) -> np.ndarray:
-        return self.trees[name].evaluate(inputs)
+    def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
+        return self.trees[name].evaluate(inputs, retina)
 
     def _all_nodes(self, channel: str) -> list[blocks.Node]:
         out = []
@@ -213,9 +242,7 @@ class Genome:
         if not leaves:
             return False, False
         target = rng.choice(leaves)
-        replacement = _random_small_tree(rng, self.n_vars, max_depth=2)
-        target.kind, target.op, target.children = replacement.kind, replacement.op, replacement.children
-        target.index, target.value = replacement.index, replacement.value
+        _become(target, _random_small_tree(rng, self.n_vars, max_depth=2, n_side=self.receptors))
         return True, False
 
     def _shrink(self, rng: random.Random, channel: str) -> bool:
@@ -235,9 +262,7 @@ class Genome:
         if node is tree:
             self.trees[channel] = copy.deepcopy(replacement)
         else:
-            node.kind, node.op = replacement.kind, replacement.op
-            node.index, node.value = replacement.index, replacement.value
-            node.children = replacement.children
+            _become(node, replacement)
         return True
 
     def _reroll_subtree(self, rng: random.Random, channel: str) -> bool:
@@ -261,13 +286,11 @@ class Genome:
         root = self.trees[channel]
         candidates = [n for n in nodes if n is not root] or nodes
         target = rng.choice(candidates)
-        replacement = _random_small_tree(rng, self.n_vars, max_depth=2)
+        replacement = _random_small_tree(rng, self.n_vars, max_depth=2, n_side=self.receptors)
         if target is self.trees[channel]:
             self.trees[channel] = replacement
         else:
-            target.kind, target.op = replacement.kind, replacement.op
-            target.index, target.value = replacement.index, replacement.value
-            target.children = replacement.children
+            _become(target, replacement)
         return True
 
     def mutate_task(self, rng: random.Random, max_nodes: int, max_depth: int, channel: str | None = None) -> tuple[str, str]:
@@ -309,11 +332,10 @@ class Genome:
             choice = rng.choices(names, weights=probs, k=1)[0]
 
         if choice == "mutate_fovea":
-            old = self.fovea_fraction
-            self.fovea_fraction = float(np.clip(
-                old + rng.gauss(0.0, FOVEA_MUTATION_SIGMA), fovea.MIN_FRACTION, fovea.MAX_FRACTION,
-            ))
-            return "fovea", (choice if self.fovea_fraction != old else "noop_inapplicable")
+            old = self.receptors
+            if old:
+                self.receptors = fovea.even_receptors(old + rng.choice((-2, 2)))  # one ring
+            return "fovea", (choice if self.receptors != old else "noop_inapplicable")
         if choice == "mutate_pace":
             old = self.pace
             self.pace = int(np.clip(old + rng.choice((-1, 1)), MIN_PACE, MAX_PACE))
@@ -430,7 +452,7 @@ class Genome:
             "meta_mutation_rate": self.meta_mutation_rate,
             "n_vars": self.n_vars,
             "op_success": self.op_success,
-            "fovea_fraction": self.fovea_fraction,
+            "receptors": self.receptors,
             "brain": self.brain.to_dict(),
             "pace": self.pace,
             "colour_channels": self.colour_channels,
@@ -455,16 +477,54 @@ class Genome:
         # lives in the brain, so only the perception channels are kept.
         trees = {name: blocks.Node.from_dict(t) for name, t in data["trees"].items() if name in DEFAULT_CHANNELS}
         brain = MosquitoBrain.from_dict(data["brain"]) if data.get("brain") else MosquitoBrain.random(random.Random(0))
+        n_vars = int(data.get("n_vars", 3))
+        if "receptors" in data:
+            receptors = int(data["receptors"])
+        else:
+            # From the zoom eye (a 12x12 grid stretched over a gaze of
+            # fovea_fraction of the frame; tree inputs a flat vector): the eye
+            # keeps its extent (so its upkeep is unchanged), and each receptor
+            # a tree read becomes a read of the same spot relative to the
+            # gaze's centre, rescaled to the new receptor size.
+            frac = float(data.get("fovea_fraction", 0.35))
+            receptors = fovea.even_receptors(frac / fovea.RECEPTOR_PITCH)
+            if n_vars > 2 * _OLD_CELLS + 2:
+                scale = (frac / _OLD_SIDE) / fovea.RECEPTOR_PITCH
+                for tree in trees.values():
+                    _migrate_flat_inputs(tree, n_vars, scale)
+                n_vars -= 4 * _OLD_CELLS
         return Genome(
             trees=trees,
             mutation_weights=weights,
             meta_mutation_rate=float(data["meta_mutation_rate"]),
-            n_vars=int(data.get("n_vars", 3)),
+            n_vars=n_vars,
             op_success=op_success,
-            fovea_fraction=float(np.clip(data.get("fovea_fraction", fovea.FOVEA_FRACTION), fovea.MIN_FRACTION, fovea.MAX_FRACTION)),
+            receptors=receptors,
             brain=brain,
             pace=int(np.clip(data.get("pace", 1), MIN_PACE, MAX_PACE)),
             colour_channels=int(np.clip(data.get("colour_channels", 0), 0, MAX_COLOUR_CHANNELS)),
             stabilizer=float(np.clip(data.get("stabilizer", 0.0), 0.0, 1.0)),
             prey_sense=int(np.clip(data.get("prey_sense", 0), 0, MAX_PREY_SENSE)),
         )
+
+
+def _migrate_flat_inputs(node: blocks.Node, old_n_vars: int, scale: float) -> None:
+    """Old flat tree inputs -> plain inputs and receptors read by position
+    (see Genome.from_dict)."""
+    if node.kind == "var":
+        i, colour_start = node.index, old_n_vars - 2 * _OLD_CELLS
+        plane = None
+        if i < 2 * _OLD_CELLS:
+            plane, cell = divmod(i, _OLD_CELLS)
+        elif i >= colour_start:
+            plane, cell = divmod(i - colour_start, _OLD_CELLS)
+            plane += 2
+        if plane is None:
+            node.index = i - 2 * _OLD_CELLS  # movement and the brain's units, now first
+        else:
+            row, col = divmod(cell, _OLD_SIDE)
+            node.kind, node.index = "cell", plane
+            node.kx = int(np.floor((col - _OLD_SIDE / 2 + 0.5) * scale))
+            node.ky = int(np.floor((row - _OLD_SIDE / 2 + 0.5) * scale))
+    for child in node.children:
+        _migrate_flat_inputs(child, old_n_vars, scale)

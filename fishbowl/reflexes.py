@@ -50,8 +50,6 @@ the real reflex is:
 
 import numpy as np
 
-from .retina import GRID
-
 
 def luminance_change(vectors: np.ndarray) -> np.ndarray:
     """vectors: (T, N_CELLS). Returns (T,), 0 for the first frame."""
@@ -74,7 +72,7 @@ def motion_energy_score(vectors: np.ndarray) -> np.ndarray:
     return diffs
 
 
-def directional_motion(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def directional_motion(vectors: np.ndarray, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
     """
     A real, simplified Hassenstein-Reichardt correlator -- see the
     module docstring for why this exists and what it fixes. For each
@@ -86,16 +84,16 @@ def directional_motion(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     estimate that cancels out uniform flicker (which contributes
     equally to both terms) and responds only to genuine directional
     movement. Averaged over all adjacent-cell pairs in the grid for
-    one global (motion_x, motion_y) estimate per frame -- coarse (this
-    is a 12x12 grid, not a dense retina), but real: it is the actual
-    correlator model, not a metaphor for it.
+    one global (motion_x, motion_y) estimate per frame -- coarse (a
+    grid of receptors, `shape` = (rows, cols), not a dense retina), but
+    real: it is the actual correlator model, not a metaphor for it.
 
     Returns (motion_x, motion_y), each (T,) -- positive x = rightward,
     positive y = downward, 0 for the first frame (no prior frame to
     correlate against yet).
     """
     n = len(vectors)
-    rows, cols = GRID
+    rows, cols = shape
     grids = vectors.reshape(n, rows, cols)
     motion_x = np.zeros(n)
     motion_y = np.zeros(n)
@@ -108,7 +106,7 @@ def directional_motion(vectors: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return motion_x, motion_y
 
 
-def loom_score(vectors: np.ndarray) -> np.ndarray:
+def loom_score(vectors: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
     """
     A real, simplified expansion-rate proxy: at each frame, compute
     the per-cell |change|, then the CHANGE-WEIGHTED spatial spread
@@ -126,7 +124,7 @@ def loom_score(vectors: np.ndarray) -> np.ndarray:
     proxy. Real, stated plainly, not oversold.
     """
     n = len(vectors)
-    rows, cols = GRID
+    rows, cols = shape
     yy, xx = np.mgrid[0:rows, 0:cols]
     cy, cx = (rows - 1) / 2.0, (cols - 1) / 2.0
     radius = np.sqrt((yy - cy) ** 2 + (xx - cx) ** 2).reshape(-1)
@@ -152,8 +150,8 @@ def loom_score(vectors: np.ndarray) -> np.ndarray:
     return growing_spread * growing_magnitude
 
 
-def all_signals(vectors: np.ndarray) -> dict[str, np.ndarray]:
-    motion_x, motion_y = directional_motion(vectors)
+def all_signals(vectors: np.ndarray, shape: tuple[int, int]) -> dict[str, np.ndarray]:
+    motion_x, motion_y = directional_motion(vectors, shape)
     return {
         "luminance_change": luminance_change(vectors),
         "motion_energy": motion_energy_score(vectors),
@@ -165,7 +163,7 @@ def all_signals(vectors: np.ndarray) -> dict[str, np.ndarray]:
         # stay available separately for the optokinetic pursuit reward,
         # which needs the actual SIGNED direction, not just magnitude.
         "directional_motion": np.hypot(motion_x, motion_y),
-        "loom": loom_score(vectors),
+        "loom": loom_score(vectors, shape),
     }
 
 

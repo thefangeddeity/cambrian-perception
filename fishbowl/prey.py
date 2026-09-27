@@ -8,14 +8,14 @@ YOLO (yolov8n, the model the HLS livecam project already uses) plays the
 role of the world's physics of food, NOT the organism's eyes: it decides
 where living things (people, animals) are, and the organism eats only
 when one of them is inside the center of its gaze. The organism itself
-still sees nothing but its 12x12 grids, so its perception stays
+still sees nothing but its receptors, so its perception stays
 self-built. Detection runs on the full-resolution colour frame at
 capture time; only the resulting boxes (class, confidence, normalized
 position) are kept -- the frame itself is never stored or sent anywhere.
 
 YOLO is a SHORTCUT. The goal was always for the organism to grow its own
 prey detector. Planned next step: its own perception learns "prey in my
-gaze center or not" from its 12x12 grids with YOLO as the teacher (a
+gaze center or not" from its receptors with YOLO as the teacher (a
 student running in parallel), scored on agreement; once it is reliable,
 YOLO is weaned off and it eats by its own judgement. It only ever needs
 people and animals -- not the 80 COCO classes.
@@ -95,27 +95,28 @@ class PreyDetector:
         return result
 
 
-def prey_in_window(boxes: list[list[float]], cx: float, cy: float, fraction: float) -> float:
+def prey_in_window(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: float) -> float:
     """How much of the WHOLE gaze window prey covers, 0..1, confidence-
     weighted: the teacher's label the perception tree learns to predict from
     its own pixels (run_vision.py) -- "is there food in what I'm looking at".
+    hx, hy: half the gaze's width and height (fovea.FoveaState.half_extents).
     """
-    return _coverage(boxes, cx, cy, fraction / 2.0)
+    return _coverage(boxes, cx, cy, hx, hy)
 
 
-def _coverage(boxes: list[list[float]], cx: float, cy: float, half: float) -> float:
-    if not boxes or half <= 0:
+def _coverage(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: float) -> float:
+    if not boxes or hx <= 0 or hy <= 0:
         return 0.0
-    area = (2 * half) ** 2
+    area = 4 * hx * hy
     total = 0.0
     for _, conf, x0, y0, x1, y1 in boxes:
-        ix = max(0.0, min(x1, cx + half) - max(x0, cx - half))
-        iy = max(0.0, min(y1, cy + half) - max(y0, cy - half))
+        ix = max(0.0, min(x1, cx + hx) - max(x0, cx - hx))
+        iy = max(0.0, min(y1, cy + hy) - max(y0, cy - hy))
         total += conf * min(1.0, ix * iy / area)
     return float(min(1.0, total))
 
 
-def prey_in_gaze(boxes: list[list[float]], cx: float, cy: float, fraction: float) -> float:
+def prey_in_gaze(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: float) -> float:
     """
     How much prey is in the CENTER of the gaze (its central half), 0..1:
     for each prey box, the share of the gaze center it covers, times the
@@ -123,14 +124,4 @@ def prey_in_gaze(boxes: list[list[float]], cx: float, cy: float, fraction: float
     doesn't feed it; holding it centered does -- so following a moving
     person is literally how it eats.
     """
-    if not boxes:
-        return 0.0
-    half = fraction / 4.0  # central half of the gaze, each side
-    gx0, gx1, gy0, gy1 = cx - half, cx + half, cy - half, cy + half
-    area = (2 * half) ** 2
-    total = 0.0
-    for _, conf, x0, y0, x1, y1 in boxes:
-        ix = max(0.0, min(x1, gx1) - max(x0, gx0))
-        iy = max(0.0, min(y1, gy1) - max(y0, gy0))
-        total += conf * min(1.0, ix * iy / area) if area > 0 else 0.0
-    return float(min(1.0, total))
+    return _coverage(boxes, cx, cy, hx / 2.0, hy / 2.0)  # central half of the gaze, each way

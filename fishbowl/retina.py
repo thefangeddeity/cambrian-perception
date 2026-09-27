@@ -5,11 +5,16 @@ The organism's own "eye" -- turns one raw frame into a small, fixed-
 length numeric vector the block-tree genome can actually use. Not a
 detail this repo hides: a real eye doesn't start with millions of raw
 pixels either, it starts with a coarse grid of receptors and the
-downstream machinery has to make sense of THAT. A 12x12 luminance grid
-is the equivalent starting point here -- few enough "variables" that
-genome.py's tree search stays tractable, large enough that real
-spatial structure (a region growing, a region changing) survives the
-downsample.
+downstream machinery has to make sense of THAT.
+
+Receptors are square, like a real retinal mosaic's (after a design panel:
+no eye stretches a fixed set of receptors over a bigger or smaller patch):
+  - the whole visual field (the fixed wide-field eyes) has FIELD_RECEPTORS
+    square receptors laid over the frame at its own aspect ratio -- 16x9 on
+    a 16:9 frame (field_shape);
+  - the gaze (fovea.py) is an n x n patch of square receptors of a fixed
+    size; n is inherited and evolves (genome.receptors), so growing the eye
+    means more receptors, not the same ones stretched.
 
 This module never runs a self-modifying program -- it's fixed, human-
 written, and stays that way. The genome's OWN machinery starts here
@@ -22,35 +27,43 @@ from functools import lru_cache
 
 import numpy as np
 
-GRID = (12, 12)
-N_CELLS = GRID[0] * GRID[1]
+# The whole field's receptor count: the 144 of the old 12x12 grid, now
+# square (16x9 on a 16:9 frame, 10x13 on 4:3).
+FIELD_RECEPTORS = 144
 
 
-def frame_to_vector(gray_frame: np.ndarray) -> np.ndarray:
+@lru_cache(maxsize=64)
+def field_shape(h: int, w: int) -> tuple[int, int]:
+    """(rows, cols) of the whole field's square receptors on an h x w frame."""
+    rows = max(1, int(round((FIELD_RECEPTORS * h / w) ** 0.5)))
+    return rows, max(1, int(round(rows * w / h)))
+
+
+def frame_to_vector(gray_frame: np.ndarray, shape: tuple[int, int] | None = None) -> np.ndarray:
     """
     gray_frame: 2-D array, any real resolution, grayscale, values in
-    [0, 255] or [0.0, 1.0]. Returns a flat (N_CELLS,) array in [0, 1]
-    -- mean luminance of each of GRID's cells, nearest-neighbor block
-    reduction (not interpolated -- cheap, and precision beyond a 12x12
-    grid isn't the point here).
+    [0, 255] or [0.0, 1.0]. Returns a flat (rows * cols,) array in [0, 1]
+    -- mean luminance of each receptor's block of pixels (not interpolated).
+    shape: (rows, cols); by default the whole field's (field_shape).
     """
     frame = gray_frame.astype(np.float64)
     if frame.max() > 1.5:
         frame = frame / 255.0
 
     h, w = frame.shape
-    row_starts, col_starts, counts = _cell_layout(h, w)
+    rows, cols = shape if shape is not None else field_shape(h, w)
+    row_starts, col_starts, counts = _cell_layout(h, w, rows, cols)
     sums = np.add.reduceat(np.add.reduceat(frame, row_starts, axis=0), col_starts, axis=1)
     return (sums / counts).reshape(-1)
 
 
 @lru_cache(maxsize=256)
-def _cell_layout(h: int, w: int):
+def _cell_layout(h: int, w: int, rows: int, cols: int):
     # Same cell boundaries np.array_split would produce, so reduceat
     # sums give results identical to per-cell mean() -- just without
-    # 144 separate calls (this runs several times per frame per genome).
-    row_sizes = np.array([len(a) for a in np.array_split(np.arange(h), GRID[0])])
-    col_sizes = np.array([len(a) for a in np.array_split(np.arange(w), GRID[1])])
+    # one call per receptor (this runs several times per frame per genome).
+    row_sizes = np.array([len(a) for a in np.array_split(np.arange(h), rows)])
+    col_sizes = np.array([len(a) for a in np.array_split(np.arange(w), cols)])
     row_starts = np.concatenate([[0], np.cumsum(row_sizes)[:-1]])
     col_starts = np.concatenate([[0], np.cumsum(col_sizes)[:-1]])
     return row_starts, col_starts, np.outer(row_sizes, col_sizes)

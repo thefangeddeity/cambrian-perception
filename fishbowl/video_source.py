@@ -48,7 +48,7 @@ def read_frames(source: str, stride: int = 1, max_frames: int | None = None, max
     max_dim: also resizes each frame so its longer side is at most
     this many pixels, preserving aspect ratio -- a real HD source
     (Cornell's own feed is 1920x1080) has no reason to stay full
-    resolution when retina.py reduces everything to a 12x12 grid
+    resolution when retina.py reduces everything to a few hundred receptors
     downstream anyway. This is the bigger of the two real fixes:
     dtype alone (uint8 vs float64) still left ~1.24GB for 600 real HD
     frames, uncomfortably close to a real resource cap on a shared

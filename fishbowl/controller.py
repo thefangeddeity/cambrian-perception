@@ -6,7 +6,7 @@ Visual controller -- a small recurrent network that moves the gaze.
 Modeled on insect neurobiology (e.g. Diptera / mosquito):
   - Optic Lobe Inputs:
       the gaze's luminance, motion and optic flow (dx, dy); loom and where
-      motion is (dx, dy) from the whole field; current gaze (cx, cy, zoom) and
+      motion is (dx, dy) from the whole field; current gaze (cx, cy, eye size) and
       eye velocity; interoception (blood sugar, arousal, threat, search,
       hunger, curiosity, gut, reserve, sleep pressure, asleep); the whole
       field's light and its trend (day and night); and the perception tree's
@@ -14,7 +14,7 @@ Modeled on insect neurobiology (e.g. Diptera / mosquito):
   - Central Complex (Recurrent Ring):
       A 16-unit recurrent neural circuit (RNN) with temporal hidden memory.
       Maintains smooth gaze stabilization, pursuit, and active visual casting.
-  - Outputs: pan, tilt, zoom, alarm, tempo, sleep. There is no hard-wired
+  - Outputs: pan, tilt, (zoom -- unused: the eye is a fixed mosaic), alarm, tempo, sleep. There is no hard-wired
     escape reflex: a fast reaction to looming is rewarded instead
     (run_vision.py), so the flinch has to evolve. Sleep is its own choice
     (the body adds only physiological overrides -- state.py).
@@ -62,7 +62,7 @@ INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
 HIDDEN = 16         # a newborn brain's hidden layer
 TREE_HIDDEN = 16    # how many hidden units the perception tree reads (its inputs keep fixed positions)
 MIN_HIDDEN, MAX_HIDDEN = 4, 256  # MAX is a safety bound only; the price is what limits growth
-BASE_OUTPUTS = 6  # [pan, tilt, zoom, alarm, tempo, sleep]
+BASE_OUTPUTS = 6  # [pan, tilt, zoom (unused), alarm, tempo, sleep]
 OUTPUTS = BASE_OUTPUTS
 MAX_CHANNELS = 4
 # Mutation steps are heavy-tailed, like real mutations' effects (mostly tiny,
@@ -73,11 +73,11 @@ MAX_CHANNELS = 4
 HEAVY_TAIL_P = 0.1
 HEAVY_TAIL_SCALE = 0.1
 HEAVY_TAIL_MAX = 2.0
-INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "zoom", "blood sugar",
+INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "eye size", "blood sugar",
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
                "prey scent", "prey dir x", "prey dir y")
-OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
+OUTPUT_NAMES = ("pan", "tilt", "zoom (unused)", "alarm", "tempo", "sleep")
 
 
 class Motor(NamedTuple):
