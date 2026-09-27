@@ -12,6 +12,8 @@ README's fishbowl boundary.
 
 import collections
 import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Iterator
@@ -21,6 +23,75 @@ import numpy as np
 
 
 DEFAULT_MAX_DIM = 320  # real HD sources (Cornell's own feed is 1920x1080)
+
+
+class _FFmpegPipe:
+    """
+    The part of cv2.VideoCapture this module uses, decoded by an ffmpeg
+    process into raw BGR frames on a pipe (memory only, like everything
+    here). For hosts whose OpenCV has no FFmpeg of its own -- the macOS
+    wheels, which can't open a stream (rtsp://) or a web video at all.
+    H.264 decoding is bit-exact by the standard, and the conversion to
+    BGR is swscale's bicubic, as in OpenCV's own FFmpeg backend: the
+    organism sees the same frames it would on any other host.
+    """
+
+    def __init__(self, source: str, ffmpeg: str):
+        self._proc = None
+        self._fps = 0.0
+        net = ["-rtsp_transport", "tcp"] if source.startswith("rtsp") else []
+        probe = shutil.which("ffprobe", path=os.path.dirname(ffmpeg)) or "ffprobe"
+        try:
+            out = subprocess.run([probe, "-v", "error", *net, "-select_streams", "v:0", "-show_entries",
+                                  "stream=width,height,avg_frame_rate,r_frame_rate", "-of", "csv=p=0", source],
+                                 capture_output=True, text=True, timeout=30).stdout.split()[0].split(",")
+            self._w, self._h = int(out[0]), int(out[1])
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+            return
+        for rate in out[2:4]:
+            num, _, den = rate.partition("/")
+            if den and float(den) and float(num):
+                self._fps = float(num) / float(den)
+                break
+        self._proc = subprocess.Popen([ffmpeg, "-nostdin", "-loglevel", "error", *net, "-i", source,
+                                       "-an", "-sn", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def isOpened(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def read(self):
+        if self._proc is None:
+            return False, None
+        size = self._w * self._h * 3
+        buf = self._proc.stdout.read(size)
+        if len(buf) < size:
+            return False, None
+        return True, np.frombuffer(buf, np.uint8).reshape(self._h, self._w, 3).copy()
+
+    def get(self, prop) -> float:
+        return self._fps if prop == cv2.CAP_PROP_FPS else 0.0
+
+    def release(self) -> None:
+        if self._proc is not None:
+            self._proc.kill()
+            self._proc.wait()
+            self._proc = None
+
+
+def _ffmpeg_binary() -> str | None:
+    # A boot service's PATH is minimal: also look where Homebrew puts it.
+    return shutil.which("ffmpeg") or shutil.which("ffmpeg", path="/opt/homebrew/bin:/usr/local/bin")
+
+
+def open_capture(source):
+    """cv2.VideoCapture, or an ffmpeg pipe for a stream/file when this
+    OpenCV was built without FFmpeg (and an ffmpeg is installed)."""
+    if not isinstance(source, int) and not cv2.videoio_registry.hasBackend(cv2.CAP_FFMPEG):
+        ffmpeg = _ffmpeg_binary()
+        if ffmpeg:
+            return _FFmpegPipe(str(source), ffmpeg)
+    return cv2.VideoCapture(source)
 
 
 def read_frames(source: str, stride: int = 1, max_frames: int | None = None, max_dim: int = DEFAULT_MAX_DIM) -> Iterator[np.ndarray]:
@@ -58,7 +129,7 @@ def read_frames(source: str, stride: int = 1, max_frames: int | None = None, max
     stalling (swapping, not computing) was memory pressure, not raw
     compute cost.
     """
-    cap = cv2.VideoCapture(source)
+    cap = open_capture(source)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video source: {source!r}")
 
@@ -95,6 +166,63 @@ DETECT_INTERVAL_S = 0.3
 
 
 
+class FrameRing:
+    """
+    The replay frames (LiveFeed._write_frame) held in this process's own
+    memory, for hosts with no RAM directory to put them in (Windows,
+    macOS: no /dev/shm). Served to the viewer on 127.0.0.1 only; the
+    port is published in `port_file`. Nothing reaches disk.
+    """
+
+    def __init__(self, size: int = FRAME_RING):
+        self.size = size
+        self._jpgs: collections.OrderedDict = collections.OrderedDict()
+        self._lock = threading.Lock()
+
+    def put(self, epoch: int, index: int, jpg: bytes) -> None:
+        with self._lock:
+            self._jpgs[(epoch, index)] = jpg
+            while len(self._jpgs) > self.size:
+                self._jpgs.popitem(last=False)
+
+    def get(self, epoch: int, index: int) -> bytes | None:
+        with self._lock:
+            return self._jpgs.get((epoch, index))
+
+    def serve(self, port_file) -> int:
+        import json
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from urllib.parse import parse_qs, urlparse
+        ring = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                q = parse_qs(urlparse(self.path).query)
+                e, i = (q.get("e") or [""])[0], (q.get("i") or [""])[0]
+                body = ring.get(int(e), int(i)) if e.isdigit() and i.isdigit() else None
+                if body is None:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, name="FrameRing", daemon=True).start()
+        port = server.server_address[1]
+        tmp = port_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"port": port, "pid": os.getpid()}), encoding="utf-8")
+        os.replace(tmp, port_file)
+        return port
+
+
 def _is_live_source(source) -> bool:
     """A camera (device index or /dev/video*) or a network camera stream."""
     return isinstance(source, int) or str(source).startswith(("/dev/video", "rtsp://", "rtsps://", "srt://"))
@@ -128,10 +256,11 @@ class LiveFeed:
         self.source, self.stride, self.max_dim = source, stride, max_dim
         # Each kept frame as a small JPEG, for the viewer's replay of its
         # latest run: the last FRAME_RING of them, f<index>.jpg. Only ever
-        # pointed at the RAM runtime dir (run_vision.py), never at disk;
+        # pointed at the RAM runtime dir (run_vision.py), never at disk --
+        # or a FrameRing in this process's memory where there is none;
         # None = off.
         self.frames_dir, self.epoch = frames_dir, epoch
-        if frames_dir is not None:
+        if frames_dir is not None and not isinstance(frames_dir, FrameRing):
             self._drop_old_runs()
         self.newest_time = None  # set by snapshot()
         self.ended = False       # a recording played to its end (a live source never ends: it reconnects)
@@ -170,7 +299,7 @@ class LiveFeed:
             # macroblocks); TCP delivers whole frames.
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
         while not self._stop:
-            cap = cv2.VideoCapture(self.source)
+            cap = open_capture(self.source)
             if not cap.isOpened():
                 time.sleep(2.0)
                 continue
@@ -232,6 +361,10 @@ class LiveFeed:
                 s = max_dim / max(h, w)
                 frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
             ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if isinstance(self.frames_dir, FrameRing):
+                if ok:
+                    self.frames_dir.put(self.epoch, index, jpg.tobytes())
+                return
             if ok:
                 tmp = self.frames_dir / "tmp.jpg"
                 tmp.write_bytes(jpg.tobytes())
@@ -297,7 +430,7 @@ def read_frames_with_prey(source: str, stride: int = 2, max_frames: int | None =
     """read_frames() for a fixed clip, plus prey boxes per kept frame
     (detected on the colour frame every detect_every kept frames, held in
     between). Frames stay in memory only, never written to disk."""
-    cap = cv2.VideoCapture(source)
+    cap = open_capture(source)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video source: {source!r}")
     frames, prey, last, colour = [], [], [], []

@@ -51,6 +51,19 @@ LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR)
 # Its recent frames, small JPEGs run_vision.py keeps next to it in RAM (a
 # short ring, see video_source.LiveFeed), for replaying its latest run.
 FRAMES_DIR = LIVE_STATUS_PATH.with_name("frames")
+# Where there's no RAM dir (Windows, macOS) the organism holds them in its
+# own memory instead and serves them on localhost at the port named here.
+FRAMES_PORT_PATH = LIVE_STATUS_PATH.with_name("frames.json")
+
+
+def _frame_from_organism(e: str, i: str) -> bytes | None:
+    from urllib.request import urlopen
+    try:
+        port = int(json.loads(FRAMES_PORT_PATH.read_text(encoding="utf-8-sig"))["port"])
+        with urlopen(f"http://127.0.0.1:{port}/frame?e={e}&i={i}", timeout=2) as r:
+            return r.read()
+    except (OSError, ValueError, KeyError):
+        return None
 EVOLUTION_LOG_PREV_PATH = STATE_DIR / "evolution_log.1.jsonl"
 # Paths defined independently here, not imported from fishbowl.sandbox
 # -- same deliberate independence as everything else in this module
@@ -1176,7 +1189,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 body = (FRAMES_DIR / f"f{int(e)}_{int(i)}.jpg").read_bytes() if i.isdigit() and e.isdigit() else None
             except OSError:
-                body = None
+                body = _frame_from_organism(e, i) if i.isdigit() and e.isdigit() else None
             if body is None:
                 self.send_response(404)
                 self.end_headers()

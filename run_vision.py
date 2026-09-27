@@ -941,6 +941,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 sandbox.LIVE_STATUS_PATH.with_name(old).unlink(missing_ok=True)
         if use_frames:
             frames_dir.mkdir(parents=True, exist_ok=True)
+        elif os.environ.get("CAMBRIAN_CAMERA_PREVIEW", "1") != "0":
+            # No RAM dir (Windows, macOS): the frames stay in this process's
+            # memory and the viewer fetches them over localhost.
+            frames_dir = video_source.FrameRing()
+            frames_dir.serve(sandbox.LIVE_STATUS_PATH.with_name("frames.json"))
+            use_frames = True
         feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None,
                                      frames_dir=frames_dir if use_frames else None, epoch=feed_epoch)
         # A slow camera on a busy host (e.g. 8 frames/s on a laptop already

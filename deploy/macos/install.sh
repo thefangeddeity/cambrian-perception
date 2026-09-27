@@ -24,7 +24,7 @@ DIR="$HOME/Library/Application Support/cambrian-perception"
 LABEL=org.cambrian.perception
 PLIST=/Library/LaunchDaemons/$LABEL.plist
 echo "cambrian-perception: installing from $REPO to $DIR"
-sudo -v
+sudo true  # ask for the password once, up front (not -v: it prompts even under NOPASSWD)
 
 # 1. Stop a running copy (it saves first), then lay down the code.
 if pgrep -f "[c]ambrian_service.py" >/dev/null; then
@@ -61,6 +61,13 @@ fi
 echo "  python: $PY ($($PY --version))"
 [ -x "$DIR/.venv/bin/python" ] || "$PY" -m venv "$DIR/.venv"
 "$DIR/.venv/bin/python" -m pip install -q --disable-pip-version-check -r "$DIR/requirements.lock"
+
+# macOS's OpenCV has no FFmpeg of its own: streams and web video are decoded
+# by an ffmpeg process instead (fishbowl/video_source.py).
+if ! command -v ffmpeg >/dev/null; then
+    if command -v brew >/dev/null; then brew install ffmpeg
+    else echo "  WARNING: no ffmpeg -- only a local camera (--source 0) can be watched until one is installed"; fi
+fi
 
 # 3. The prey detector's model.
 if [ -n "$MODEL" ]; then cp "$MODEL" "$DIR/models/yolov8n.onnx"; fi
