@@ -1036,6 +1036,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = N_CELLS * 2 + 2 + BRA
     world_prev = None  # the previous snapshot, for re-checking a winner
     world_time = time.time()  # when the current snapshot was taken
     gen_seconds, gen_started = 0.0, time.time()  # how long the last generation took
+    _last_status = [0.0]
+    last_new_frame = time.time()
+
     def _status_due() -> bool:
         now_s = time.time()
         if now_s - _last_status[0] < 1.0:
