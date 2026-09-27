@@ -862,6 +862,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # Dessert overrides the camera until its deadline; then this run
     # exits and systemd restarts it back on the camera.
     home_source = source
+    # A stale stop request must not stop a new run (it is checked from here on,
+    # while the feed fills and every generation).
+    sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
     dessert = _dessert() if _is_device(source) else None
     if dessert is not None:
         print(f"Dessert: watching {dessert['url']} until {time.ctime(float(dessert['until'])) if dessert.get('until') else 'cleared'}")
@@ -953,7 +956,17 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                                      frames_dir=frames_dir if use_frames else None, epoch=feed_epoch)
         # A slow camera on a busy host (e.g. 8 frames/s on a laptop already
         # running a livecam server) takes minutes to fill the window.
-        if not feed.wait_for(600, timeout=600.0):
+        # A deliberate stop while it fills (the other half of the camera suite
+        # starting, docs/suite.md) ends it at once: no generation has run yet,
+        # so there is nothing new to save.
+        fill_deadline = time.time() + 600.0
+        while not feed.wait_for(600, timeout=2.0) and time.time() < fill_deadline:
+            if sandbox.STOP_REQUEST_PATH.exists():
+                sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
+                print("Stopped before its first generation -- nothing new to save.")
+                feed.close()
+                return
+        if not feed.wait_for(600, timeout=0.5):
             print("Live feed never filled its window -- aborting.")
             feed.close()
             if dessert is not None:
@@ -1116,7 +1129,6 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         return True
     signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__("now", True))
 
-    sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)  # a stale request must not stop a new run
     while box.should_continue() and not stop["now"]:
         if sandbox.STOP_REQUEST_PATH.exists():  # a deliberate stop (docs/packaging.md)
             print("Stop requested -- saving and exiting.")
