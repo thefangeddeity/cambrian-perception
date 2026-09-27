@@ -54,7 +54,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from fishbowl import fovea, genome as G, reflexes, sandbox, video_source
+from fishbowl import fovea, genome as G, hostspeed, reflexes, sandbox, video_source
 from fishbowl.state import MosquitoState
 from fishbowl import prey as prey_lib
 from fishbowl.bouts import FeedingRecord, fit_bout_criterion
@@ -62,7 +62,7 @@ from fishbowl.controller import TREE_HIDDEN
 # The organism itself and the world's fixed physics it lives by -- one
 # implementation, shared with any live host (fishbowl/organism.py).
 from fishbowl.organism import (  # noqa: E402
-    APERTURE_COST, CHANNEL_COST, COLOUR_COST, CONSOLIDATE_RATE, EXPANSION_GAIN, FLOW_GAIN, FOOD_GAIN, MAX_INTERVAL,
+    CHANNEL_COST, CONE_COST, CONSOLIDATE_RATE, EXPANSION_GAIN, FLOW_GAIN, FOOD_GAIN, MAX_INTERVAL,
     MEAN_RATE, MEM_H, MEM_W, MOTION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, PREY_SENSE_COST, REFERENCE_QUOTA_PCT,
     SHIFT_MAX, SHIFT_MIN_RESPONSE, SHIFT_WIDTH, STABILIZER_COST, SURPRISE_SIGMAS, TEMPO_RANGE, THINK_COST,
     RECEPTOR_COST, UNSEEN_NOVELTY, VAR_RATE, Organism, _receptor_cost,
@@ -467,6 +467,7 @@ def evaluate_genome(
     world_prey: list | None = None,
     start_memory: tuple[np.ndarray, np.ndarray] | None = None,
     world_colour: list | None = None,
+    sec_per_mac: float = 0.0,
 ) -> tuple[float, dict, dict]:
     """
     Returns (fitness, breakdown, live_info). world_signals are the
@@ -478,7 +479,7 @@ def evaluate_genome(
     # One organism lives through the snapshot, frame by frame (fishbowl/
     # organism.py -- the same code a live host runs).
     org = Organism(g, start_body, start_memory, quota_pct, fps,
-                   colour=world_colour is not None, prey=world_prey is not None, record=True)
+                   colour=world_colour is not None, prey=world_prey is not None, record=True, sec_per_mac=sec_per_mac)
     sig = _SignalsAt(world_signals)
     shift_x, shift_y = world_signals["shift_x"], world_signals["shift_y"]
     for t in range(len(frames)):
@@ -621,11 +622,10 @@ def evaluate_genome(
     fitness -= HOMEOSTASIS_WEIGHT * mean_drive
     # Keramati & Gutkin (2014) homeostatic reward: drive reduction --
     # did this window leave its body better or worse off? Parent and
-    # candidate start from the same body, so this is a fair comparison;
-    # scaled to "per 20 minutes" so a slow real-clock body still gives
-    # selection a clear signal.
-    window_seconds = max(1e-6, float(iv.sum()) / max(1.0, fps))
-    drive_reduction = (drive_start - body.drive()) * (1200.0 / window_seconds)
+    # candidate start from the same body, so this is a fair comparison.
+    # (Constants audit: it used to be extrapolated x 1200 s / the window's
+    # length, which blew a few seconds' noise up into the largest term.)
+    drive_reduction = drive_start - body.drive()
     fitness += DRIVE_REDUCTION_WEIGHT * drive_reduction
 
     # The perception tree's teacher (see TEACHER_WEIGHT).
@@ -651,6 +651,7 @@ def evaluate_genome(
     breakdown["mean_prey"] = float(np.mean(prey_eaten)) if prey_eaten else 0.0
     breakdown["mean_aperture"] = float(np.mean(fracs)) if fracs else 0.0
     breakdown["movement"] = live_info["movement"]
+    breakdown["missed_looks"] = org.missed
 
     flinch = live_info["flinch"]
     fitness += FLINCH_WEIGHT * flinch["score"]
@@ -696,7 +697,7 @@ def _n_children(quota_pct: float) -> int:
     return max(1, min(cap, int(quota_pct // 100) - 1))
 
 
-def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict, fps: float, memory):
+def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict, fps: float, memory, sec_per_mac: float = 0.0):
     """Runs in a worker process: attaches to the snapshot's frames (once per
     snapshot) and scores one child."""
     from multiprocessing import shared_memory
@@ -718,7 +719,7 @@ def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict
         _WORKER["colour"] = [arrays["colour"][k] for k in range(arrays["colour"].shape[0])] if arrays["colour"] is not None else None
         _WORKER["id"] = meta["id"]
     g = G.Genome.from_dict(genome_dict)
-    return evaluate_genome(g, _WORKER["frames"], meta["ws"], quota_pct, body, fps, meta["prey"], memory, _WORKER["colour"])
+    return evaluate_genome(g, _WORKER["frames"], meta["ws"], quota_pct, body, fps, meta["prey"], memory, _WORKER["colour"], sec_per_mac)
 
 
 class _Workers:
@@ -761,8 +762,8 @@ class _Workers:
             block.unlink()
         return meta is not None
 
-    def submit(self, genome, quota_pct: float, body: dict, fps: float, memory):
-        return self.pool.submit(_worker_evaluate, self.meta, genome.to_dict(), quota_pct, body, fps, memory)
+    def submit(self, genome, quota_pct: float, body: dict, fps: float, memory, sec_per_mac: float = 0.0):
+        return self.pool.submit(_worker_evaluate, self.meta, genome.to_dict(), quota_pct, body, fps, memory, sec_per_mac)
 
     def close(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
@@ -1004,6 +1005,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # Real current CPU quota (resource_handler.py's own record), prices
     # the look's size -- refreshed periodically below, never inferred.
     quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
+    # Prices are paid in reference-host cores: the granted share x this host's
+    # measured arithmetic speed (fishbowl/hostspeed.py), re-measured with the quota.
+    host_rate = hostspeed.sec_per_mac()
+    price_quota = quota_pct * hostspeed.speed_factor(host_rate)
+    print(f"Host speed: {host_rate:.2e} s per multiply-add ({hostspeed.speed_factor(host_rate):.2f}x the reference host); "
+          f"quota {quota_pct:.0f}% = {price_quota:.0f}% in reference cores.")
     # Its body persists across generations (and restarts): every window
     # starts from how it actually is now, and afterwards the lasting body
     # moves toward the survivor's end-of-window body in proportion to the
@@ -1041,7 +1048,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         m = checkpoint["memory"]
         memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
                       np.array(m["var"], dtype=float))
-    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour)
+    best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
@@ -1110,6 +1117,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         gen_seconds, gen_started = time.time() - gen_started, time.time()
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
+            host_rate = hostspeed.sec_per_mac()
+            price_quota = quota_pct * hostspeed.speed_factor(host_rate)
         n_children = _n_children(quota_pct)
         children = []
         for _ in range(n_children):
@@ -1170,11 +1179,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 if workers is None:
                     workers = _Workers(max(1, (os.cpu_count() or 2) - 1))
                 if workers.publish(world):
-                    futures = [workers.submit(c, quota_pct, body_now, _fps(), memory_now) for c, _, _ in children]
+                    futures = [workers.submit(c, price_quota, body_now, _fps(), memory_now, host_rate) for c, _, _ in children]
             except Exception as e:  # no worker processes on this host: serial from here on
                 print(f"Parallel evaluation unavailable ({e}); continuing serially.")
                 workers, futures = False, None
-        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour)
+        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
         if futures is not None:
             results = []
             for (c, _, _), fut in zip(children, futures):
@@ -1183,9 +1192,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 except Exception as e:  # a lost worker: score that child here instead
                     if not stop["now"]:
                         print(f"Worker failed ({type(e).__name__}); scoring the child here.")
-                    results.append(evaluate_genome(c, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour))
+                    results.append(evaluate_genome(c, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate))
         else:
-            results = [evaluate_genome(c, *world.at_pace(1), quota_pct, body_now, _fps(), world.prey, memory_now, world.colour)
+            results = [evaluate_genome(c, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
                        for c, _, _ in children]
         best = max(range(len(children)), key=lambda k: results[k][0] if math.isfinite(results[k][0]) else -math.inf)
         candidate, channel, applied = children[best]
@@ -1206,8 +1215,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if accepted and both_finite and candidate_fitness > parent_fitness + margin and world_prev is not None:
             # The best of several children re-checked on the previous
             # snapshot: it must not be worse there (see RECHECK above).
-            p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), quota_pct, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour)
-            c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), quota_pct, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour)
+            p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour, host_rate)
+            c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour, host_rate)
             if not (math.isfinite(c2) and math.isfinite(p2) and c2 >= p2 - NEUTRAL_EPSILON):
                 accepted, rechecked_out = False, True
 
@@ -1313,6 +1322,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "receptors": genome.receptors,
             "cones": genome.cones,
             "quota_pct": quota_pct,
+            "price_quota_pct": round(price_quota, 1),
+            "host_speed": round(hostspeed.speed_factor(host_rate), 3),
             "pace": genome.pace,
             "tree_stats": {
                 name: {"nodes": tree.node_count(), "depth": tree.depth()}

@@ -28,43 +28,53 @@ import numpy as np
 
 from . import fovea, prey as prey_lib
 from .genome import RETINA_PLANES
-from .state import MosquitoState
+from .state import LEGACY_UNIT, TEMPO_SHARE, WAKE_FLOOR, MosquitoState
 from . import reflexes
 
 # --- Prices (the body pays per gaze, x CPU scarcity) -----------------------
-# Every receptor of its gaze (and the wiring behind it) costs upkeep per gaze
-# x scarcity (REFERENCE_QUOTA_PCT / the real CPU quota granted): the eye can
-# grow when resources allow and shrinks when they are scarce (Sterling and
-# Laughlin: neurons are priced per use). Re-anchored from the zoom eye's
-# aperture cost (1e-4 x (fraction of the frame)^2), so an eye of the same
-# extent costs the same as before.
+# Anchored on published shares of an animal's resting metabolism (constants
+# audit, docs/constants-audit.md) instead of hand-set numbers: at the
+# reference pace -- a look every frame at 15 frames/s, calm, awake (a resting
+# burn of WAKE_FLOOR + TEMPO_SHARE B/s) --
+#   - a newborn eye (DEFAULT_RECEPTORS x DEFAULT_RECEPTORS) costs 8% of it:
+#     the blowfly's photoreceptors' share of its resting metabolic rate
+#     (Laughlin, de Ruyter van Steveninck & Anderson 1998);
+#   - a newborn brain's thinking costs 5%: the middle of the central nervous
+#     system's 2-8% of body metabolism across vertebrates (humans ~20%;
+#     Mink, Blumenschine & Adams 1981).
+# Everything priced is x scarcity: REFERENCE_QUOTA_PCT / the CPU share it is
+# granted, in reference-host cores (run_vision measures this host's speed,
+# fishbowl/hostspeed.py) -- a slow or busy host makes neurons dear, a fast
+# idle one cheap.
 REFERENCE_QUOTA_PCT = 150.0
-APERTURE_COST = 1e-4  # the zoom eye's price, per gaze, x (extent)^2 -- the anchor
-RECEPTOR_COST = APERTURE_COST * fovea.RECEPTOR_PITCH ** 2  # per receptor, per gaze, x scarcity
+REFERENCE_GAZES_PER_S = 15.0
+RESTING_BURN = WAKE_FLOOR + TEMPO_SHARE  # B/s, awake and calm at the reference pace
+EYE_SHARE, BRAIN_SHARE = 0.08, 0.05
+_PER_GAZE = RESTING_BURN / REFERENCE_GAZES_PER_S / LEGACY_UNIT  # 100% of resting burn, per gaze, in legacy units
+RECEPTOR_COST = EYE_SHARE * _PER_GAZE / fovea.DEFAULT_RECEPTORS ** 2  # per receptor, per gaze, x scarcity
 
 
 def _receptor_cost(n: int, quota_pct: float) -> float:
     return RECEPTOR_COST * n * n * (REFERENCE_QUOTA_PCT / max(1.0, quota_pct))
 
 
-# Per-look compute cost (the brain and tree running once), priced like
-# the aperture: x CPU scarcity, and x the brain's real arithmetic relative
-# to the original 16-unit brain (controller.think_factor) -- a grown brain
-# pays for what it computes. With the waking burn scaling with tempo
-# (state.py), this is what makes a fast pace of life expensive.
-THINK_COST = 2e-5  # per gaze, x scarcity
+# Per-look compute cost (the brain and tree running once): x CPU scarcity,
+# and x the brain's real arithmetic relative to the original 16-unit brain
+# (controller.think_factor) -- a grown brain pays for what it computes. With
+# the waking burn scaling with tempo (state.py), this is what makes a fast
+# pace of life expensive.
+THINK_COST = BRAIN_SHARE * _PER_GAZE  # per gaze, x scarcity
 # Colour is seen by cones only (fovea.py: a central patch of the gaze, its
 # size inherited, genome.cones; the rest are rods -- grey, and cheaper for
-# lacking the colour circuitry). Each cone costs energy per gaze for each
-# colour-opponent channel it serves: colour vision, and how much of the eye
-# has it, only evolve if seeing colour pays for itself. Anchored on the old
-# eye's price: 1e-5 per channel for its 144 receptors.
-COLOUR_COST = 1e-5                 # per channel, for the old eye's 144 receptors -- the anchor
-CONE_COST = COLOUR_COST / 144      # per cone, per channel, per gaze, x scarcity
+# lacking the colour circuitry). Each colour-opponent channel a cone serves
+# is one more signal, priced like a receptor's (Laughlin: the cost is per
+# signalling channel): colour vision, and how much of the eye has it, only
+# evolve if seeing colour pays for itself.
+CONE_COST = RECEPTOR_COST  # per cone, per channel, per gaze, x scarcity
 # A brain channel's loop (controller.py) costs energy in proportion to the
 # weight on its way back in: a loop that does nothing is free, one that
 # matters has to pay for itself (a synaptic cost, like any real circuit).
-CHANNEL_COST = 2e-5  # per unit of loop weight, per gaze, x scarcity
+CHANNEL_COST = THINK_COST  # per unit of loop weight, per gaze, x scarcity (relative to thinking: chosen, flagged in the audit)
 # Sleep consolidates its habituation memory: clearing sleep pressure tightens
 # each spot's remembered variation toward the sensor-noise floor, so after a
 # night real change stands out more sharply (and "boring" stays learned).
@@ -75,7 +85,7 @@ CONSOLIDATE_RATE = 3.0
 # holds the image still between deliberate movements. Global only (see
 # global_shift), so it can never follow an object -- pursuing prey stays the
 # brain's job. Priced like any receptor, x gain.
-STABILIZER_COST = 1e-5  # per gaze at gain 1, x scarcity
+STABILIZER_COST = 0.5 * THINK_COST  # per gaze at gain 1, x scarcity (relative to thinking: chosen, flagged in the audit)
 # Prey sense (genome.prey_sense; after a design panel): 1 = scent, prey
 # somewhere in its whole field and how much, without where -- "go look";
 # 2 = + a coarse direction from its gaze to the strongest prey (left/right,
@@ -83,7 +93,7 @@ STABILIZER_COST = 1e-5  # per gaze at gain 1, x scarcity
 # its eyes to eat. Like a grown brain channel, a new sense changes nothing
 # until the brain wires it up, and its price grows with that wiring
 # (synaptic cost), so it is kept on a tie and spreads only if it pays.
-PREY_SENSE_COST = 2e-5  # per unit of weight on its inputs, per gaze, x scarcity
+PREY_SENSE_COST = THINK_COST  # per unit of weight on its inputs, per gaze, x scarcity (relative to thinking: chosen, flagged)
 
 # --- Tempo --------------------------------------------------------------------
 TEMPO_RANGE = 3.0   # brain can speed up / slow down its gazing up to 3x around its resting pace
@@ -255,7 +265,7 @@ class Organism:
 
     def __init__(self, g, body: dict | None = None, memory: tuple | None = None,
                  quota_pct: float = REFERENCE_QUOTA_PCT, fps: float = 15.0,
-                 colour: bool = False, prey: bool = False, record: bool = False):
+                 colour: bool = False, prey: bool = False, record: bool = False, sec_per_mac: float = 0.0):
         self.g = g
         self.state = fovea.FoveaState(n=g.receptors or fovea.DEFAULT_RECEPTORS)
         self.n_cells = self.state.n * self.state.n
@@ -286,6 +296,14 @@ class Organism:
         self.quota_pct = quota_pct
         self.scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
         self.fps = fps
+        # Its deadline (after a panel vote): the brain's step takes its
+        # multiply-adds x this host's measured time per multiply-add
+        # (fishbowl/hostspeed.py); one that can't finish before the next look
+        # misses that look and keeps its last outputs. 0 = not measured.
+        self.sec_per_mac = sec_per_mac
+        self.last_out = None
+        self.last_interval = max(1, int(getattr(g, "pace", 1)))
+        self.missed = 0
         self.stab = float(getattr(g, "stabilizer", 0.0))
         self.prey_level = int(getattr(g, "prey_sense", 0)) if prey else 0
         self.stab_dx = self.stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
@@ -370,10 +388,16 @@ class Organism:
         periph_dy = float(sig["motion_cy"]) - state.cy
         field_light = float(sig["field_light"])
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level)
-        out = brain.step(
-            lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
-            periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
-        )
+        if (self.sec_per_mac and self.last_out is not None
+                and self.sec_per_mac * brain.macs() > self.last_interval / max(1.0, self.fps)):
+            out = self.last_out  # still thinking: this look is missed
+            self.missed += 1
+        else:
+            out = brain.step(
+                lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
+                periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
+            )
+            self.last_out = out
         # (out.zoom is unused: its eye has no zoom -- fovea.py.)
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
         # Sleep is its own choice (its sleep output); the body adds only the
@@ -422,6 +446,7 @@ class Organism:
             if body.degraded:
                 interval = min(MAX_INTERVAL, interval * 2)
         self.eating = prey_now
+        self.last_interval = interval
         if rec is not None:
             rec["idxs"].append(self.k)
             rec["intervals"].append(interval)

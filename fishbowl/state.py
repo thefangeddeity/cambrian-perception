@@ -71,9 +71,10 @@ ACCLIMATIZE_HALF_LIFE_S = 80.0  # metabolic rate follows tempo over ~2 min
 EFFORT_COST = 1e-4               # legacy units per push, x force^2
 FOOD_PER_LOOK = 2e-4             # SNACK (legacy units) x surprise (0..1)
 PREY_FOOD_PER_LOOK = 1.2e-3      # MEAL (legacy units) x prey held in the gaze center (0..1)
-# Sleep pressure (Process S)
-S_RISE_S = 14 * 3600.0
-S_FALL_S = 3 * 3600.0
+# Sleep pressure (Process S): the two-process model's fitted time constants
+# (Daan, Beersma & Borbely 1984) -- rising with time awake, x brain load here.
+S_RISE_S = 18.2 * 3600.0
+S_FALL_S = 4.2 * 3600.0
 SLEEP_SETTLE_S = 10.0   # falling asleep: no clearing yet
 SLEEP_INERTIA_S = 7.0   # waking up: groggy, can't eat yet
 COLLAPSE_S = 0.95       # sleep pressure that forces sleep...

@@ -224,6 +224,10 @@ class MosquitoBrain:
         stacked = sum(2 * h * h + h for l in self.layers if float(l["gate"][0]) != 0.0)
         return (_macs(h, self.weights_ih.shape[1], self.weights_ho.shape[0]) + stacked) / REFERENCE_MACS
 
+    def macs(self) -> int:
+        """Multiply-adds in one step of this brain (open stacked layers included)."""
+        return int(round(self.think_factor() * REFERENCE_MACS))
+
     def active_layers(self) -> int:
         return sum(1 for l in self.layers if float(l["gate"][0]) != 0.0)
 
