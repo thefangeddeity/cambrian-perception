@@ -285,4 +285,18 @@ def _write_json_atomic(path: Path, data, compact: bool = False, durable: bool = 
         if durable:
             f.flush()
             os.fsync(f.fileno())
-    temp.replace(path)
+    # Windows refuses to replace a file another process has open this instant
+    # (the viewer or `cambrian --status` reading it): "Access is denied". It
+    # crashed the organism on hera 22 times. Retry briefly; a live status
+    # that still can't land is skipped (the next comes within a second), a
+    # checkpoint is not.
+    for attempt in range(20):
+        try:
+            temp.replace(path)
+            return
+        except PermissionError:
+            if attempt == 19:
+                if durable:
+                    raise
+                return
+            time.sleep(0.05)
