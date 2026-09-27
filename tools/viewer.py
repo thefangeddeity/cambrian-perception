@@ -519,7 +519,7 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
-    <div class="cap">The whole scene as its coarse wide-field eyes get it: <span id="field-px">--</span> (144 square light receptors laid over the frame at its own shape, like a jumping spider's secondary eyes). It feels threat, arousal and <em>where</em> something moved from this, not detail. The box is its <b style="color:var(--cyan)">gaze</b> along its real path, played at real speed a few seconds behind live, in step with the picture beside it (its gaze runs on snapshots of its newest ~600 frames); trail = last 3 s.</div>
+    <div class="cap">Its wide-field eyes: <span id="field-px">--</span>. Threat, arousal and where things move; no detail. Box = its <b style="color:var(--cyan)">gaze</b>, a few seconds behind live; trail = last 3 s.</div>
     <div class="legend cap" style="margin-top:8px">
       <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
       <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
@@ -534,12 +534,12 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="brain-panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap">The recurrent network that moves the gaze (fishbowl/controller.py): 28 inputs (senses, body, sleep, the day's light, the perception tree's output, its prey sense) &rarr; a recurrent hidden layer of <b id="brain-units">--</b> units, with <b id="brain-layers">--</b> stacked on top (a mutation stacks a silent copy of its top layer; a mutation that opens its gate switches it on, and only then does it cost anything) (it grows by duplicating a unit, born unconnected, and shrinks; each unit costs energy for its arithmetic) &rarr; pan / tilt / zoom / alarm / tempo / sleep, plus any <b>channels</b> it has grown: an extra output wired back in as an input -- a <em>loop</em> (duplicated from an existing output, a working memory or a signal to itself) or a <em>predictor</em> (it guesses one of its inputs and gets back how wrong it was). A newborn channel changes nothing; its loop costs energy only once evolution wires it up. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <div class="cap">28 inputs &rarr; <b id="brain-units">--</b> recurrent units, <b id="brain-layers">--</b> stacked &rarr; pan / tilt / alarm / tempo / sleep, plus grown loops. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits; fill = activity. Right: unit &rarr; unit memory.</div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
-    <div class="cap">Its movable high-acuity eye (the spider's principal retina): a square of small square receptors (<span id="look-px">--</span>), each 1/64 of the frame's height, shown where it really is in its whole visual field (the panel), at its true size. How many receptors it has is inherited and evolves a ring at a time, each one paid for per look -- growing the eye is more receptors, not the same ones stretched (it has no zoom). Dashed: the biggest eye it could evolve. The only place it sees detail, and the only way it eats. Its receptors are rods and cones: the cones, a central patch (dotted orange) whose size is inherited and evolves a ring at a time, are the only ones that can see colour -- once it has evolved colour channels -- and each costs energy for every colour channel it serves; the rods around them see grey and cost less. (The visual field stays monochrome, like a jumping spider's secondary eyes.) In step with the picture and the visual field (same replay clock); its receptors are rebuilt in your browser from the frame on screen with the same averaging its eye does -- a reconstruction, not its exact input. Black = the part of the gaze past the edge of the frame (its center can reach the edge; nothing is seen out there).</div>
+    <div class="cap">Its eye: <span id="look-px">--</span>, at true size and place. Colour only in the cone patch (dotted orange); dashed = the biggest eye possible; black = off the frame. Rebuilt in your browser from the frame on screen.</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
 </div>
@@ -548,7 +548,7 @@ PAGE = r"""<!doctype html>
   <div class="stack">
     <div class="panel" id="dessert-card">
       <h2>dessert</h2>
-      <div class="cap">Switch it from the camera to a YouTube video, live or recorded -- to speed up learning with more going on, or overnight when the room is asleep. A recording plays at its own speed; it goes back to its camera when the video ends, when you press "back to camera", or optionally at a set time. Frames are never saved.</div>
+      <div class="cap">Watch a YouTube video (live or recorded) instead of the camera, until it ends, you switch back, or a set time. Frames are never saved.</div>
       <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px">
         <input type="text" id="custom-url" placeholder="paste a YouTube URL (live or recorded)..." style="flex:1 1 260px">
@@ -560,18 +560,18 @@ PAGE = r"""<!doctype html>
     </div>
     <div class="panel">
       <h2>its perception tree</h2>
-      <div class="cap">The genome's evolved "response" tree: reads its receptors <em>by position</em> from the gaze's centre -- <code>now(x,y)</code> the gaze, <code>prev(x,y)</code> the previous gaze, <code>rg</code>/<code>by</code> its colour receptors -- so it keeps working as its eye grows (a position its eye doesn't have reads 0); and its own last movement (x0-x1) and the brain's 16 memory units (x2-x17). Its output goes into the brain as the "tree" input, and it is graded by its teacher (YOLO) on how much prey fills its gaze.</div>
+      <div class="cap">Reads receptors by position (<code>now</code>, <code>prev</code>, <code>rg</code>/<code>by</code> at x,y from centre), its last movement (x0-x1) and brain memory (x2-x17). Feeds the brain; graded against YOLO.</div>
       <div id="trees"></div>
     </div>
   </div>
 
   <div class="panel">
     <h2>body</h2>
-    <div class="cap">Its body <b>right now</b> (fishbowl/state.py): food goes gut &rarr; blood sugar &rarr; reserve. Awake with nothing to eat it gets hungry within half an hour; asleep, its reserve carries it for hours -- so sleep, its own choice, is how it gets through a quiet room. It persists through the day and across restarts. The traces below are its latest run.</div>
+    <div class="cap">Now: gut &rarr; blood sugar &rarr; reserve; sleep carries it through quiet hours. Traces: latest run.</div>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Its real food is <b style="color:#ff5fa2">prey</b>: a person or animal (found by YOLO, which plays the world's physics of food -- the organism itself still only sees its receptors) held in the <b>center</b> of its gaze. Following a moving person is literally how it eats. A small <b style="color:#c8f">snack</b> comes from surprise -- change beyond what a spot usually does, remembered across runs, so a swinging fan becomes boring for good. Snacks alone can't sustain it.</div>
+      <div class="cap">Food: <b style="color:#ff5fa2">prey</b> (a person or animal, found by YOLO) held in its gaze centre; <b style="color:#c8f">snacks</b> from surprise, too little to live on.</div>
       <div id="prey-gauge"></div>
       <canvas id="prey-trace" height="60"></canvas>
       <div id="food-gauge"></div>
@@ -588,7 +588,7 @@ PAGE = r"""<!doctype html>
 
 <div class="panel" style="margin-top:16px">
   <h2>what drives it</h2>
-  <div class="cap">Every pressure currently in the fitness, with its real weight in run_vision.py. <span class="tag body">body</span> = comes from staying alive (the direction this is going: Dennett's "whole iguana"). <span class="tag hand">hand-written</span> = an older score bolted on from outside, to be retired one at a time as the body takes over. Nothing is hard-wired: the old innate escape reflex was removed so the flinch can evolve.</div>
+  <div class="cap">Every fitness pressure and its weight. <span class="tag body">body</span> = from staying alive; <span class="tag hand">hand-written</span> = scaffolding, to be retired.</div>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
     <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of hunger&sup2; (blood sugar plus half the gut, like a full stomach calming hunger before it is absorbed) + 0.3 (1-reserve)&sup2; + threat&sup2; + fatigue&sup2; + 0.3 sleep pressure&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). On a real clock: being awake costs a fixed amount plus a share that follows its tempo; asleep it burns a third as much. Also muscle force&sup2; every frame it pushes, and per gaze: thinking, gaze size, colour and any wired brain loops (x CPU scarcity). Restored only by eating (prey held in the gaze center, plus small surprise snacks), through the gut. No death: an empty body degrades (colour off, narrow eye, slower gazing) and burns less.</td></tr>
@@ -799,7 +799,7 @@ PAGE = r"""<!doctype html>
     ctx.fillText(cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
     $('look-px').textContent = `${N}x${N} receptors (the central ${C}x${C} cones, the rest rods), ${cw}x${ch} real pixels`;
     $('field-px').textContent = `${(d.world_grid_shape || [12, 12])[1]}x${(d.world_grid_shape || [12, 12])[0]} square receptors over ${d.frame_w}x${d.frame_h} real pixels`;
-    $('look-scale').textContent = `Its eye is ${N}x${N} receptors, ${f.toFixed(3)} of the frame's height, centred at (${gx.toFixed(2)}, ${gy.toFixed(2)}); dashed: the biggest eye it could evolve (${fmax.toFixed(2)}). Shown ${s.toFixed(1)}x real size.`;
+    $('look-scale').textContent = `${f.toFixed(2)} of the frame's height, at (${gx.toFixed(2)}, ${gy.toFixed(2)}); shown ${s.toFixed(1)}x real size.`;
   }
   requestAnimationFrame(drawLook);
 
@@ -840,10 +840,10 @@ PAGE = r"""<!doctype html>
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
     spark('energy-trace', d.energy_series, '#4fa', 'blood sugar (purple band: asleep)', d.sleep_series);
-    const boutNote = kind => { const bt = d.bouts && d.bouts[kind]; if (!bt) return ''; return bt.fit ? `; one ${kind} = looks less than ${bt.fit.criterion_s.toFixed(1)} s apart (measured from its own ${bt.gaps} feeding gaps: within a ${kind} ~${bt.fit.within_bout_mean_s.toFixed(1)} s, between ~${bt.fit.between_bouts_mean_s.toFixed(0)} s)` : `; what counts as one ${kind}: calibrating (${bt.gaps} feeding gaps so far, no bout structure yet)`; };
-    $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'a person or animal held in the center of its gaze (YOLO) -- its real food' + boutNote('meal'));
+    const boutNote = kind => { const bt = d.bouts && d.bouts[kind]; if (!bt) return ''; return bt.fit ? `; 1 ${kind} = looks < ${bt.fit.criterion_s.toFixed(1)} s apart` : `; ${kind} size: calibrating`; };
+    $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'prey in its gaze centre' + boutNote('meal'));
     spark('prey-trace', d.prey_series, '#ff5fa2', 'prey eaten');
-    $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', 'genuinely new structure in the gaze center -- too little to live on alone' + boutNote('snack'));
+    $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', 'new structure in its gaze' + boutNote('snack'));
     spark('food-trace', d.food_series, '#c8f', 'surprise');
     const m = d.movement || {};
     $('movement').innerHTML =
@@ -1013,7 +1013,7 @@ PAGE = r"""<!doctype html>
     $('stream-link-row').style.display = id ? 'block' : 'none';
     if (id) $('stream-link').href = `https://www.youtube.com/watch?v=${id}`;
     $('live-title').textContent = d && d.is_live ? 'the stream, as it saw it' : 'its camera, as it saw it';
-    $('live-cap').textContent = 'The real frames it saw, played at real speed just far enough behind live that it has gazed at every one (a few seconds; its gaze runs on snapshots of its newest frames), in step with the visual field beside it, with its gaze as a target lock. The organism itself only gets its receptors; these frames are kept in RAM only.';
+    $('live-cap').textContent = 'What it saw, a few seconds behind live, in step with the visual field. Frames stay in RAM.';
     const running = d && d.generation !== undefined ? (d.is_live ? 'video' : 'camera') : null;
     const switching = running && (running !== want || (want === 'video' && youtubeId(d.clip) !== id));
     $('h-src').textContent = switching
@@ -1027,7 +1027,7 @@ PAGE = r"""<!doctype html>
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('hud-legend-text').textContent = 'the reticle is its gaze (SCAN / TRACK = prey in its gaze / LOCK = prey held in its center: eating -- in a livecam, the moment to take a snapshot), with the ID of what it is on; pink corners: prey the detector found in that frame; top right, the OWN guess of its perception tree at how much prey fills its gaze, next to the label from the teacher (YOLO), green when they agree -- the student catching up with the teacher. The client view (just this, full screen) is at /live.';
+  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = eating: a snapshot moment); pink corners = prey found; top right: its own prey guess vs YOLO (green = agree). Client view: /live.';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');
