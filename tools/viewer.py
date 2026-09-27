@@ -528,7 +528,7 @@ PAGE = r"""<!doctype html>
   <div class="panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap">The recurrent network that moves the gaze (fishbowl/controller.py): 25 inputs (senses, body, sleep, the day's light, the perception tree's output) &rarr; 16 recurrent units &rarr; pan / tilt / zoom / alarm / tempo / sleep, plus any <b>channels</b> it has grown: an extra output wired back in as an input -- a <em>loop</em> (duplicated from an existing output, a working memory or a signal to itself) or a <em>predictor</em> (it guesses one of its inputs and gets back how wrong it was). A newborn channel changes nothing; its loop costs energy only once evolution wires it up. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
+    <div class="cap">The recurrent network that moves the gaze (fishbowl/controller.py): 28 inputs (senses, body, sleep, the day's light, the perception tree's output, its prey sense) &rarr; a recurrent hidden layer of <b id="brain-units">--</b> units (it grows by duplicating a unit, born unconnected, and shrinks; each unit costs energy for its arithmetic) &rarr; pan / tilt / zoom / alarm / tempo / sleep, plus any <b>channels</b> it has grown: an extra output wired back in as an input -- a <em>loop</em> (duplicated from an existing output, a working memory or a signal to itself) or a <em>predictor</em> (it guesses one of its inputs and gets back how wrong it was). A newborn channel changes nothing; its loop costs energy only once evolution wires it up. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
@@ -842,6 +842,7 @@ PAGE = r"""<!doctype html>
   // The whole recurrent brain.
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
+    if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
     const c = $('brain'), W = Math.max(200, fitWidth($('brain').closest('.panel'), quadAspect()));
     // Same shape as the other three; a narrow phone screen gets extra height
     // so its 19 input labels stay legible.
