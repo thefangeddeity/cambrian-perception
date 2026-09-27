@@ -467,7 +467,7 @@ PAGE = r"""<!doctype html>
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
-  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } }
+  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #brain-panel { order: 2; } }
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
@@ -531,7 +531,7 @@ PAGE = r"""<!doctype html>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
-  <div class="panel">
+  <div class="panel" id="brain-panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
     <div class="cap">The recurrent network that moves the gaze (fishbowl/controller.py): 28 inputs (senses, body, sleep, the day's light, the perception tree's output, its prey sense) &rarr; a recurrent hidden layer of <b id="brain-units">--</b> units, with <b id="brain-layers">--</b> stacked on top (a mutation stacks a silent copy of its top layer; a mutation that opens its gate switches it on, and only then does it cost anything) (it grows by duplicating a unit, born unconnected, and shrinks; each unit costs energy for its arithmetic) &rarr; pan / tilt / zoom / alarm / tempo / sleep, plus any <b>channels</b> it has grown: an extra output wired back in as an input -- a <em>loop</em> (duplicated from an existing output, a working memory or a signal to itself) or a <em>predictor</em> (it guesses one of its inputs and gets back how wrong it was). A newborn channel changes nothing; its loop costs energy only once evolution wires it up. Its memory units also feed the perception tree (below). Lines are the evolved weights of the current accepted genome (<b style="color:var(--cyan)">cyan</b> excitatory, <b style="color:var(--orange)">orange</b> inhibitory, brighter = stronger). Unit fill = its activity at the end of the latest run. Right: the recurrent weights (unit &rarr; unit), which carry its memory from frame to frame.</div>
