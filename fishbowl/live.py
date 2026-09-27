@@ -89,6 +89,17 @@ class LiveActor:
         self.meal_count = 0
         self._on_start, self._on_end = [], []
 
+    def adopt(self, champion: dict) -> None:
+        """A newer champion from cambrian-perception: its genome takes over
+        this body -- the body, its surprise memory and its feeding record go on
+        (a brain transplant, not a new animal)."""
+        self.genome = G.Genome.from_dict(champion["genome"])
+        self.champion_bouts = (champion.get("bouts") or {}).get("meal", {}).get("fit")
+        if self.org is not None:
+            old = self.org
+            self.org = Organism(self.genome, body=old.body.to_dict(), memory=(old.memory, old.variance),
+                                fps=old.fps, colour=self.colour, prey=True)
+
     # ---- actions on meals (the snapshot-ready hook) ---------------------------
     def on_meal_start(self, action) -> None:
         """action(state, frame) when a meal starts (e.g. take a picture, start recording)."""
