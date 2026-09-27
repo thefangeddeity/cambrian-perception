@@ -107,7 +107,7 @@ def _check_live_url(url: str) -> tuple[bool, str | None]:
         return False, "only https youtube.com / youtu.be links are accepted"
     if not _URL_CHECK.acquire(blocking=False):
         return False, "another check is already running -- try again in a moment"
-    yt_dlp = Path(sys.executable).parent / "yt-dlp"
+    yt_dlp = Path(sys.executable).parent / ("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
     if not yt_dlp.exists():
         yt_dlp = Path("yt-dlp")
     try:
@@ -1196,7 +1196,7 @@ class Handler(BaseHTTPRequestHandler):
             selected_name, selected_url, until = None, None, None
             if SELECTED_SOURCE_PATH.exists():
                 try:
-                    data = json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8"))
+                    data = json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8-sig"))
                     selected_name, selected_url, until = data.get("name"), data.get("url"), data.get("until")
                 except (OSError, json.JSONDecodeError):
                     pass
@@ -1273,13 +1273,17 @@ class Handler(BaseHTTPRequestHandler):
             # exactly what caused the real "still watching the
             # kittens" confusion. Confirmed passwordless sudo for
             # this exact command before wiring it in.
-            try:
-                subprocess.run(
-                    ["systemctl", "restart", "--no-ask-password", "cambrian-perception.service"],
-                    capture_output=True, text=True, timeout=15,
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                pass  # selection is still saved even if the restart trigger itself failed
+            # Elsewhere (Windows, macOS: tools/cambrian_service.py) there is
+            # nothing to call: the organism checks the choice every
+            # generation and restarts itself onto it.
+            if sys.platform.startswith("linux"):
+                try:
+                    subprocess.run(
+                        ["systemctl", "restart", "--no-ask-password", "cambrian-perception.service"],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass  # selection is still saved even if the restart trigger itself failed
         # Every switch attempt is logged (journal): a refused one used to leave
         # no trace but a line of small print on the page.
         print(f"select: {'switched to' if ok else 'refused'} {name or url or '(nothing)'}"

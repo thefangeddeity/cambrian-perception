@@ -27,7 +27,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL", "/srv/cambrian/models/yolov8n.onnx"))
+# The model: CAMBRIAN_PREY_MODEL if set; else models/yolov8n.onnx next to the
+# code (the packaged layout, every platform); else the first Linux hosts'
+# /srv/cambrian/models.
+_LOCAL_MODEL = Path(__file__).resolve().parents[1] / "models" / "yolov8n.onnx"
+DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL")
+                     or (_LOCAL_MODEL if _LOCAL_MODEL.exists() else "/srv/cambrian/models/yolov8n.onnx"))
 
 # COCO classes that are living things: prey.
 PREY_CLASSES = {0: "person", 14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep",

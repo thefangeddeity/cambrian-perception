@@ -383,7 +383,7 @@ def _resolve_live_url(watch_url: str) -> str:
     without activating the venv, so plain "yt-dlp" would not resolve
     under systemd even though it works fine from an interactive shell.
     """
-    yt_dlp = Path(sys.executable).parent / "yt-dlp"
+    yt_dlp = Path(sys.executable).parent / ("yt-dlp.exe" if os.name == "nt" else "yt-dlp")
     if not yt_dlp.exists():
         yt_dlp = Path("yt-dlp")  # fall back to PATH (e.g. local dev run)
     # Video-only, preferring H.264 (avc1) -- YouTube serves both AV1 (av01)
@@ -736,7 +736,9 @@ class _Workers:
         # One thread each: the workers already use every core they are given.
         for var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
             os.environ.setdefault(var, "1")
-        self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=n, mp_context=multiprocessing.get_context("forkserver"))
+        # forkserver where the platform has it (Linux, macOS); spawn on Windows.
+        method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+        self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=n, mp_context=multiprocessing.get_context(method))
         self.world, self.meta, self.shm = None, None, []
 
     def publish(self, world: "World") -> bool:
@@ -1106,7 +1108,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         return True
     signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__("now", True))
 
+    sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)  # a stale request must not stop a new run
     while box.should_continue() and not stop["now"]:
+        if sandbox.STOP_REQUEST_PATH.exists():  # a deliberate stop (docs/packaging.md)
+            print("Stop requested -- saving and exiting.")
+            sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
+            break
         # Dessert over (deadline passed, or cleared in the viewer): stop
         # this run so systemd brings it back on its home camera.
         # A chosen video (live or recorded) that has ended: back to its camera.

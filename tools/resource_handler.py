@@ -65,6 +65,10 @@ REQUESTS_PATH = STATE_DIR / "requests.json"
 HANDLER_STATE_PATH = STATE_DIR / "handler_state.json"
 
 SERVICE_NAME = "cambrian-perception.service"
+# Windows (docs/packaging.md): no systemd; tools/cambrian_service.py applies
+# the quota recorded in handler_state.json as a Job Object hard CPU cap, and
+# the measurements come from the Win32 API instead of /proc.
+WINDOWS = os.name == "nt"
 
 MIN_QUOTA_PCT = 50    # hard floor -- never starve it completely
 # Hard ceiling: every core but one, regardless of any signal below -- the
@@ -107,6 +111,8 @@ _DURATION_SUFFIXES = {"us": 1e-6, "ms": 1e-3, "s": 1.0, "min": 60.0}
 
 
 def _current_quota_pct() -> int:
+    if WINDOWS:
+        return int(_read_json(HANDLER_STATE_PATH, {}).get("last_quota_pct", 150))
     result = subprocess.run(
         ["systemctl", "show", SERVICE_NAME, "-p", "CPUQuotaPerSecUSec", "--value"],
         capture_output=True, text=True,
@@ -130,6 +136,8 @@ def _current_quota_pct() -> int:
 
 
 def _set_quota_pct(pct: int) -> None:
+    if WINDOWS:
+        return  # recorded in handler_state.json; the supervisor applies it
     # sudo, not a root-owned service -- this script runs as the same
     # unprivileged user as everything else here, using the same
     # already-verified passwordless sudo rule the initial deployment
@@ -194,6 +202,11 @@ def _idle_cores(current_pct: int) -> float:
     tasks waiting on I/O -- a USB camera keeps it high on idle cores). The
     organism's own use is busy time, so this is what nobody is using."""
     def sample():
+        if WINDOWS:  # GetSystemTimes: idle, kernel (which includes idle), user
+            import ctypes
+            idle, kernel, user = (ctypes.c_uint64() for _ in range(3))
+            ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user))
+            return idle.value, kernel.value + user.value
         fields = [int(x) for x in Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()[1:]]
         return fields[3] + fields[4], sum(fields)  # idle + iowait, total
     try:
@@ -207,12 +220,26 @@ def _idle_cores(current_pct: int) -> float:
 
 
 def _load_average_strain() -> bool:
+    if WINDOWS:
+        return False  # no load average; the idle-core measure carries this
     load1, _, _ = os.getloadavg()
     nproc = os.cpu_count() or 1
     return (load1 / nproc) > LOAD_STRAIN_PER_CORE
 
 
 def _free_memory_strain() -> bool:
+    if WINDOWS:
+        import ctypes
+
+        class _Mem(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_uint32), ("dwMemoryLoad", ctypes.c_uint32)] + \
+                       [(n, ctypes.c_uint64) for n in ("total", "avail", "totalPage", "availPage",
+                                                       "totalVirtual", "availVirtual", "availExtended")]
+        m = _Mem()
+        m.dwLength = ctypes.sizeof(m)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            return False
+        return (m.avail / 1024 / 1024) < FREE_MEM_STRAIN_MB
     try:
         meminfo = Path("/proc/meminfo").read_text(encoding="utf-8")
     except OSError:

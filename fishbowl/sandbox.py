@@ -24,6 +24,10 @@ MAX_LOG_LINES = 20000
 EVOLUTION_LOG_PREV_PATH = STATE_DIR / "evolution_log.1.jsonl"
 REQUESTS_PATH = STATE_DIR / "requests.json"
 CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
+# A deliberate stop, portably (docs/packaging.md): the run finishes the
+# generation it is on, saves its checkpoint and exits -- the file form of
+# systemd's SIGTERM, for supervisors that can't signal (Task Scheduler).
+STOP_REQUEST_PATH = STATE_DIR / "stop.request"
 # live_status.json is throwaway (rewritten constantly, only for the viewer):
 # kept in RAM (/dev/shm) where available, so it costs no SSD writes (audit:
 # ~25 GB/day when it was written to disk every generation).
