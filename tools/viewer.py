@@ -467,7 +467,7 @@ PAGE = r"""<!doctype html>
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
-  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #brain-panel { order: 2; } }
+  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #field-panel { order: 2; } #brain-panel { order: 3; } }
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
