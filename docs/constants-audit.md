@@ -22,8 +22,7 @@ yardsticks are found.
 | `RECEPTOR_COST` (organism) | 21% of resting burn for a newborn eye | 8% | S: blowfly photoreceptors' share of resting metabolic rate (Laughlin, de Ruyter van Steveninck & Anderson 1998) |
 | `THINK_COST` (organism) | 36% of resting burn for a newborn brain | 5% | S: the CNS takes 2-8% of body metabolism across vertebrates, ~20% in humans (Mink, Blumenschine & Adams 1981); midpoint |
 | `CONE_COST` (organism) | old colour price / 144 | = `RECEPTOR_COST` per channel | P: a colour channel is one more signal per cone, priced like a receptor's signal |
-| CPU price (run_vision) | granted quota only; every core assumed equally fast | quota x measured speed (`hostspeed.py`) | M: the host's best measured multiply-add time, i.e. its hardware speed; contention stays the quota's job (panel vote 6-2-1) |
-| brain deadline (organism) | none | a brain slower than its next look misses it | M: multiply-adds x measured time vs the look's interval |
+| brain deadline (organism) | none | a brain slower than its next look misses it | M: multiply-adds x this host's measured time per multiply-add (`hostspeed.py`, the best of its run) vs the look's interval. Speed is time, not price: the energy price stays the granted CPU share (a panel vote to price by speed, 6-2-1, was reversed after it starved the slow laptop -- a snail's neurons aren't dearer than a fly's, its world is slower; Healy et al. 2013) |
 | drive reduction (run_vision) | x 1200 s / window length | the window's own drive change | Removed an extrapolation that blew seconds of noise up into the largest fitness term |
 | `S_RISE_S`, `S_FALL_S` (state) | 14 h, 3 h | 18.2 h, 4.2 h | S: two-process model fit (Daan, Beersma & Borbely 1984) |
 | meal / snack grouping (viewer) | 1 s gap, snack > 0.05 | bout criterion from its own gaps | M: `bouts.py` (Sibly, Nott & Fletcher 1990), item D |

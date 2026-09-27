@@ -1005,12 +1005,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # Real current CPU quota (resource_handler.py's own record), prices
     # the look's size -- refreshed periodically below, never inferred.
     quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
-    # Prices are paid in reference-host cores: the granted share x this host's
-    # hardware speed (fishbowl/hostspeed.py: its best measured rate), re-checked with the quota.
-    host_rate = hostspeed.host_sec_per_mac(sandbox.STATE_DIR / "host_speed.json")
-    price_quota = quota_pct * hostspeed.speed_factor(host_rate)
-    print(f"Host speed: {host_rate:.2e} s per multiply-add ({hostspeed.speed_factor(host_rate):.2f}x the reference host); "
-          f"quota {quota_pct:.0f}% = {price_quota:.0f}% in reference cores.")
+    # Energy is priced by the CPU share granted (capacity). The host's speed is
+    # TIME, not price (a snail's neurons aren't dearer, its world is slower --
+    # Healy et al. 2013): its brain's deadline (organism.py) uses this host's
+    # time per multiply-add, the best measured this run (fishbowl/hostspeed.py).
+    price_quota = quota_pct
+    host_rate = hostspeed.sec_per_mac()
+    print(f"Host speed: {host_rate:.2e} s per multiply-add ({hostspeed.speed_factor(host_rate):.2f}x the reference host).")
     # Its body persists across generations (and restarts): every window
     # starts from how it actually is now, and afterwards the lasting body
     # moves toward the survivor's end-of-window body in proportion to the
@@ -1117,8 +1118,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         gen_seconds, gen_started = time.time() - gen_started, time.time()
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
-            host_rate = hostspeed.host_sec_per_mac(sandbox.STATE_DIR / "host_speed.json")
-            price_quota = quota_pct * hostspeed.speed_factor(host_rate)
+            price_quota = quota_pct
+            host_rate = min(host_rate, hostspeed.sec_per_mac())  # contention can only slow a reading
         n_children = _n_children(quota_pct)
         children = []
         for _ in range(n_children):
@@ -1322,7 +1323,6 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "receptors": genome.receptors,
             "cones": genome.cones,
             "quota_pct": quota_pct,
-            "price_quota_pct": round(price_quota, 1),
             "host_speed": round(hostspeed.speed_factor(host_rate), 3),
             "pace": genome.pace,
             "tree_stats": {
