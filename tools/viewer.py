@@ -840,7 +840,28 @@ PAGE = r"""<!doctype html>
       ctx.strokeStyle = 'rgba(255, 190, 90, 0.8)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
       ctx.strokeRect(lx + c0 * lw / N, ly + c0 * lh / N, C * lw / N, C * lh / N); ctx.setLineDash([]);
     }
-    ctx.strokeStyle = shut ? '#a8c' : '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
+    // Eating, in the other panels' prey pink: its eating zone -- the central
+    // half of the gaze, where prey is a meal -- glows as much as it eats and
+    // pulses while it chews; each new bite sends a ring out from it (the
+    // target lock's snap, here). Drawn only with the replay's own frames.
+    const eat = cells && !shut ? R.eat : 0;
+    if (eat > 0.01 && !LOOK.eating) LOOK.biteT = now;
+    LOOK.eating = eat > 0.01;
+    if (LOOK.eating) {
+      const zw = lw / 2, zh = lh / 2, zx = cx - zw / 2, zy = cy - zh / 2;
+      const pulse = 0.5 + 0.5 * Math.sin(now / 110);
+      ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fillRect(zx, zy, zw, zh);
+      ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(zx, zy, zw, zh);
+      ctx.fillStyle = 'rgba(255, 95, 162, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+      ctx.fillText(`EATING ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+    const biteAge = now - (LOOK.biteT ?? -1e9);
+    if (biteAge < 400) {
+      const k = biteAge / 400, e = 1 - Math.pow(1 - k, 3), grow = 0.5 + 0.9 * e;
+      ctx.strokeStyle = `rgba(255, 95, 162, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
+      ctx.strokeRect(cx - lw * grow / 2, cy - lh * grow / 2, lw * grow, lh * grow);
+    }
+    ctx.strokeStyle = shut ? '#a8c' : LOOK.eating ? '#ff5fa2' : '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
     ctx.fillText(shut ? 'asleep -- the gaze sees nothing' : cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
     $('look-px').textContent = `${N}x${N} receptors (the central ${C}x${C} cones, the rest rods), ${cw}x${ch} real pixels`;
