@@ -22,7 +22,7 @@ yardsticks are found.
 | `RECEPTOR_COST` (organism) | 21% of resting burn for a newborn eye | 8% | S: blowfly photoreceptors' share of resting metabolic rate (Laughlin, de Ruyter van Steveninck & Anderson 1998) |
 | `THINK_COST` (organism) | 36% of resting burn for a newborn brain | 5% | S: the CNS takes 2-8% of body metabolism across vertebrates, ~20% in humans (Mink, Blumenschine & Adams 1981); midpoint |
 | `CONE_COST` (organism) | old colour price / 144 | = `RECEPTOR_COST` per channel | P: a colour channel is one more signal per cone, priced like a receptor's signal |
-| CPU price (run_vision) | granted quota only; every core assumed equally fast | quota x measured speed (`hostspeed.py`) | M: per-host multiply-add time, re-measured with the quota (panel vote 6-2-1) |
+| CPU price (run_vision) | granted quota only; every core assumed equally fast | quota x measured speed (`hostspeed.py`) | M: the host's best measured multiply-add time, i.e. its hardware speed; contention stays the quota's job (panel vote 6-2-1) |
 | brain deadline (organism) | none | a brain slower than its next look misses it | M: multiply-adds x measured time vs the look's interval |
 | drive reduction (run_vision) | x 1200 s / window length | the window's own drive change | Removed an extrapolation that blew seconds of noise up into the largest fitness term |
 | `S_RISE_S`, `S_FALL_S` (state) | 14 h, 3 h | 18.2 h, 4.2 h | S: two-process model fit (Daan, Beersma & Borbely 1984) |

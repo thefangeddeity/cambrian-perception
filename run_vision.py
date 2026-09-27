@@ -1006,8 +1006,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # the look's size -- refreshed periodically below, never inferred.
     quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
     # Prices are paid in reference-host cores: the granted share x this host's
-    # measured arithmetic speed (fishbowl/hostspeed.py), re-measured with the quota.
-    host_rate = hostspeed.sec_per_mac()
+    # hardware speed (fishbowl/hostspeed.py: its best measured rate), re-checked with the quota.
+    host_rate = hostspeed.host_sec_per_mac(sandbox.STATE_DIR / "host_speed.json")
     price_quota = quota_pct * hostspeed.speed_factor(host_rate)
     print(f"Host speed: {host_rate:.2e} s per multiply-add ({hostspeed.speed_factor(host_rate):.2f}x the reference host); "
           f"quota {quota_pct:.0f}% = {price_quota:.0f}% in reference cores.")
@@ -1117,7 +1117,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         gen_seconds, gen_started = time.time() - gen_started, time.time()
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
-            host_rate = hostspeed.sec_per_mac()
+            host_rate = hostspeed.host_sec_per_mac(sandbox.STATE_DIR / "host_speed.json")
             price_quota = quota_pct * hostspeed.speed_factor(host_rate)
         n_children = _n_children(quota_pct)
         children = []
