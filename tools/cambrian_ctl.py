@@ -46,8 +46,8 @@ def start() -> int:
         return status()
     if WINDOWS:
         _ps(f"Start-ScheduledTask -TaskName '{TASK}'")
-    else:
-        subprocess.run(["launchctl", "kickstart", f"gui/{os.getuid()}/org.cambrian.perception"])
+    else:  # macOS: the boot LaunchDaemon (deploy/macos/install.sh); a clean stop keeps it down
+        subprocess.run(["sudo", "launchctl", "kickstart", "system/org.cambrian.perception"])
     for _ in range(30):
         if _service_pid():
             break
@@ -78,6 +78,9 @@ def status() -> int:
         t = _ps(f"$t = Get-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue; "
                 "if ($t) { \"$($t.State), at boot as $($t.Principal.UserId)\" } else { 'none' }")
         print(f"boot task : {t}")
+    elif sys.platform == "darwin":
+        loaded = subprocess.run(["launchctl", "print", "system/org.cambrian.perception"], capture_output=True).returncode == 0
+        print(f"boot job  : {'LaunchDaemon org.cambrian.perception' if loaded else 'none loaded'}")
     try:
         cfg = json.loads((ROOT / "cambrian.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):

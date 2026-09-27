@@ -69,6 +69,10 @@ SERVICE_NAME = "cambrian-perception.service"
 # the quota recorded in handler_state.json as a Job Object hard CPU cap, and
 # the measurements come from the Win32 API instead of /proc.
 WINDOWS = os.name == "nt"
+MACOS = sys.platform == "darwin"
+# Only Linux has systemd's quota; elsewhere the supervisor applies what this
+# records (a Job Object hard cap on Windows; priority only on macOS).
+SYSTEMD = sys.platform.startswith("linux")
 
 MIN_QUOTA_PCT = 50    # hard floor -- never starve it completely
 # Hard ceiling: every core but one, regardless of any signal below -- the
@@ -111,7 +115,7 @@ _DURATION_SUFFIXES = {"us": 1e-6, "ms": 1e-3, "s": 1.0, "min": 60.0}
 
 
 def _current_quota_pct() -> int:
-    if WINDOWS:
+    if not SYSTEMD:
         return int(_read_json(HANDLER_STATE_PATH, {}).get("last_quota_pct", 150))
     result = subprocess.run(
         ["systemctl", "show", SERVICE_NAME, "-p", "CPUQuotaPerSecUSec", "--value"],
@@ -136,7 +140,7 @@ def _current_quota_pct() -> int:
 
 
 def _set_quota_pct(pct: int) -> None:
-    if WINDOWS:
+    if not SYSTEMD:
         return  # recorded in handler_state.json; the supervisor applies it
     # sudo, not a root-owned service -- this script runs as the same
     # unprivileged user as everything else here, using the same
@@ -201,6 +205,14 @@ def _idle_cores(current_pct: int) -> float:
     from /proc/stat over a second (not the load average, which also counts
     tasks waiting on I/O -- a USB camera keeps it high on idle cores). The
     organism's own use is busy time, so this is what nobody is using."""
+    if MACOS:  # top's second sample: "CPU usage: 4.1% user, 3.2% sys, 92.7% idle"
+        try:
+            out = subprocess.run(["top", "-l", "2", "-n", "0", "-s", "1"], capture_output=True, text=True).stdout
+            idle_pct = float([l for l in out.splitlines() if l.startswith("CPU usage")][-1].split(",")[2].split("%")[0])
+        except (OSError, ValueError, IndexError):
+            return 0.0
+        return idle_pct / 100.0 * (os.cpu_count() or 1) - 1.0
+
     def sample():
         if WINDOWS:  # GetSystemTimes: idle, kernel (which includes idle), user
             import ctypes
@@ -228,6 +240,14 @@ def _load_average_strain() -> bool:
 
 
 def _free_memory_strain() -> bool:
+    if MACOS:  # free + inactive pages (vm_stat), the memory macOS can hand out
+        try:
+            out = subprocess.run(["vm_stat"], capture_output=True, text=True).stdout
+            page = int(out.split("page size of ")[1].split()[0])
+            pages = {l.split(":")[0].strip(): int(l.split(":")[1].strip().rstrip(".")) for l in out.splitlines()[1:] if ":" in l}
+            return (pages.get("Pages free", 0) + pages.get("Pages inactive", 0)) * page / 1024 / 1024 < FREE_MEM_STRAIN_MB
+        except (OSError, ValueError, IndexError):
+            return False
     if WINDOWS:
         import ctypes
 

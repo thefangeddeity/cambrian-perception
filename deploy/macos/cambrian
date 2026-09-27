@@ -1,0 +1,4 @@
+#!/bin/sh
+# cambrian --start | --stop | --restart | --status  (see tools/cambrian_ctl.py)
+DIR="$HOME/Library/Application Support/cambrian-perception"
+exec "$DIR/.venv/bin/python" "$DIR/tools/cambrian_ctl.py" "$@"

@@ -136,10 +136,11 @@ def start(args: list[str], logname: str, budget: bool = False) -> subprocess.Pop
     kw = {"cwd": ROOT, "stdin": subprocess.DEVNULL, "stdout": log_file(logname), "stderr": subprocess.STDOUT}
     if WINDOWS:
         kw["creationflags"] = NO_WINDOW | (BELOW_NORMAL if budget else 0)
-    else:
-        kw["start_new_session"] = True
-        if budget:
-            kw["preexec_fn"] = lambda: os.nice(10)
+    elif budget:
+        # macOS: children stay in this process group, so launchd ends them all
+        # when it stops this job; the organism runs at low priority (macOS has
+        # no hard CPU cap for a process -- its budget sets prices and workers).
+        kw["preexec_fn"] = lambda: os.nice(10)
     p = subprocess.Popen(args, **kw)
     if WINDOWS and budget:
         _assign(BUDGET, p.pid)
