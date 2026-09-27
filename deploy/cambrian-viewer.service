@@ -1,6 +1,7 @@
 [Unit]
 Description=cambrian-perception -- small live viewer
 After=network.target
+PartOf=cambrian.target
 
 [Service]
 Type=simple
@@ -14,4 +15,4 @@ RestartSec=5
 # file) -- no quota needed, unlike the evolution service itself.
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=cambrian.target

@@ -1,6 +1,7 @@
 [Unit]
 Description=cambrian-perception -- evolutionary vision organism
 After=network.target
+PartOf=cambrian.target
 
 [Service]
 Type=simple
@@ -26,4 +27,4 @@ Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=cambrian.target

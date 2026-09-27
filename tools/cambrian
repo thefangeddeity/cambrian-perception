@@ -1,0 +1,48 @@
+#!/bin/sh
+# cambrian -- start, stop, restart or check the whole organism: the evolution
+# loop, its viewer and its resource handler (systemd's cambrian.target).
+#
+#   cambrian --start     start everything
+#   cambrian --stop      stop everything (the organism saves its checkpoint first)
+#   cambrian --restart   restart everything
+#   cambrian --status    what is running, and how the organism is doing
+#
+# Installed by deploy/install.sh as /usr/local/bin/cambrian (a link to this file,
+# so it stays current with the repo). Starting and stopping need root: it asks
+# sudo when not run as root. --status needs nothing.
+
+RUNTIME=${CAMBRIAN_RUNTIME_DIR:-/dev/shm/cambrian-perception}
+UNITS="cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer"
+
+as_root() {
+    if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
+status() {
+    printf 'target    %s\n' "$(systemctl is-active cambrian.target 2>/dev/null)"
+    for u in $UNITS; do
+        printf '%-9s %s\n' "$(echo "$u" | sed 's/cambrian-//; s/\..*//; s/resource-handler/handler/')" \
+            "$(systemctl is-active "$u" 2>/dev/null)"
+    done
+    python3 - "$RUNTIME/live_status.json" <<'EOF'
+import json, sys, socket
+try:
+    d = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    print("organism  no live status yet")
+    sys.exit()
+b = d.get("body") or {}
+print(f"organism  generation {d.get('generation', '?'):,}, eye {d.get('receptors', '?')}x{d.get('receptors', '?')}, "
+      f"energy {b.get('energy', 0):.2f}, {'asleep' if (b.get('asleep') or 0) >= 0.5 else 'awake'}")
+print(f"watching  {d.get('clip_name', '?')}")
+print(f"viewer    http://{socket.gethostname()}:8090/")
+EOF
+}
+
+case "$1" in
+    --start|start)     as_root systemctl start cambrian.target && status ;;
+    --stop|stop)       as_root systemctl stop cambrian.target && echo "stopped (checkpoint saved)" ;;
+    --restart|restart) as_root systemctl restart cambrian.target && status ;;
+    --status|status|"") status ;;
+    *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

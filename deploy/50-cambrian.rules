@@ -1,0 +1,11 @@
+// The unprivileged "cambrian" account (runs the organism and its viewer)
+// may restart/start/stop its own evolution service -- and nothing else.
+// (The viewer restarts it when the video it watches changes.)
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "cambrian" &&
+        action.lookup("unit") == "cambrian-perception.service" &&
+        ["restart", "start", "stop"].indexOf(action.lookup("verb")) >= 0) {
+        return polkit.Result.YES;
+    }
+});

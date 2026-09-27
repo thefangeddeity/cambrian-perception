@@ -1,0 +1,10 @@
+[Unit]
+Description=cambrian-perception -- the organism, its viewer and its resource handler, together
+# One switch for all of it (tools/cambrian: --start / --stop / --restart / --status).
+# Each member is PartOf this target: stopping or restarting the target stops or
+# restarts them all, while a member restarting on its own (the organism, on a
+# video switch) leaves the others running.
+Wants=cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer
+
+[Install]
+WantedBy=multi-user.target
