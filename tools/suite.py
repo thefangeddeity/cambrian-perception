@@ -5,8 +5,8 @@ stops the other; the one that was stopped stays off -- across reboots --
 until it is started again. Each side only ever calls the other's own
 public command, never its internals:
 
-  the livecam's         Windows: camdash --yield cambrian | --start
-                        macOS:   livecam yield cambrian   | start
+  the livecam's         Windows: camdash --yield organism | --start
+                        macOS:   livecam yield organism   | start
                         Linux:   systemd (hls-livecam.target Conflicts=
                                  cambrian.target; see tools/cambrian)
 
@@ -59,14 +59,23 @@ def livecam_running() -> bool:
     return False
 
 
-def yield_livecam() -> None:
-    """Make the livecam stop and stay off (it records that the organism has the camera)."""
+def yield_livecam() -> bool:
+    """Make the livecam stop and stay off (it records that the organism has the
+    camera). False if it could not be asked."""
     cmd = livecam_command()
     if not cmd:
-        return
-    verb = ["--yield", "cambrian"] if WINDOWS else ["yield", "cambrian"]
-    print("the livecam is yielding the camera to the organism ...", flush=True)
-    subprocess.run(cmd + verb, creationflags=NO_WINDOW, timeout=120)
+        return True
+    verb = ["--yield", "organism"] if WINDOWS else ["yield", "organism"]
+    if livecam_running():
+        print("the livecam is yielding the camera to the organism ...", flush=True)
+    try:
+        subprocess.run(cmd + verb, creationflags=NO_WINDOW, timeout=120)
+        return True
+    except (OSError, subprocess.TimeoutExpired) as e:
+        # Windows: camdash runs elevated (its manifest), so only an elevated
+        # shell may start it (WinError 740 otherwise).
+        print(f"could not ask the livecam to yield ({e}) -- run this from an elevated terminal", flush=True)
+        return False
 
 
 def mark_yielded(to: str) -> None:

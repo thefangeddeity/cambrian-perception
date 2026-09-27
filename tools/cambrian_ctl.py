@@ -50,8 +50,8 @@ def _service_pid() -> int | None:
 def start() -> int:
     # Taking the camera: the livecam yields first (the suite, docs/suite.md).
     suite.YIELDED.unlink(missing_ok=True)
-    if suite.livecam_running():
-        suite.yield_livecam()
+    if not suite.yield_livecam():
+        return 1  # never both on the camera
     if _service_pid():
         print("already running")
         return status()

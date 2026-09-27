@@ -21,7 +21,7 @@ product works alone; when only one is installed, the contract does nothing.
 | Organism's switch | `cambrian.target` | task `cambrian-perception` | login agent `org.cambrian.perception` |
 | Livecam's switch | `hls-livecam.target` | task `hls-livecam-win` | login agent `com.livecam.autostart` |
 | Start (takes the camera) | `cambrian --start` / `camdash --start` | `cambrian --start` / `camdash --start` | `cambrian --start` / `livecam start` |
-| Yield (stop, stay off) | `cambrian --yield` / `camdash --yield` | `cambrian --yield livecam` / `camdash --yield cambrian` | `cambrian --yield livecam` / `livecam yield cambrian` |
+| Yield (stop, stay off) | `cambrian --yield` / `camdash --yield` | `cambrian --yield livecam` / `camdash --yield organism` | `cambrian --yield livecam` / `livecam yield organism` |
 | Exclusion | systemd: the two targets `Conflicts=` each other | each start first calls the other's yield | the same |
 | Off at boot | the yielded target is disabled | the yielded side has a `yielded` record in its state, and its boot start exits cleanly | the same |
 

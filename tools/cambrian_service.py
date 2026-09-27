@@ -158,7 +158,7 @@ def main() -> int:
     import suite
     y = suite.yielded()
     if y:
-        log(f"service: not starting -- {suite.describe_yielded(y)}")
+        log(f"service: not starting, {suite.describe_yielded(y)}")
         return 0
     SERVICE_STOP.unlink(missing_ok=True)
     log(f"service: start (source {source}, viewer port {port}, python {py})")

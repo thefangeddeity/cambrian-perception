@@ -123,7 +123,7 @@ launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 mkdir -p "$HOME/Library/LaunchAgents"
 install -m 644 /tmp/$LABEL.plist "$PLIST"
 # Installing is starting: the livecam yields the camera first (docs/suite.md).
-(cd "$DIR/tools" && "$DIR/.venv/bin/python" -c 'import suite; suite.YIELDED.unlink(missing_ok=True); suite.livecam_running() and suite.yield_livecam()')
+(cd "$DIR/tools" && "$DIR/.venv/bin/python" -c 'import suite; suite.YIELDED.unlink(missing_ok=True); suite.yield_livecam()')
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 # 7. `cambrian` on the PATH.
