@@ -225,7 +225,7 @@ class FrameRing:
 
 def _is_live_source(source) -> bool:
     """A camera (device index or /dev/video*) or a network camera stream."""
-    return isinstance(source, int) or str(source).startswith(("/dev/video", "rtsp://", "rtsps://", "srt://"))
+    return isinstance(source, int) or str(source).startswith(("/dev/video", "/dev/v4l/", "rtsp://", "rtsps://", "srt://"))
 
 
 class LiveFeed:

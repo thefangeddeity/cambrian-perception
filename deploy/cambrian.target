@@ -5,6 +5,11 @@ Description=cambrian-perception -- the organism, its viewer and its resource han
 # restarts them all, while a member restarting on its own (the organism, on a
 # video switch) leaves the others running.
 Wants=cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer
+# The camera suite (docs/suite.md): the livecam and the organism never run
+# together -- starting either stops the other. The livecam's target declares
+# the same; either declaration alone is enough, and naming a unit that isn't
+# installed is harmless.
+Conflicts=hls-livecam.target
 
 [Install]
 WantedBy=multi-user.target

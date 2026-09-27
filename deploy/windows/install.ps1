@@ -4,13 +4,14 @@
 
     powershell -ExecutionPolicy Bypass -File deploy\windows\install.ps1 [-Checkpoint <path>] [-Source auto|0|rtsp://...]
 
-  Beside laptop-livecam (hls-livecam-win) it never clashes: it reads the
-  livecam's output (rtsp://127.0.0.1:8554/cam) instead of taking the camera,
-  uses port 8090 only, its own task, folders and Python venv.
-  Re-running it updates the code and keeps state\ (checkpoint, logs).
+  Beside laptop-livecam (hls-livecam-win) it never clashes: the two are a
+  camera suite and never run together (docs/suite.md). Installing is
+  starting: the organism takes the camera, and the livecam stops and stays
+  off until `camdash --start`. Port 8090 only, its own task, folders and
+  Python venv. Re-running it updates the code and keeps state\ (checkpoint, logs).
 #>
 param(
-    [string]$Source = "auto",
+    [string]$Source = "0",
     [string]$Checkpoint = "",
     [string]$Model = "",
     [string]$InstallDir = "C:\ProgramData\cambrian\cambrian-perception",
@@ -69,14 +70,8 @@ if ($Model) { Copy-Item $Model $modelDst -Force }
 elseif (-not (Test-Path $modelDst) -and (Test-Path $livecamModel)) { Copy-Item $livecamModel $modelDst -Force }
 if (-not (Test-Path $modelDst)) { Write-Warning "no YOLO model at $modelDst -- it runs without prey (snacks only) until one is added (-Model <yolov8n.onnx>)" }
 
-# 4. What it watches: laptop-livecam's output when that's here, else the camera.
-if ($Source -eq "auto") {
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    $livecam = $tcp.ConnectAsync("127.0.0.1", 8554).Wait(1500) -and $tcp.Connected
-    $tcp.Dispose()
-    $Source = if ($livecam) { "rtsp://127.0.0.1:8554/cam" } else { "0" }
-}
-Write-Host "  source: $Source$(if ($Source -like 'rtsp://127.0.0.1*') { ' (laptop-livecam output -- the camera stays with the livecam)' })"
+# 4. What it watches: the camera (it has it whenever it runs: the livecam is off).
+Write-Host "  source: $Source"
 @{ source = $Source; viewer_port = $ViewerPort } | ConvertTo-Json | Set-Content -Encoding utf8 "$InstallDir\cambrian.json"
 
 # 5. A lineage to continue, if given and none is here yet.
@@ -106,7 +101,6 @@ $bin = "$InstallDir\deploy\windows"
 $path = [Environment]::GetEnvironmentVariable("Path", "Machine")
 if (($path -split ";") -notcontains $bin) { [Environment]::SetEnvironmentVariable("Path", "$path;$bin", "Machine") }
 
-Start-ScheduledTask -TaskName $Task
-Start-Sleep 15
-& "$InstallDir\.venv\Scripts\python.exe" "$InstallDir\tools\cambrian_ctl.py" --status
-Write-Host "installed. Control it with: cambrian --start | --stop | --restart | --status (a new terminal picks up the PATH)"
+# 9. Start: it takes the camera (the livecam yields).
+& "$InstallDir\.venv\Scripts\python.exe" "$InstallDir\tools\cambrian_ctl.py" --start
+Write-Host "installed. Control it with: cambrian --start | --stop | --restart | --yield | --status (a new terminal picks up the PATH)"

@@ -8,7 +8,9 @@
 # `cambrian` command, and enables the target at boot. Host-specific settings
 # stay in drop-ins (e.g. cambrian-perception.service.d/10-camera-source.conf:
 # which camera, what priority) and are left alone. Running services keep
-# running; nothing is stopped.
+# running. Installing is starting: the organism takes the camera, and the
+# livecam, if installed, stops and stays off at boot (the camera suite,
+# docs/suite.md; `livecam`'s own start takes it back).
 set -eu
 REPO=/srv/cambrian/cambrian-perception
 cd "$REPO/deploy"
@@ -24,6 +26,6 @@ ln -sf "$REPO/tools/cambrian" /usr/local/bin/cambrian
 systemctl daemon-reload
 # Members are enabled under the target now, not directly at boot.
 systemctl disable -q cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer 2>/dev/null || true
-systemctl enable -q cambrian.target cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer
-systemctl start cambrian.target
-echo "installed: cambrian --start | --stop | --restart | --status"
+systemctl enable -q cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer
+"$REPO/tools/cambrian" --start
+echo "installed: cambrian --start | --stop | --restart | --yield | --status"

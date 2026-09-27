@@ -152,6 +152,14 @@ def main() -> int:
     cfg = settings()
     source = str(cfg.get("source", "0"))
     port = str(cfg.get("viewer_port", 8090))
+    # The livecam has the camera (it made this yield; docs/suite.md): stay off
+    # -- at boot too -- until `cambrian --start`. A clean exit, so neither
+    # Task Scheduler nor launchd starts it again.
+    import suite
+    y = suite.yielded()
+    if y:
+        log(f"service: not starting -- {suite.describe_yielded(y)}")
+        return 0
     SERVICE_STOP.unlink(missing_ok=True)
     log(f"service: start (source {source}, viewer port {port}, python {py})")
     env_extra = {"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}

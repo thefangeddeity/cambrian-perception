@@ -2,24 +2,50 @@
 # cambrian -- start, stop, restart or check the whole organism: the evolution
 # loop, its viewer and its resource handler (systemd's cambrian.target).
 #
-#   cambrian --start     start everything
+#   cambrian --start     take the camera and start everything: the livecam
+#                        stops and stays off at boot (docs/suite.md)
 #   cambrian --stop      stop everything (the organism saves its checkpoint first)
 #   cambrian --restart   restart everything
+#   cambrian --yield     stop, and stay off at boot until the next --start
+#                        (the livecam's start does the same through systemd)
 #   cambrian --status    what is running, and how the organism is doing
 #
 # Installed by deploy/install.sh as /usr/local/bin/cambrian (a link to this file,
 # so it stays current with the repo). Starting and stopping need root: it asks
 # sudo when not run as root. --status needs nothing.
+#
+# The camera suite: cambrian.target and the livecam's hls-livecam.target
+# conflict, so starting either stops the other; which one is enabled is which
+# one comes back after a reboot.
 
 RUNTIME=${CAMBRIAN_RUNTIME_DIR:-/dev/shm/cambrian-perception}
 UNITS="cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer"
+LIVECAM=hls-livecam.target
 
 as_root() {
     if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
+livecam_installed() { systemctl cat "$LIVECAM" >/dev/null 2>&1; }
+
+take_camera() {
+    if livecam_installed; then
+        systemctl is-active --quiet "$LIVECAM" && echo "the livecam is yielding the camera to the organism ..."
+        as_root systemctl disable --quiet "$LIVECAM"
+    fi
+    as_root systemctl enable --quiet cambrian.target
+    as_root systemctl start cambrian.target
+}
+
 status() {
-    printf 'target    %s\n' "$(systemctl is-active cambrian.target 2>/dev/null)"
+    target=$(systemctl is-active cambrian.target 2>/dev/null)
+    if [ "$target" != active ] && livecam_installed && systemctl is-active --quiet "$LIVECAM"; then
+        target="off -- the livecam has the camera; \`cambrian --start\` takes it back"
+    fi
+    printf 'target    %s\n' "$target"
+    if [ "$(systemctl is-active cambrian.target 2>/dev/null)" = active ] && livecam_installed; then
+        echo "livecam   off while the organism runs (starting the livecam stops the organism)"
+    fi
     for u in $UNITS; do
         printf '%-9s %s\n' "$(echo "$u" | sed 's/cambrian-//; s/\..*//; s/resource-handler/handler/')" \
             "$(systemctl is-active "$u" 2>/dev/null)"
@@ -40,9 +66,10 @@ EOF
 }
 
 case "$1" in
-    --start|start)     as_root systemctl start cambrian.target && status ;;
+    --start|start)     take_camera && status ;;
     --stop|stop)       as_root systemctl stop cambrian.target && echo "stopped (checkpoint saved)" ;;
     --restart|restart) as_root systemctl restart cambrian.target && status ;;
+    --yield|yield)     as_root systemctl disable --quiet --now cambrian.target && echo "stopped (checkpoint saved); off until \`cambrian --start\`" ;;
     --status|status|"") status ;;
-    *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

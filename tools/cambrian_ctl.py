@@ -3,9 +3,13 @@
 `cambrian` where systemd isn't (Windows now, macOS next; Linux has
 tools/cambrian over systemd). Same verbs everywhere:
 
-  cambrian --start     start the organism, its viewer and its budget
+  cambrian --start     take the camera (the livecam yields) and start the
+                       organism, its viewer and its budget
   cambrian --stop      stop them (the organism saves its checkpoint first)
   cambrian --restart   stop, then start
+  cambrian --yield [by]  stop and stay off, across reboots, until the next
+                       --start (what the livecam calls when it starts;
+                       docs/suite.md)
   cambrian --status    what runs, and how the organism is doing
 """
 
@@ -17,9 +21,12 @@ import sys
 import time
 from pathlib import Path
 
+import suite
+
 ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "state"
 TASK = "cambrian-perception"
+AGENT = "org.cambrian.perception"   # macOS: a login agent, in the GUI session (the camera needs it)
 WINDOWS = os.name == "nt"
 NO_WINDOW = 0x08000000 if WINDOWS else 0
 
@@ -41,13 +48,17 @@ def _service_pid() -> int | None:
 
 
 def start() -> int:
+    # Taking the camera: the livecam yields first (the suite, docs/suite.md).
+    suite.YIELDED.unlink(missing_ok=True)
+    if suite.livecam_running():
+        suite.yield_livecam()
     if _service_pid():
         print("already running")
         return status()
     if WINDOWS:
         _ps(f"Start-ScheduledTask -TaskName '{TASK}'")
-    else:  # macOS: the boot LaunchDaemon (deploy/macos/install.sh); a clean stop keeps it down
-        subprocess.run(["sudo", "launchctl", "kickstart", "system/org.cambrian.perception"])
+    else:  # macOS: the login agent (deploy/macos/install.sh); a clean stop keeps it down
+        subprocess.run(["launchctl", "kickstart", f"gui/{os.getuid()}/{AGENT}"])
     for _ in range(30):
         if _service_pid():
             break
@@ -71,16 +82,25 @@ def stop() -> int:
     return 1
 
 
+def yield_(by: str = "livecam") -> int:
+    """Stop and stay off until the next --start: the other product has the camera."""
+    suite.mark_yielded(by)
+    return stop()
+
+
 def status() -> int:
     pid = _service_pid()
-    print(f"service   : {'running (pid %d)' % pid if pid else 'NOT RUNNING'}")
+    y = suite.yielded()
+    print(f"service   : {'running (pid %d)' % pid if pid else suite.describe_yielded(y) if y else 'NOT RUNNING'}")
     if WINDOWS:
         t = _ps(f"$t = Get-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue; "
                 "if ($t) { \"$($t.State), at boot as $($t.Principal.UserId)\" } else { 'none' }")
         print(f"boot task : {t}")
     elif sys.platform == "darwin":
-        loaded = subprocess.run(["launchctl", "print", "system/org.cambrian.perception"], capture_output=True).returncode == 0
-        print(f"boot job  : {'LaunchDaemon org.cambrian.perception' if loaded else 'none loaded'}")
+        loaded = subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{AGENT}"], capture_output=True).returncode == 0
+        print(f"login job : {'LaunchAgent ' + AGENT if loaded else 'none loaded'}")
+    if pid and suite.livecam_command():
+        print("livecam   : off while the organism runs (starting the livecam stops the organism)")
     try:
         cfg = json.loads((ROOT / "cambrian.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
@@ -109,6 +129,8 @@ def main() -> int:
     if verb == "restart":
         stop()
         return start()
+    if verb == "yield":
+        return yield_(sys.argv[2] if len(sys.argv) > 2 else "livecam")
     return {"start": start, "stop": stop, "status": status}.get(verb, lambda: print(__doc__) or 2)()
 
 

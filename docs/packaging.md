@@ -8,13 +8,14 @@ supervisor, the CPU budget, where frames live, and the camera.
 
 ## What every package provides
 
-- **The organism**, running in the background from boot, with no window and
-  no login needed, at low priority, restarted after a crash. A deliberate stop
-  saves the checkpoint first.
+- **The organism**, running in the background with no window, at low
+  priority, restarted after a crash. It runs from boot on Linux and Windows,
+  and from login on macOS, where only the logged-in session may use the
+  camera. A deliberate stop saves the checkpoint first.
 - **Its viewer** on port **8090**.
 - **A resource budget**: a hard CPU cap that the resource handler moves as
   cores go idle or busy.
-- **One command**: `cambrian --start | --stop | --restart | --status`
+- **One command**: `cambrian --start | --stop | --restart | --yield | --status`
   (`--status` needs no privileges).
 - **The pinned libraries** (`requirements.lock`) in the organism's own venv,
   never the system's. The YOLO model is at `models/yolov8n.onnx` next to the
@@ -24,10 +25,13 @@ supervisor, the CPU budget, where frames live, and the camera.
 
 ## Living beside laptop-livecam (no clash, by construction)
 
+The two are a camera suite and never run together: starting either stops the
+other, and the stopped one stays off until it is started again (docs/suite.md).
+
 | Resource | laptop-livecam | cambrian-perception |
 |---|---|---|
 | Ports | 80, 8554, 8888, 8889, 8890, 1935, 8189 | 8090 |
-| **Camera** | owns it | when laptop-livecam is installed and running, reads its output, `rtsp://127.0.0.1:8554/cam` (as on tina); otherwise opens the camera itself. Decided at install and re-checked at each start. |
+| **Camera** | has it while it runs | has it while it runs (the livecam is off then) |
 | Service | hls-livecam's own (`broadcast-api`, `hls-livecam-win`) | `cambrian-perception` (target, task or agent) |
 | Python | the system's (Linux/macOS), or its CV sidecar's | its own venv |
 | Install and data | the livecam's paths | its own (below) |
@@ -38,12 +42,12 @@ supervisor, the CPU budget, where frames live, and the camera.
 |---|---|---|---|
 | Code | `/srv/cambrian/cambrian-perception` | `~/Library/Application Support/cambrian-perception` | `C:\ProgramData\cambrian\cambrian-perception` |
 | Runs as | system user `cambrian` | the installing user | the installing user (S4U: no stored password) |
-| Supervisor | systemd `cambrian.target` (organism, viewer, handler timer) | a boot LaunchDaemon (`org.cambrian.perception`, runs as the user) running `tools/cambrian_service.py` | a Task Scheduler boot task running `tools/cambrian_service.py` |
+| Supervisor | systemd `cambrian.target` (organism, viewer, handler timer) | a login LaunchAgent (`org.cambrian.perception`, in the user's GUI session: the camera needs it) running `tools/cambrian_service.py` | a Task Scheduler boot task running `tools/cambrian_service.py` |
 | CPU budget | cgroup `CPUQuota` | `taskpolicy` / nice (no hard cap in macOS) | Job Object CPU-rate hard cap |
 | Frames (RAM only) | `/dev/shm` | held in the organism's memory, served to the viewer on 127.0.0.1 (`video_source.FrameRing`) | the same as macOS: no RAM disk in Windows |
 | Idle measure | `/proc/stat` | `host_processor_info` (via `sysctl`/`top`) | `GetSystemTimes` |
 | Install | `.deb` / PKGBUILD running `deploy/install.sh` | `deploy/macos/install.sh` (Homebrew's Python 3.12+ and ffmpeg, else python.org's Python); a `.pkg` later | `deploy/windows/install.ps1` (an MSI later, like hls-livecam-win) |
-| Camera device | `/dev/video0` | index 0 (AVFoundation) | index 0 (Media Foundation) |
+| Camera device | `/dev/v4l/by-id/...` (stable across reboots) or `/dev/video0` | index 0 (AVFoundation) | index 0 (Media Foundation) |
 | Streams, web video | OpenCV's own FFmpeg | an `ffmpeg` process (the macOS OpenCV wheels have no FFmpeg; H.264 decodes bit-exact either way) | OpenCV's own FFmpeg |
 
 **Why a Python supervisor on Windows and macOS.** systemd restarts the

@@ -2,15 +2,18 @@
 # Installs (or updates) cambrian-perception on macOS as a background service
 # (docs/packaging.md). Run from the repo, as the user who will own it:
 #
-#   sh deploy/macos/install.sh [--checkpoint <path>] [--source auto|0|rtsp://...] [--model <yolov8n.onnx>]
+#   sh deploy/macos/install.sh [--checkpoint <path>] [--source 0|rtsp://...] [--model <yolov8n.onnx>]
 #
-# A LaunchDaemon starts it at boot (no login needed) as this user; a clean
-# stop keeps it down, a crash restarts it. Beside the Mac livecam it never
-# clashes: it reads the livecam's output (rtsp://127.0.0.1:8554/cam) instead
-# of taking the camera, uses port 8090 only, its own folder and Python venv.
+# A login agent runs it in this user's GUI session -- the only place macOS
+# lets a process use the camera (a background daemon's open just hangs) --
+# from login on, like the Mac livecam; a clean stop keeps it down, a crash
+# restarts it. Beside the livecam it never clashes: the two are a camera
+# suite and never run together (docs/suite.md). Installing is starting: the
+# organism takes the camera and the livecam stops, staying off until its own
+# `livecam start`. Port 8090 only, its own folder and Python venv.
 # Re-running it updates the code and keeps state/ (checkpoint, logs).
 set -eu
-SOURCE=auto CHECKPOINT="" MODEL=""
+SOURCE=0 CHECKPOINT="" MODEL=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --source) SOURCE=$2; shift 2 ;;
@@ -22,7 +25,8 @@ done
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 DIR="$HOME/Library/Application Support/cambrian-perception"
 LABEL=org.cambrian.perception
-PLIST=/Library/LaunchDaemons/$LABEL.plist
+PLIST=$HOME/Library/LaunchAgents/$LABEL.plist
+OLD_DAEMON=/Library/LaunchDaemons/$LABEL.plist
 echo "cambrian-perception: installing from $REPO to $DIR"
 sudo true  # ask for the password once, up front (not -v: it prompts even under NOPASSWD)
 
@@ -83,10 +87,7 @@ fi
 if [ -n "$MODEL" ]; then cp "$MODEL" "$DIR/models/yolov8n.onnx"; fi
 [ -f "$DIR/models/yolov8n.onnx" ] || echo "  WARNING: no model at $DIR/models/yolov8n.onnx -- no prey (snacks only) until one is added (--model)"
 
-# 4. What it watches: the Mac livecam's output when that's here, else the camera.
-if [ "$SOURCE" = auto ]; then
-    if nc -z -G 2 127.0.0.1 8554 2>/dev/null; then SOURCE="rtsp://127.0.0.1:8554/cam"; else SOURCE=0; fi
-fi
+# 4. What it watches: the camera (it has it whenever it runs: the livecam is off).
 echo "  source: $SOURCE"
 printf '{"source": "%s", "viewer_port": 8090}\n' "$SOURCE" > "$DIR/cambrian.json"
 
@@ -95,15 +96,14 @@ if [ -n "$CHECKPOINT" ] && [ ! -f "$DIR/state/checkpoint.json" ]; then
     cp "$CHECKPOINT" "$DIR/state/checkpoint.json"; echo "  seeded the organism from $CHECKPOINT"
 fi
 
-# 6. The boot job: the supervisor, as this user, at boot; restarted after a
-#    crash (KeepAlive unless it exits cleanly -- `cambrian --stop` stays stopped).
+# 6. The login job: the supervisor, in this user's GUI session; restarted after
+#    a crash (KeepAlive unless it exits cleanly -- `cambrian --stop` stays stopped).
 cat > /tmp/$LABEL.plist <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key><string>$LABEL</string>
-    <key>UserName</key><string>$(id -un)</string>
     <key>ProgramArguments</key>
     <array>
         <string>$DIR/.venv/bin/python</string>
@@ -117,9 +117,14 @@ cat > /tmp/$LABEL.plist <<EOF
 </dict>
 </plist>
 EOF
-sudo launchctl bootout system/$LABEL 2>/dev/null || true
-sudo install -m 644 -o root -g wheel /tmp/$LABEL.plist "$PLIST"
-sudo launchctl bootstrap system "$PLIST"
+# An earlier install's boot daemon (no camera from there) is retired.
+if [ -f "$OLD_DAEMON" ]; then sudo launchctl bootout system/$LABEL 2>/dev/null || true; sudo rm -f "$OLD_DAEMON"; fi
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+mkdir -p "$HOME/Library/LaunchAgents"
+install -m 644 /tmp/$LABEL.plist "$PLIST"
+# Installing is starting: the livecam yields the camera first (docs/suite.md).
+(cd "$DIR/tools" && "$DIR/.venv/bin/python" -c 'import suite; suite.YIELDED.unlink(missing_ok=True); suite.livecam_running() and suite.yield_livecam()')
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 # 7. `cambrian` on the PATH.
 sudo mkdir -p /usr/local/bin
@@ -127,4 +132,5 @@ sudo ln -sf "$DIR/deploy/macos/cambrian" /usr/local/bin/cambrian
 chmod +x "$DIR/deploy/macos/cambrian"
 sleep 15
 "$DIR/.venv/bin/python" "$DIR/tools/cambrian_ctl.py" --status || true
-echo "installed. Control it with: cambrian --start | --stop | --restart | --status"
+echo "installed. Control it with: cambrian --start | --stop | --restart | --yield | --status"
+echo "The first time it opens the camera, macOS asks on screen to allow it (Privacy & Security > Camera)."

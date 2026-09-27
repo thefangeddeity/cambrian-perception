@@ -56,6 +56,23 @@ FRAMES_DIR = LIVE_STATUS_PATH.with_name("frames")
 FRAMES_PORT_PATH = LIVE_STATUS_PATH.with_name("frames.json")
 
 
+def _livecam_installed() -> bool:
+    """The camera suite (docs/suite.md): is the livecam on this host too?
+    Then it is off whenever this page has anything to show."""
+    if sys.platform.startswith("linux"):
+        return any(Path(d, "hls-livecam.target").exists()
+                   for d in ("/etc/systemd/system", "/usr/lib/systemd/system", "/lib/systemd/system"))
+    try:
+        from tools import suite
+        return suite.livecam_command() is not None
+    except Exception:
+        return False
+
+
+SUITE_CHIP = ('<span class="chip" title="The camera suite: the livecam and the organism never run together -- '
+              'starting the livecam stops the organism">livecam <b>off while it runs</b></span>\n  ')
+
+
 def _frame_from_organism(e: str, i: str) -> bytes | None:
     from urllib.request import urlopen
     try:
@@ -1329,6 +1346,9 @@ def main() -> int:
     parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
 
+    global PAGE
+    if _livecam_installed():  # checked once, at start
+        PAGE = PAGE.replace('<span class="chip" id="h-stale">', SUITE_CHIP + '<span class="chip" id="h-stale">', 1)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Viewer running at http://{args.host}:{args.port}/ (polls {LIVE_STATUS_PATH})")
     try:
