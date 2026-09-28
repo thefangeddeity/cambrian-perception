@@ -138,6 +138,8 @@ class HourlyMetrics:
             "replay_rem": int(s["replay_rem"]), "replay_sequences": int(s["replay_sequences"]),
             "dreams": int(s["dreams"]),
             "nectar_sips": int(s["sips"]),
+            # what woke it (Gelman: does the mismatch catch the quiet arrivals?)
+            "woke_by": {k: int(s["woke_" + k]) for k in ("mismatch", "loom", "motion", "rested", "choice") if s["woke_" + k]},
             # its imagery (Gelman's measure): how its reconstructions match what it saw
             "imagery_corr": _corr(s["img_n"], s["img_sx"], s["img_sy"], s["img_sxx"], s["img_syy"], s["img_sxy"]),
         }

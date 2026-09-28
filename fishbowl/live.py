@@ -143,6 +143,7 @@ class LiveActor:
         if self.org is None:
             self.org = Organism(self.genome, fps=fps, colour=self.colour, prey=True)
         self.org.fps = fps
+        self.field.fps = fps
         boxes = [[lbl, float(c), x0, y0, x1, y1] for lbl, c, x0, y0, x1, y1 in detections
                  if str(lbl).split()[0].lower() in LIVING]
         sig, shift = self.field.step(grey)

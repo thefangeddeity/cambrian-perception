@@ -151,6 +151,7 @@ def _circuits(org: Organism) -> dict:
     b = org.body
     out["sleep"] = {"asleep": bool(b.asleep >= 0.5), "for_s": round(b.sleep_clock, 0), "pressure": round(b.sleep_pressure, 3),
                     "dreaming": bool(org.dreaming), "imagery": bool(org.imagery),
+                    "mismatch": round(float(org.mismatch), 3), "woke_by": b.woke_by,
                     "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
                                "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}
     fps = max(1.0, org.fps)
@@ -237,6 +238,7 @@ class LiveLife:
         with self.lock:
             org = self.org
             org.fps = fps
+            self.field.fps = fps
             missed0 = org.missed
             replays0, seq0, dreams0, sips0 = dict(org.replays), org.seq, org.dreams, org.sips
             img0 = list(org.imagery_sums)
@@ -248,9 +250,12 @@ class LiveLife:
                     self.field_motion = change if self.field_motion is None or self.field_motion.shape != change.shape \
                         else 0.7 * self.field_motion + 0.3 * change
                 swats0 = org.swats
+                was_asleep = org.body.asleep >= 0.5
                 org.feed_index = index
                 out = org.frame(grey, sig, boxes or [], colour, shift)
                 hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
+                if was_asleep and org.body.asleep < 0.5:
+                    batch["sums"]["woke_" + (org.body.woke_by or "choice")] += 1
                 snack = org.pending["snack"] if out["gazed"] and org.pending else 0.0
                 if out["gazed"]:
                     looks += 1

@@ -354,7 +354,7 @@ LOCK_HUD_JS = r"""
   // Arabic-Indic digits, and the unit written out.
   const AR_FONT = '"Noto Naskh Arabic", "Geeza Pro", "Segoe UI", Tahoma, sans-serif';
   const AR_WORDS = [['catching up:', 'عم يلحّق:'], ['its latest run, looped', 'آخر دورة، عم تعيد'], ['delayed', 'متأخّر'],
-    ['own guess', 'تخمينو'], ['teacher', 'الأستاذ'], ['calibrating', 'عم يظبّط'], ['snacks', 'لقمات'], ['meals', 'أكلات'],
+    ['own guess', 'تخمينو'], ['teacher', 'الأستاذ'], ['calibrating', 'عم يظبّط'], ['snacks', 'لقمات'], ['locks', 'مسكات'],
     ['SCAN', 'عم دوّر'], ['TRACK', 'لاحقو'], ['LOCK', 'مسكتو'], ['SLEEP', 'نايم'], ['TARGET', 'هدف'], ['WARN', 'دير بالك']];
   function toArabic(text) {
     let t = String(text);
@@ -366,10 +366,10 @@ LOCK_HUD_JS = r"""
   // written in Taiwan (bottom right): the same rows, each language's own
   // decimal mark and unit.
   const UK_WORDS = [['catching up:', 'наздоганяю:'], ['its latest run, looped', 'останній прогін, по колу'], ['delayed', 'затримка'],
-    ['own guess', 'власна оцінка'], ['teacher', 'вчитель'], ['calibrating', 'калібрування'], ['snacks', 'перекуси'], ['meals', 'трапези'],
+    ['own guess', 'власна оцінка'], ['teacher', 'вчитель'], ['calibrating', 'калібрування'], ['snacks', 'перекуси'], ['locks', 'захоплення'],
     ['SCAN', 'ПОШУК'], ['TRACK', 'СТЕЖУ'], ['LOCK', 'ЗАХОПЛЕНО'], ['SLEEP', 'СПЛЮ'], ['TARGET', 'ЦІЛЬ'], ['WARN', 'УВАГА']];
   const TW_WORDS = [['catching up:', '追趕中：'], ['its latest run, looped', '最近一輪，循環播放'], ['delayed', '延遲'],
-    ['own guess', '自己的猜測'], ['teacher', '老師'], ['calibrating', '校準中'], ['snacks', '點心'], ['meals', '正餐'],
+    ['own guess', '自己的猜測'], ['teacher', '老師'], ['calibrating', '校準中'], ['snacks', '點心'], ['locks', '鎖定次數'],
     ['SCAN', '搜尋'], ['TRACK', '追蹤'], ['LOCK', '鎖定'], ['SLEEP', '睡眠'], ['TARGET', '目標'], ['WARN', '警告']];
   const TW_FONT = '"Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
   function translate(text, words) { let t = String(text); words.forEach(([en, x]) => { t = t.split(en).join(x); }); return t; }
@@ -532,15 +532,17 @@ LOCK_HUD_JS = r"""
     ctx.fillStyle = HUD_SYS; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
     // Left-hand readout, top to bottom: mode + ID, delay, (operators only)
     // its perception tree's own guess next to the teacher's -- green when
-    // they agree -- then snacks, then meals, then its warning.
+    // they agree -- then (operators only) snacks, then locks (meals: a LOCK
+    // held as one feeding bout -- the HUD's own word, so a viewer needs no
+    // mosquito to read it), then its warning.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 14px monospace'],
                   [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_SYS, '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_AGREE : HUD_DISAGREE, '10px monospace', 'telemetry']);
     }
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
-    rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
-    rows.push([`meals ${boutText('meal', st.meals)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
+    if (opts && opts.internals) rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
+    rows.push([`locks ${boutText('meal', st.meals)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
     // it warns, a dim lamp otherwise. The client page never shows it.
@@ -637,6 +639,8 @@ PAGE = r"""<!doctype html>
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
+  .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+  .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
   .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
   .gauge { display: grid; grid-template-columns: 84px 1fr 44px; align-items: center; gap: 8px; margin: 3px 0; }
   .gauge .track { height: 10px; background: #162029; border-radius: 2px; overflow: hidden; }
@@ -712,13 +716,13 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="dream-panel">
     <h2>sleep, replay &amp; dreams</h2>
     <div class="cap" id="sleep-line">--</div>
-    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px">
-      <div><canvas id="replay-eye" width="120" height="120" class="px"></canvas><div class="cap">on its eye</div></div>
-      <div><canvas id="replay-recon" width="120" height="120" class="px"></canvas><div class="cap">what it dreams</div></div>
-      <div><canvas id="replay-seen" width="120" height="120"></canvas><div class="cap">what it saw then</div></div>
+    <div class="sleep-views">
+      <div><canvas id="replay-eye" width="192" height="192" class="px"></canvas><div class="cap">recalled</div></div>
+      <div><canvas id="replay-recon" width="192" height="192" class="px"></canvas><div class="cap" id="recon-cap">mind's eye</div></div>
+      <div><canvas id="replay-seen" width="192" height="192"></canvas><div class="cap">what it saw</div></div>
     </div>
     <div class="cap" id="replay-eye-cap" style="margin-top:4px"></div>
-    <canvas id="dream-map" class="px" style="margin-top:10px"></canvas>
+    <canvas id="dream-map" class="px" style="margin-top:10px; display:block; margin-left:auto; margin-right:auto"></canvas>
     <div class="cap">Paths on its place map: blue NREM, violet REM, grey awake replay; gold imagined (dreamt through its maps).</div>
   </div>
   <div class="panel" id="look-panel">
@@ -791,7 +795,7 @@ PAGE = r"""<!doctype html>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy'];
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
@@ -990,6 +994,7 @@ PAGE = r"""<!doctype html>
   const SEEN = { key: null, ok: false, img: new Image() };
   // Its sleep in a line: asleep or awake (and for how long), sleep pressure,
   // whether it is dreaming now, and the inherited shape of its replay.
+  const WOKE = { mismatch: 'the room changed', loom: 'something looming', motion: 'movement', rested: 'rested', choice: 'its own choice' };
   function drawSleepLine(d) {
     const el = $('sleep-line'), z = d.sleep; if (!el) return;
     if (!z) { el.textContent = '--'; return; }
@@ -998,7 +1003,9 @@ PAGE = r"""<!doctype html>
       + ` &middot; sleep pressure ${(100 * z.pressure).toFixed(0)}%`
       + (z.dreaming ? ' &middot; <b style="color:#fff0c0">dreaming</b>' : '')
       + ` &middot; replays ${t.awake} awake / ${t.asleep} asleep, REM ${(100 * t.rem).toFixed(0)}%, backup ${t.backup}, dream steps ${t.dream_steps}`
-      + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet');
+      + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet')
+      + (!z.asleep && z.woke_by ? ` &middot; woke: ${WOKE[z.woke_by] || z.woke_by}` : '')
+      + (z.mismatch > 0.05 ? ` &middot; room changed ${(100 * z.mismatch).toFixed(0)}%` : '');
   }
   function drawReplayEye(d) {
     drawSleepLine(d);
@@ -1026,7 +1033,7 @@ PAGE = r"""<!doctype html>
         const g = Math.round(255 * Math.max(0, Math.min(1, r.recon[i * k + j])));
         rctx.fillStyle = `rgb(${g},${Math.round(g * 0.92)},${Math.round(g * 0.88)})`; rctx.fillRect(Math.floor(j * q), Math.floor(i * q), Math.ceil(q), Math.ceil(q));
       }
-    } else { rctx.fillStyle = '#9a6f67'; rctx.font = '11px monospace'; rctx.fillText('no imagery yet', 8, 62); }
+    } else { rctx.fillStyle = '#9a6f67'; rctx.font = '14px monospace'; rctx.fillText('no imagery yet', 10, W / 2); }
     // what it saw then: the frame the memory formed on, cropped to its gaze, if the frame ring still holds it
     const sc = $('replay-seen'), sctx = sc.getContext('2d'); sctx.fillStyle = '#05070a'; sctx.fillRect(0, 0, W, W);
     if (r.seen) {
@@ -1035,10 +1042,11 @@ PAGE = r"""<!doctype html>
       if (SEEN.ok && SEEN.img.naturalWidth) {
         const iw = SEEN.img.naturalWidth, ih = SEEN.img.naturalHeight, side = r.seen.f * ih;
         sctx.drawImage(SEEN.img, r.seen.cx * iw - side / 2, r.seen.cy * ih - side / 2, side, side, 0, 0, W, W);
-      } else { sctx.fillStyle = '#9a6f67'; sctx.font = '11px monospace'; sctx.fillText('no longer held', 8, 62); }
-    } else { sctx.fillStyle = '#9a6f67'; sctx.font = '11px monospace'; sctx.fillText(r.kind === 'rem' ? 'recombined' : '--', 8, 62); }
+      } else { sctx.fillStyle = '#9a6f67'; sctx.font = '14px monospace'; sctx.fillText('no longer held', 10, W / 2); }
+    } else { sctx.fillStyle = '#9a6f67'; sctx.font = '14px monospace'; sctx.fillText(r.kind === 'rem' ? 'recombined' : '--', 10, W / 2); }
+    $('recon-cap').textContent = (d.sleep && d.sleep.dreaming) ? 'dream' : "mind's eye";
     const name = { nrem: 'NREM replay', rem: 'REM (recombined)', awake: 'awake replay' }[r.kind] || r.kind;
-    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago. What it dreams is what its eye sees while it sleeps; what it saw then is for you only (the last minutes of frames, in RAM).`;
+    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago. Recalled: the parts of its eye the memory's cells listen to. Mind's eye: the picture those cells rebuild (asleep, its eye sees it: a dream). What it saw: for you only, never the organism.`;
     drawDreamMap(d);
   }
   // Replayed and dreamt paths on its place map (its field's grid): a small
@@ -1046,7 +1054,7 @@ PAGE = r"""<!doctype html>
   function drawDreamMap(d) {
     const c = $('dream-map'); if (!c) return;
     const m = d.maps, shape = (m && m.shape) || d.world_grid_shape || [9, 16], [rows, cols] = shape;
-    const W = Math.max(200, c.parentElement.clientWidth), H = Math.round(W * rows / cols);
+    const W = Math.max(160, Math.round(c.parentElement.clientWidth * 0.6)), H = Math.round(W * rows / cols);  // its grid is coarse: it needn't be big
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'), cw = W / cols, ch = H / rows;
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);

@@ -167,6 +167,50 @@ def all_signals(vectors: np.ndarray, shape: tuple[int, int]) -> dict[str, np.nda
     }
 
 
+def mismatch_step(background: np.ndarray | None, v: np.ndarray, shape: tuple[int, int], alpha: float,
+                  threshold: float = 0.08) -> tuple[float, float, float, np.ndarray]:
+    """
+    One frame of the field-mismatch detector (Sokolov's orienting reflex:
+    a violation of the animal's own model of its surroundings). The model
+    is a slowly adapting background of the field's STRUCTURE -- each
+    receptor less the field's mean, so the room dimming or brightening
+    as a whole isn't news; something that arrives, leaves or moves in it
+    is. Returns the area (fraction of cells) that differs from the
+    background by more than threshold (the looming detector's own), where
+    that difference is centred (x, y in [0, 1]), and the updated
+    background. Unlike motion, it stays high while the change stays --
+    someone who came in and stood still -- until it habituates to them.
+    """
+    s = v.astype(np.float64) - float(v.mean())
+    if background is None or background.shape != s.shape:
+        background = s.copy()
+    d = np.abs(s - background)
+    over = np.where(d > threshold, d, 0.0)
+    area = float((over > 0).mean())
+    cx = cy = 0.5
+    tot = float(over.sum())
+    if tot > 1e-9:
+        rows, cols = shape
+        grid = over.reshape(shape)
+        yy, xx = np.mgrid[0:rows, 0:cols]
+        cx = float(((xx + 0.5) * grid).sum() / tot / cols)
+        cy = float(((yy + 0.5) * grid).sum() / tot / rows)
+    background = background + alpha * (s - background)
+    return area, cx, cy, background
+
+
+def mismatch_score(vectors: np.ndarray, shape: tuple[int, int], seconds_per_frame: float,
+                   tau_s: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """mismatch_step over a whole snapshot: (area, x, y) per frame."""
+    n = len(vectors)
+    area, xs, ys = np.zeros(n), np.full(n, 0.5), np.full(n, 0.5)
+    alpha = 1.0 - float(np.exp(-seconds_per_frame / tau_s))
+    bg = None
+    for t in range(n):
+        area[t], xs[t], ys[t], bg = mismatch_step(bg, vectors[t], shape, alpha)
+    return area, xs, ys
+
+
 def expansion_score(vectors: np.ndarray, threshold: float = 0.08, adapt: float = 0.05) -> np.ndarray:
     """
     A looming detector modeled on the locust LGMD/DCMD: responds to a

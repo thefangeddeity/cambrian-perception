@@ -177,6 +177,8 @@ class MosquitoState:
     metabolism: float = 1.0    # its inherited metabolic strategy (genome.metabolism; set by the organism, not saved)
     pump: float = PUMP_REF     # its feeding pump's rate, B/s (genome.pump; set by the organism, not saved)
     bite_blood: float = 0.0    # blood (legacy units) taken in the bite going on now: what a swat takes back
+    sleep_mismatch: float = 0.0  # the field's mismatch when it fell asleep (or lowest since): the room it fell asleep in
+    woke_by: str = ""          # what ended its last sleep (hourly metrics): mismatch, loom, motion, rested, choice
 
     # ---- what the organism "feels" ------------------------------------
     @property
@@ -231,26 +233,44 @@ class MosquitoState:
         return loom > WAKE_LOOM / v or field_motion > WAKE_MOTION / v
 
     def set_sleep(self, wants_sleep: bool, loom: float = 0.0, field_motion: float = 0.0,
-                  vigilance: float = 1.0) -> None:
+                  vigilance: float = 1.0, mismatch: float = 0.0) -> None:
         """The brain's choice, with the body's override (collapse) and a raised
-        arousal threshold while asleep (only a big change wakes it)."""
+        arousal threshold while asleep (only a big change wakes it -- or the
+        room no longer being the room it fell asleep in)."""
         asleep = self.asleep >= 0.5
         want = wants_sleep
+        cause = "choice"
         day = self.daylight
         if want and not asleep and self.sleep_pressure < SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * day:
             want = False  # not tired enough to fall asleep
         if asleep and self.sleep_pressure < SLEEP_END_DARK + (SLEEP_END_DAY - SLEEP_END_DARK) * day:
-            want = False  # slept enough: wakes by itself
+            want, cause = False, "rested"  # slept enough: wakes by itself
         # Exhaustion: collapse, and no waking by choice until it has recovered.
         if (not asleep and self.sleep_pressure > COLLAPSE_S) or (asleep and self.sleep_pressure > COLLAPSE_RELEASE_S):
             want = True
         # What wakes even an exhausted animal: a big change -- the sentry's
         # sensors stay on while it sleeps.
-        if asleep and self.big_change(loom, field_motion, vigilance):
-            want = False
+        v = max(1e-6, vigilance)
+        if asleep:
+            # The orienting reflex (Sokolov): its field's mismatch with its
+            # slow model of the room, against what it was when it fell asleep
+            # (following it down as it habituates) -- someone who came in
+            # quietly, and is still there, wakes it; someone who was already
+            # there when it dropped off doesn't. At the looming line.
+            self.sleep_mismatch = min(self.sleep_mismatch, mismatch)
+            if loom > WAKE_LOOM / v:
+                want, cause = False, "loom"
+            elif field_motion > WAKE_MOTION / v:
+                want, cause = False, "motion"
+            elif mismatch - self.sleep_mismatch > WAKE_LOOM / v:
+                want, cause = False, "mismatch"
         if want != asleep:
             self.asleep = 1.0 if want else 0.0
             self.sleep_clock = 0.0
+            if want:
+                self.sleep_mismatch = mismatch
+            else:
+                self.woke_by = cause
 
     # ---- one gaze -----------------------------------------------------
     def update(
@@ -468,7 +488,7 @@ class MosquitoState:
     # ---- persistence --------------------------------------------------
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
               "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt",
-              "glycogen", "phosphagen", "lactate", "ketone", "wasting")
+              "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":

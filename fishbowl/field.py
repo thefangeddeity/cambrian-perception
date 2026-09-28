@@ -4,7 +4,7 @@ from __future__ import annotations
 The whole visual field's signals, frame by frame -- for a host that lives
 live (a livecam's CV loop) instead of scoring a recorded snapshot. The same
 numbers the evolution loop computes for a whole snapshot at once
-(run_vision.World: reflexes.expansion_score, reflexes.motion_energy_score,
+(run_vision.World: reflexes.expansion_score, reflexes.mismatch_score, reflexes.motion_energy_score,
 organism.peripheral_motion_centroid, the field's mean light and
 organism.global_shift), computed incrementally, so a live organism feels its
 world exactly as the one that evolved did (tested equal, frame for frame).
@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from . import organism as org
+from . import reflexes
 from .retina import field_shape, frame_to_vector
 
 EXPANSION_THRESHOLD, EXPANSION_ADAPT = 0.08, 0.05  # reflexes.expansion_score's defaults
@@ -32,6 +33,8 @@ class FieldSignals:
         self.prev_small = None
         self.window = None
         self.last_vector = None
+        self.fps = 15.0            # the host sets its frame rate (the mismatch background adapts in seconds)
+        self.structure = None      # the mismatch detector's slow background of the field's structure
 
     def step(self, grey: np.ndarray) -> tuple[dict, tuple[float, float]]:
         shape = field_shape(*grey.shape[:2])
@@ -58,6 +61,9 @@ class FieldSignals:
                 mcx = float(((xx + 0.5) * grid).sum() / tot / cols)
                 mcy = float(((yy + 0.5) * grid).sum() / tot / rows)
         self.prev = v
+        # Mismatch with its slow model of the room (reflexes.mismatch_step).
+        alpha = 1.0 - float(np.exp(-1.0 / max(1e-6, self.fps) / org.MISMATCH_TAU_S))
+        mismatch, mmx, mmy, self.structure = reflexes.mismatch_step(self.structure, v, shape, alpha)
         # The frame's global shift (organism.global_shifts, streamed).
         size = org.shift_size(grey.shape)
         small = cv2.resize(grey, size, interpolation=cv2.INTER_AREA).astype(np.float32)
@@ -69,5 +75,5 @@ class FieldSignals:
         self.prev_small = small
         self.t += 1
         sig = {"expansion": expansion, "motion_energy": motion, "motion_cx": mcx, "motion_cy": mcy,
-               "field_light": float(v.mean())}
+               "field_light": float(v.mean()), "mismatch": mismatch, "mismatch_cx": mmx, "mismatch_cy": mmy}
         return sig, shift

@@ -171,6 +171,19 @@ things override it:
 - **Collapse** when it is exhausted.
 - **A big change** in the field wakes it. How big is inherited: vigilance. Its
   sensors stay on while it sleeps.
+- **The room changing** wakes it too (the orienting reflex, Sokolov 1963: a
+  violation of its own model of its surroundings). Its whole-field eyes keep a
+  slow model of the room's structure (each receptor less the field's mean, so
+  the lights dimming isn't news), adapting over ~20 minutes. The share of the
+  field that no longer matches is its **mismatch**. Motion is gone in a
+  second; mismatch stays while the change stays, so someone who came in
+  quietly and stood still still wakes it. It wakes when the mismatch rises
+  past the looming line (x vigilance) above what it was when it fell asleep:
+  someone already there when it dropped off doesn't wake it. Awake, the brain
+  gets the mismatch and where it is as a sense (priced like the others), to
+  turn to the change. What woke it (the room, looming, movement, rested, its
+  own choice) is logged hourly. Waking on a host's scent alone is its brain's
+  choice: scent is an input while it sleeps, so evolution can learn it.
 
 Starvation no longer forces it awake. That rule made sleep flap as the gut
 crossed a line.

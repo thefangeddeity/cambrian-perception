@@ -27,7 +27,7 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
-from .controller import DANGER_INPUT, INTRUDER_INPUT, PLACE_INPUTS, PLANT_INPUTS, REFERENCE_MACS
+from .controller import DANGER_INPUT, INTRUDER_INPUT, MISMATCH_INPUTS, PLACE_INPUTS, PLANT_INPUTS, REFERENCE_MACS
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -115,6 +115,16 @@ FLOW_GAIN = 20.0
 # spider's movable principal retinae) is for detail and food.
 PERIPH_MOTION_GAIN = 300.0   # whole-field motion_energy: still room ~0.001 -> ~0.3, real movement saturates
 EXPANSION_GAIN = 10.0        # reflexes.expansion_score: approaching disc 0.083 -> 0.83, crossing blob 0.014 -> 0.14
+# Field mismatch (Sokolov's orienting reflex; 2026-09-28 panel): how much of
+# the field's structure differs from its slow model of the room
+# (reflexes.mismatch_step) -- someone arriving, and staying, until it
+# habituates to them. No new constants: the model adapts over its sense of
+# light's slow timescale (~20 min, state.LIGHT_SLOW_S), a cell counts at the
+# looming detector's threshold, and the area is read with the looming
+# detector's gain (both are areas of the field that differ from a
+# background), so it wakes at the looming line (state.WAKE_LOOM) x its
+# vigilance. The brain gets it, and where it is, as a sense (priced).
+MISMATCH_TAU_S = LIGHT_SLOW_S
 
 # --- Snacks: surprise against a memory of the world ------------------------------
 # Food = genuinely new visual structure, measured against a spatial memory
@@ -285,7 +295,7 @@ NECTAR_CROP = 1.0         # a full plant, in gut-fulls
 NECTAR_REFILL_S = 3 * 3600.0
 
 # What a host passes each frame about the whole field (sig): the keys below.
-SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light")
+SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light", "mismatch", "mismatch_cx", "mismatch_cy")
 
 
 class Organism:
@@ -406,6 +416,7 @@ class Organism:
         self.last_kc = np.zeros(0, dtype=int)  # the Kenyon cells firing at its latest look (for the viewer)
         self.replay_log: list = []             # recent replays: (kind, field row, col, frame), for the viewer's dreams
         self.last_replay = None                # (kind, Kenyon-cell code, seconds lived, episode meta): its latest replay, for the viewer
+        self.mismatch = 0.0                    # its field's mismatch with its slow model of the room, this look
         self.dreaming = False                  # its eye sees its reconstruction this look (asleep, with imagery)
         self.intruder = 0.0
         self.last_alarm = 0.0
@@ -527,6 +538,10 @@ class Organism:
         periph_dx = float(sig["motion_cx"]) - state.cx
         periph_dy = float(sig["motion_cy"]) - state.cy
         field_light = float(sig["field_light"])
+        mismatch = min(1.0, float(sig["mismatch"]) * EXPANSION_GAIN)
+        mismatch_dx = float(sig["mismatch_cx"]) - state.cx
+        mismatch_dy = float(sig["mismatch_cy"]) - state.cy
+        self.mismatch = mismatch
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
         plant_scent, plant_dx, plant_dy = prey_sense(plants or [], state.cx, state.cy, self.plant_level, None)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
@@ -552,14 +567,14 @@ class Organism:
                 lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
                 self.food_value, place_dx, place_dy, place_value, self.intruder, self.danger_value,
-                plant_scent, plant_dx, plant_dy,
+                plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
         self.last_alarm = alarm
         # Sleep is its own choice (its sleep output); the body adds only the
         # physiological overrides -- collapse, hunger, a big change (state.py).
-        body.set_sleep(out.sleep > 0.0, loom, periph_motion, self.vigilance)
+        body.set_sleep(out.sleep > 0.0, loom, periph_motion, self.vigilance, mismatch)
         asleep = body.asleep >= 0.5
         # An empty body runs on less (soft floor): colour off, slower gazing.
         # Asleep, the eye is shut: no colour either.
@@ -852,7 +867,7 @@ class Organism:
                                  + (THINK_COST * (kc_macs(self.live_kc) + (self.live_kc if self.aversive_rate > 0.0 else 0))
                                     / REFERENCE_MACS if p["kc_on"] else 0.0)  # + the aversive output neuron, once it exists
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
-                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT))
+                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS)
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)) / REFERENCE_MACS) * self.scarcity,

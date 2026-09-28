@@ -67,7 +67,7 @@ from fishbowl.controller import TREE_HIDDEN
 # implementation, shared with any live host (fishbowl/organism.py).
 from fishbowl.organism import (  # noqa: E402
     CHANNEL_COST, CONE_COST, CONSOLIDATE_RATE, EXPANSION_GAIN, FLOW_GAIN, FOOD_GAIN, MAX_INTERVAL,
-    MEAN_RATE, MEM_H, MEM_W, MOTION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, PREY_SENSE_COST, REFERENCE_QUOTA_PCT,
+    MEAN_RATE, MEM_H, MEM_W, MISMATCH_TAU_S, MOTION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, PREY_SENSE_COST, REFERENCE_QUOTA_PCT,
     SHIFT_MAX, SHIFT_MIN_RESPONSE, SHIFT_WIDTH, STABILIZER_COST, SURPRISE_SIGMAS, TEMPO_RANGE, THINK_COST,
     RECEPTOR_COST, UNSEEN_NOVELTY, VAR_RATE, Organism, _receptor_cost,
     feed_on_novelty as _feed_on_novelty, global_shifts as _global_shifts,
@@ -846,6 +846,8 @@ class World:
             ws["expansion"] = reflexes.expansion_score(wv)
             ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv, self.field_shape)
             ws["field_light"] = np.asarray(wv).mean(axis=1)
+            ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"] = reflexes.mismatch_score(
+                wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S)
             ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
