@@ -592,6 +592,11 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
+    <div class="cap" id="layers">Layers (what it has learned; owner only):
+      <label><input type="checkbox" data-layer="place"> <b style="color:#6f6">food places</b></label>
+      <label><input type="checkbox" data-layer="people"> <b style="color:#f7c">people expected</b></label>
+      <label><input type="checkbox" data-layer="familiar"> <b style="color:#7fd4ff">still surprising</b></label>
+      <label><input type="checkbox" data-layer="dreams"> <b style="color:#b9f">dreams</b></label></div>
     <div class="cap">Its wide-field eyes: <span id="field-px">--</span>. Threat, arousal and where things move; no detail. Box = its <b style="color:var(--cyan)">gaze</b>, a few seconds behind live; trail = last 3 s.</div>
     <div class="legend cap" style="margin-top:8px">
       <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
@@ -607,6 +612,8 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="brain-panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
+    <canvas id="mb" height="150" style="margin-top:6px"></canvas>
+    <div class="cap" id="mb-cap"></div>
     <div class="cap"><b id="brain-mb">--</b>. 29 inputs &rarr; <b id="brain-units">--</b> recurrent units, <b id="brain-layers">--</b> stacked &rarr; pan / tilt / alarm / tempo / sleep, plus grown loops. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits; fill = activity. Right: unit &rarr; unit memory.</div>
   </div>
   <div class="panel" id="look-panel">
@@ -764,6 +771,7 @@ PAGE = r"""<!doctype html>
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
     drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H);
+    drawLayers(ctx, d, W, H);
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
     // time and show whichever gaze is current at that moment -- the same
     // clock as the replayed picture beside it (replayAt, LOCK_HUD_JS).
@@ -804,6 +812,62 @@ PAGE = r"""<!doctype html>
     $('replay-clock').textContent = (delay != null ? `${catching ? 'catching up: ' : ''}delayed ${delay.toFixed(1)} s behind live -- gaze ${i + 1} / ${traj.length} of its latest run` : `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)`) + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
   requestAnimationFrame(drawField);
+
+  // Layers over the visual field: what it has learned about places (a
+  // 2026-09-28 panel). Off by default; learned values, not thoughts.
+  const LAYERS = {};
+  try { Object.assign(LAYERS, JSON.parse(localStorage.getItem('layers') || '{}')); } catch (e) { }
+  document.querySelectorAll('#layers input').forEach(cb => {
+    cb.checked = !!LAYERS[cb.dataset.layer];
+    cb.addEventListener('change', () => { LAYERS[cb.dataset.layer] = cb.checked; try { localStorage.setItem('layers', JSON.stringify(LAYERS)); } catch (e) { } });
+  });
+  function drawLayers(ctx, d, W, H) {
+    const m = d.maps; if (!m) return;
+    const cells = (vals, shape, colour) => {
+      const [rows, cols] = shape, cw = W / cols, ch = H / rows;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const a = colour(vals[r * cols + c]); if (a) { ctx.fillStyle = a; ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5); }
+      }
+    };
+    if (LAYERS.place) { const top = Math.max(1e-6, ...m.place.map(Math.abs)); cells(m.place, m.shape, v => v > 0 ? `rgba(90, 255, 110, ${0.55 * v / top})` : null); }
+    if (LAYERS.people) cells(m.people, m.shape, v => v > 0.01 ? `rgba(255, 110, 200, ${0.5 * Math.min(1, v)})` : null);
+    if (LAYERS.familiar) cells(m.familiar, m.mem_shape, v => v < 0 ? 'rgba(40, 0, 60, 0.45)' : `rgba(127, 212, 255, ${0.45 * (1 - v)})`);
+    if (LAYERS.dreams && d.dreams) {
+      const [rows, cols] = m.shape, cw = W / cols, ch = H / rows;
+      const hue = { nrem: '120, 150, 255', rem: '190, 140, 255', awake: '200, 200, 200' };
+      d.dreams.forEach(([kind, r, c, age]) => {
+        const a = Math.max(0, 1 - age / 3); if (!a) return;
+        ctx.strokeStyle = `rgba(${hue[kind] || '200, 200, 200'}, ${0.9 * a})`; ctx.lineWidth = 2;
+        ctx.strokeRect(c * cw + 1, r * ch + 1, cw - 2, ch - 2);
+      });
+    }
+  }
+
+  // Its mushroom body: every Kenyon cell a dot; lit = firing for its latest
+  // look (~5%); green = what it has learned means food, red = danger; dark =
+  // lost to wasting. Learned values, not thoughts.
+  function int8s(b64) { if (!b64) return null; const s = atob(b64); return Int8Array.from(s, ch => ch.charCodeAt(0)); }
+  function drawMB(d) {
+    const c = $('mb'), cap = $('mb-cap'); if (!c) return;
+    const mb = d.mb;
+    if (!mb) { c.style.display = 'none'; cap.textContent = ''; return; }
+    c.style.display = '';
+    const W = Math.max(200, c.parentElement.clientWidth - 24), n = mb.n;
+    const cols = Math.max(8, Math.ceil(Math.sqrt(n * W / 150))), rows = Math.ceil(n / cols), sz = W / cols, H = Math.ceil(rows * sz);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
+    const food = int8s(mb.food), danger = int8s(mb.danger), on = new Set(mb.active || []);
+    for (let k = 0; k < n; k++) {
+      const x = (k % cols) * sz, y = Math.floor(k / cols) * sz;
+      if (k >= mb.live) { ctx.fillStyle = '#111'; ctx.fillRect(x, y, sz - 1, sz - 1); continue; }
+      const f = food ? Math.max(0, food[k] / 127) : 0, g = danger ? Math.max(0, danger[k] / 127) : 0;
+      const lit = on.has(k), base = lit ? 150 : 35;
+      ctx.fillStyle = `rgb(${Math.round(base + 200 * g)}, ${Math.round(base + 200 * f)}, ${base})`;
+      ctx.fillRect(x, y, sz - 1, sz - 1);
+    }
+    cap.textContent = `Its mushroom body: ${n} Kenyon cells (${mb.live} alive), ${(mb.active || []).length} firing for its latest look. `
+      + `Green = learned food, red = learned danger, bright = firing. Costs about ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Learned values, not thoughts.`;
+  }
 
   // The retina panel runs on the same replay clock as the picture and the
   // visual field: its gaze where the replayed path has it, and its n x n
@@ -978,6 +1042,7 @@ PAGE = r"""<!doctype html>
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
+    drawMB(d);
     if ($('brain-mb')) $('brain-mb').textContent = d.kc ? `Mushroom body: ${d.kc} Kenyon cells, learning rate ${(d.learning_rate || 0).toFixed(3)}, food value now ${(d.food_value ?? 0).toFixed(2)}` : 'No mushroom body yet (lifetime learning evolves)';
     if ($('brain-layers')) { const ls = br.layers || [], on = ls.filter(l => l.gate && l.gate[0] !== 0); $('brain-layers').textContent = `${on.length} layer${on.length === 1 ? '' : 's'}` + (ls.length > on.length ? ` (+${ls.length - on.length} silent)` : '') + (on.length ? ` -- gates ${on.map(l => l.gate[0].toFixed(2)).join(', ')}` : ''); }
     const c = $('brain'), W = Math.max(200, fitWidth($('brain').closest('.panel'), quadAspect()));

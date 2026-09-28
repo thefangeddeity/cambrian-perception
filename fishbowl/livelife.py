@@ -19,6 +19,7 @@ Its only delay is its own: the feed's, and its brain's reaction time.
 
 from __future__ import annotations
 
+import base64
 import collections
 import json
 import os
@@ -31,7 +32,9 @@ import numpy as np
 from . import fovea, prey as prey_lib
 from .field import FieldSignals
 from .metrics import HourlyMetrics
-from .organism import EXPANSION_GAIN, PERIPH_MOTION_GAIN, Organism
+from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENCE_MACS, RESTING_BURN, THINK_COST,
+                       Organism, kc_macs)
+from .state import LEGACY_UNIT
 
 KEEP = 150            # frames shown to the viewer (~20 s of kept frames): enough for its replay delay
 WRITE_EVERY_S = 1.0   # how often the viewer's file is rewritten (it is in RAM where the host has /dev/shm)
@@ -67,6 +70,45 @@ def _carry(old: Organism, new: Organism) -> None:
         new.prev_v = old.prev_v.copy()
     if new.slowness > 0.0 and old.slow is not None:
         new.slow = old.slow
+
+
+def _int8(w: np.ndarray) -> tuple[str, float]:
+    """Weights as base64 int8, scaled by their largest magnitude (compact for the viewer)."""
+    scale = float(np.max(np.abs(w))) if len(w) else 0.0
+    q = np.clip(np.round(w / scale * 127.0), -127, 127).astype(np.int8) if scale > 0 else np.zeros(len(w), dtype=np.int8)
+    return base64.b64encode(q.tobytes()).decode("ascii"), round(scale, 4)
+
+
+def _circuits(org: Organism) -> dict:
+    """What it has learned, for the owner's viewer (a 2026-09-28 panel):
+    its maps over the whole field, its mushroom body's firing set and learned
+    weights, what it has replayed lately, and what the mushroom body costs.
+    Learned values, not thoughts."""
+    out = {}
+    if org.place is not None:
+        rows, cols = org.place.shape
+        dl = float(org.body.daylight)
+        people = dl * org.people_day + (1.0 - dl) * org.people_night
+        mean, var = org.memory, org.variance
+        # familiar: 1 = as still as sensor noise (fully habituated), low = still varying; -1 = never seen
+        fam = np.where(np.isnan(mean), -1.0, np.clip(NOISE_FLOOR ** 2 / np.maximum(var, 1e-12), 0.0, 1.0))
+        out["maps"] = {"shape": [rows, cols], "place": np.round(org.place, 3).ravel().tolist(),
+                       "people": np.round(people, 3).ravel().tolist(),
+                       "mem_shape": list(mean.shape), "familiar": np.round(fam, 2).ravel().tolist()}
+    mb = org.mb
+    if mb.n_kc:
+        food, fs = _int8(mb.weights)
+        danger, ds = _int8(mb.danger_weights)
+        seconds = max(1e-6, org.last_interval / max(1.0, org.fps))
+        macs = kc_macs(org.live_kc) + (org.live_kc if org.aversive_rate > 0.0 else 0)
+        share = THINK_COST * macs / REFERENCE_MACS * org.scarcity * LEGACY_UNIT / seconds / RESTING_BURN
+        out["mb"] = {"n": mb.n_kc, "live": org.live_kc, "active": [int(k) for k in org.last_kc],
+                     "food": food, "food_scale": fs, "danger": danger, "danger_scale": ds,
+                     "cost_share": round(share, 4)}
+    fps = max(1.0, org.fps)
+    out["dreams"] = [[kind, r, c, round((org.k - k) / fps, 1)] for kind, r, c, k in org.replay_log
+                     if (org.k - k) / fps < 10.0]
+    return out
 
 
 class LiveLife:
@@ -231,6 +273,7 @@ class LiveLife:
             body = {k: round(float(v), 4) for k, v in self.org.body.to_dict().items() if isinstance(v, (int, float))}
             pace = self.org.last_interval
             fps = self.org.fps
+            circuits = _circuits(self.org)
         if not shown:
             return
         first = shown[0]["i"]
@@ -245,6 +288,7 @@ class LiveLife:
             "tree_guess": None, "teacher_label": None,  # graded only in evolution's runs
             "fovea_cx": shown[-1]["cx"], "fovea_cy": shown[-1]["cy"],
             "pace": pace, "frames_per_second": round(fps, 2), "body_now": body,
+            **circuits,
         }
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:

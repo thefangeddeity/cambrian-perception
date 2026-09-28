@@ -378,6 +378,8 @@ class Organism:
         self.episodes: list = []       # this life's (Kenyon-cell code, reward, field cell), for replay
         self.priority: list = []       # each episode's last prediction error (replay order)
         self.replays = {"awake": 0, "nrem": 0, "rem": 0}
+        self.last_kc = np.zeros(0, dtype=int)  # the Kenyon cells firing at its latest look (for the viewer)
+        self.replay_log: list = []             # recent replays: (kind, field row, col, frame), for the viewer's dreams
         self.intruder = 0.0
         self.last_alarm = 0.0
         # Tissue still alive (a wasting body loses its costliest structure:
@@ -487,6 +489,7 @@ class Organism:
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
         kc_active = self.mb.active(v, n, self.live_kc) if not was_asleep else np.zeros(0, dtype=int)
+        self.last_kc = kc_active
         self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
         self.danger_value = float(np.clip(self.mb.danger(kc_active), -1.0, 1.0)) if self.aversive_rate > 0.0 else 0.0
         cell = self._cell(state.cx, state.cy)
@@ -662,6 +665,8 @@ class Organism:
                 code = np.unique(np.concatenate([ci[:half], cj[half:]]))
                 self.mb.learn(code, 0.5 * (ri + rj), self.learning_rate)
                 self.replays["rem"] += 1
+                self._log_replay("rem", self.episodes[i][2])
+                self._log_replay("rem", self.episodes[j][2])
             else:
                 # NREM, or awake: the biggest surprise first (prioritized replay)
                 i = int(np.argmax(self.priority))
@@ -671,7 +676,13 @@ class Organism:
                 if cell is not None:
                     self.place[cell] += self.learning_rate * (reward - self.place[cell])
                 self.replays["nrem" if asleep_settled else "awake"] += 1
+                self._log_replay("nrem" if asleep_settled else "awake", cell)
         return count * kc_macs(self.live_kc)
+
+    def _log_replay(self, kind: str, cell) -> None:
+        if cell is not None:
+            self.replay_log.append((kind, int(cell[0]), int(cell[1]), self.k))
+            del self.replay_log[:-64]
 
     def _substep(self, shift: tuple, in_world: bool) -> None:
         """The eye moves one frame on (muscle energy = force squared, per frame pushed)."""
