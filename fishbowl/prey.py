@@ -121,18 +121,20 @@ def _coverage(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: flo
     return float(min(1.0, total))
 
 
-# Its mouth: a round one at the centre of its gaze, of a FIXED size --
-# physics, a given like "mouths are roundish and have teeth" (a hagfish's
-# and a human's are much alike; not worth evolving). As wide as the eating
-# zone a newborn's eye had (the central half of a 22-receptor gaze), now the
-# same for every eye. A mouth, not a point: a point made a catch rarer than
-# any real mouth does (measured on tina: 0% of looks).
-MOUTH_DIAMETER = 22 / 64 / 2  # of the frame's height (fovea: DEFAULT_RECEPTORS x RECEPTOR_PITCH / 2)
+# Its mouth: a square at the centre of its gaze, of a FIXED size -- physics,
+# a given (a hagfish's mouth and a human's are much alike; not worth
+# evolving). Exactly the eating zone a newborn's eye had (the central half of
+# a 22-receptor gaze), now the same for every eye, so default eyes eat as
+# before; square like its eye's mosaic (a design panel, 7-2: a round mouth
+# of the same width would have cut every catch zone to pi/4 of its area). A
+# mouth, not a point: a point made a catch rarer than any real mouth does
+# (measured on tina: 0% of looks).
+MOUTH_SIDE = 22 / 64 / 2  # of the frame's height (fovea: DEFAULT_RECEPTORS x RECEPTOR_PITCH / 2)
 
 
 def prey_at_mouth(boxes: list[list[float]], cx: float, cy: float, aspect: float) -> float:
     """
-    The meal a look catches, 0..1: prey under its mouth (a disc MOUTH_DIAMETER
+    The meal a look catches, 0..1: prey under its mouth (a square MOUTH_SIDE
     wide at the gaze centre) -- the detector's confidence for it (the surest,
     if several), i.e. the chance the catch is real, times one bite.
     The meal is the prey item's, whatever the eye's size and however big the
@@ -148,12 +150,10 @@ def prey_at_mouth(boxes: list[list[float]], cx: float, cy: float, aspect: float)
     which made the eye a mouth: a bigger eye diluted every meal, and prey
     far away fed less than the same prey nearby.)
     """
-    r = MOUTH_DIAMETER / 2.0  # in frame heights; x is scaled by aspect so it is round in pixels
+    hy = MOUTH_SIDE / 2.0
+    hx = hy / aspect  # square in pixels
     best = 0.0
     for _, conf, x0, y0, x1, y1 in boxes or ():
-        # the box's nearest point to the mouth's centre, in frame-height units
-        dx = (min(max(cx, x0), x1) - cx) * aspect
-        dy = min(max(cy, y0), y1) - cy
-        if dx * dx + dy * dy <= r * r:
+        if min(x1, cx + hx) > max(x0, cx - hx) and min(y1, cy + hy) > max(y0, cy - hy):
             best = max(best, float(conf))
     return best

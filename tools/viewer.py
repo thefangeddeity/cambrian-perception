@@ -769,7 +769,7 @@ PAGE = r"""<!doctype html>
   // reconstruction -- from the replay JPEG, not its exact frames; without
   // frames (a file source) it falls back to its retina at the end of its run.
   const LOOK = { key: null, cells: null };
-  const MOUTH_DIAMETER = 22 / 64 / 2;  // of the frame's height -- prey.MOUTH_DIAMETER
+  const MOUTH_SIDE = 22 / 64 / 2;  // of the frame's height -- prey.MOUTH_SIDE
   const lookSrc = document.createElement('canvas');
   function rebuildRetina(img, cx, cy, f, N) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
@@ -849,19 +849,18 @@ PAGE = r"""<!doctype html>
     if (eat > 0.01 && !LOOK.eating) LOOK.biteT = now;
     LOOK.eating = eat > 0.01;
     if (LOOK.eating) {
-      const mr = MOUTH_DIAMETER * H / 2;  // its mouth, at its real size: a disc at the gaze centre (prey.py)
+      const ms = MOUTH_SIDE * H, mx = cx - ms / 2, my = cy - ms / 2;  // its mouth, at its real size, at the gaze centre (prey.py)
       const pulse = 0.5 + 0.5 * Math.sin(now / 110);
-      ctx.beginPath(); ctx.arc(cx, cy, mr, 0, 7);
-      ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fill();
-      ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fillRect(mx, my, ms, ms);
+      ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(mx, my, ms, ms);
       ctx.fillStyle = 'rgba(255, 95, 162, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
       ctx.fillText(`EATING ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     }
     const biteAge = now - (LOOK.biteT ?? -1e9);
     if (biteAge < 400) {
-      const k = biteAge / 400, e = 1 - Math.pow(1 - k, 3), rr = MOUTH_DIAMETER * H / 2 + e * Math.max(lw, lh) * 0.6;
+      const k = biteAge / 400, e = 1 - Math.pow(1 - k, 3), rs = MOUTH_SIDE * H + e * Math.max(lw, lh) * 1.2;
       ctx.strokeStyle = `rgba(255, 95, 162, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, 7); ctx.stroke();
+      ctx.strokeRect(cx - rs / 2, cy - rs / 2, rs, rs);
     }
     ctx.strokeStyle = shut ? '#a8c' : LOOK.eating ? '#ff5fa2' : '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
