@@ -1,0 +1,3 @@
+post_install() { sh /srv/cambrian/cambrian-perception/deploy/packaging/post-install.sh; }
+post_upgrade() { post_install; }
+pre_remove() { sh /srv/cambrian/cambrian-perception/deploy/packaging/pre-remove.sh; }

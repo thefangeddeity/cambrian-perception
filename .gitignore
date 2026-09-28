@@ -9,3 +9,10 @@ venv/
 # these are the short curated source clips themselves, not organism
 # output.
 media/
+
+# Built packages
+dist/
+deploy/arch/src/
+deploy/arch/pkg/
+deploy/arch/cambrian-perception/
+deploy/arch/*.pkg.tar.*

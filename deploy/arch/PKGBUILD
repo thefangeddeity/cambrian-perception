@@ -1,0 +1,40 @@
+# cambrian-perception for Arch: in this folder, makepkg -si (or yay -Bi .).
+# Built from the repo on GitHub; nothing on the AUR is needed.
+# It lays out what deploy/install.sh makes on a git-checkout host -- don't
+# install it over such a checkout without moving its state/ aside first.
+pkgname=cambrian-perception-git
+_pkgname=cambrian-perception
+pkgver=r0.0000000
+pkgrel=1
+pkgdesc="An evolving artificial visual organism living in a camera feed (sandboxed, self-programming)"
+arch=('any')
+url="https://github.com/thefangeddeity/cambrian-perception"
+license=('unknown')
+depends=('python' 'systemd' 'polkit')
+optdepends=('ffmpeg: decoding some streams')
+makedepends=('git')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+install=cambrian-perception.install
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$_pkgname"
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+package() {
+    cd "$_pkgname"
+    local dir="$pkgdir/srv/cambrian/$_pkgname"
+    install -d "$dir"
+    git archive HEAD | tar -x -C "$dir"
+    chmod 755 "$dir/tools/cambrian"
+    install -Dm644 -t "$pkgdir/usr/lib/systemd/system/" deploy/cambrian.target deploy/cambrian-perception.service \
+        deploy/cambrian-viewer.service deploy/cambrian-resource-handler.service deploy/cambrian-resource-handler.timer
+    install -Dm644 deploy/50-cambrian.rules "$pkgdir/usr/share/polkit-1/rules.d/50-cambrian.rules"
+    install -Dm644 deploy/packaging/sysusers.conf "$pkgdir/usr/lib/sysusers.d/$_pkgname.conf"
+    install -Dm644 deploy/packaging/tmpfiles.conf "$pkgdir/usr/lib/tmpfiles.d/$_pkgname.conf"
+    install -d "$pkgdir/usr/bin"
+    ln -s "/srv/cambrian/$_pkgname/tools/cambrian" "$pkgdir/usr/bin/cambrian"
+}
