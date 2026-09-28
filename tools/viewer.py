@@ -398,7 +398,8 @@ LOCK_HUD_JS = r"""
       }
       el.style.display = '';
       // every row, blank ones too (WARN blinking off), so each line stays level with the English
-      const html = rows.map(([t, colour, font]) =>
+      // the bottom blocks run upward (mirror images of the top ones): first row at the bottom
+      const html = (key === 'ar' ? rows : rows.slice().reverse()).map(([t, colour, font]) =>
         `<div style="color:${colour};font:${font.replace('monospace', family)};line-height:16px;height:16px">${t ? esc(conv(t)) : '&nbsp;'}</div>`).join('');
       if (el._html !== html) { el._html = html; el.innerHTML = html; }
     });
