@@ -350,15 +350,17 @@ LOCK_HUD_JS = r"""
     });
     return { mode: fs.eat > 0.01 ? 'LOCK' : inGaze ? 'TRACK' : 'SCAN', id };
   }
-  // The readout in Arabic (the HUD's right side), in modern Lebanese, with
-  // Western digits as Lebanese write them.
+  // The readout in Arabic (the HUD's right side): modern Lebanese words,
+  // Arabic-Indic digits, and the unit written out.
+  const AR_FONT = '"Noto Naskh Arabic", "Geeza Pro", "Segoe UI", Tahoma, sans-serif';
   const AR_WORDS = [['catching up:', 'عم يلحّق:'], ['its latest run, looped', 'آخر دورة، عم تعيد'], ['delayed', 'متأخّر'],
     ['own guess', 'تخمينو'], ['teacher', 'الأستاذ'], ['calibrating', 'عم يظبّط'], ['snacks', 'لقمات'], ['meals', 'أكلات'],
     ['SCAN', 'عم دوّر'], ['TRACK', 'لاحقو'], ['LOCK', 'مسكتو'], ['SLEEP', 'نايم'], ['TARGET', 'هدف'], ['WARN', 'دير بالك']];
   function toArabic(text) {
     let t = String(text);
     AR_WORDS.forEach(([en, ar]) => { t = t.split(en).join(ar); });
-    return t.replace(/ s(?= |$)/g, ' ث');
+    return t.replace(/ s(?= |$)/g, ' ثانية').replace(/(\d)\.(\d)/g, '$1٫$2').replace(/%/g, '٪')
+            .replace(/[0-9]/g, c => '٠١٢٣٤٥٦٧٨٩'[c]);
   }
   function lockIdText(id) { return id ? ` TARGET ${(id[1] * 100).toFixed(0)}%` : ''; }  // every host is a target
   // Draws the HUD on a bw x bh box. fs = the replay's current frame
@@ -472,13 +474,16 @@ LOCK_HUD_JS = r"""
     rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
     ctx.textAlign = 'left';
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
-    // Arabic, right-justified: each line measured and placed so its right edge
-    // sits exactly 16 px from the right, mirroring the left column's margin.
-    ctx.save(); ctx.direction = 'rtl'; ctx.textAlign = 'left';
+    // Arabic, right-justified at the right margin (mirroring the left column):
+    // the canvas's own right-to-left direction keeps each line's word order and
+    // its digits and signs in place, and an Arabic font is named, because
+    // monospace has no Arabic glyphs and a silent fallback measures and draws
+    // unevenly (the advice of an Arabic type designer on the panel).
+    ctx.save(); ctx.direction = 'rtl'; ctx.textAlign = 'right';
     rows.forEach(([text, colour, font], k) => {
       if (!text) return;
-      const ar = toArabic(text); ctx.font = font; ctx.fillStyle = colour;
-      ctx.fillText(ar, bw - 16 - ctx.measureText(ar).width, 18 + 16 * k);
+      ctx.font = font.replace('monospace', AR_FONT); ctx.fillStyle = colour;
+      ctx.fillText(toArabic(text), bw - 16, 18 + 16 * k);
     });
     ctx.restore();
     lockShadow(ctx, false);
