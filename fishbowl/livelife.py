@@ -28,7 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import fovea
+from . import fovea, prey as prey_lib
 from .field import FieldSignals
 from .metrics import HourlyMetrics
 from .organism import EXPANSION_GAIN, PERIPH_MOTION_GAIN, Organism
@@ -82,6 +82,7 @@ class LiveLife:
         self.shown = collections.deque(maxlen=KEEP)
         self.acts = {"meal": [], "snack": []}
         self.adoptions = 0
+        self._pursuit = None  # (gaze, pursued box, last step) of the host it is following, for the metrics
         self.error = None
         self._stop = False
         self._written = 0.0
@@ -139,7 +140,8 @@ class LiveLife:
 
     def _live(self, items: list) -> None:
         fps = max(1.0, self.feed.frames_per_second() or 15.0)
-        batch = {"eating": [], "asleep": [], "alarm": [], "trajectory": [], "swat_acts": []}
+        batch = {"eating": [], "asleep": [], "alarm": [], "trajectory": [], "swat_acts": [],
+                 "sums": collections.Counter()}
         looks = missed = 0
         with self.lock:
             org = self.org
@@ -152,6 +154,8 @@ class LiveLife:
                 snack = org.pending["snack"] if out["gazed"] and org.pending else 0.0
                 if out["gazed"]:
                     looks += 1
+                    if not out["asleep"]:
+                        self._competences(org, boxes or [], batch["sums"])
                     if out["eating"] > 0:
                         self.acts["meal"].append(index)
                     if snack > 0:
@@ -176,6 +180,49 @@ class LiveLife:
             batch["pace"] = float(org.last_interval)
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)
+
+    def _competences(self, org: Organism, boxes: list, sums) -> None:
+        """What the panel asked the week to measure (observation only), per
+        waking look: does its gaze lead or follow a moving host; does hunger
+        widen its diet to faint hosts; does its perception tree see hosts
+        the detector misses ("this one must be wearing repellent")."""
+        st = org.state
+        g = (st.cx, st.cy)
+        # 1. Pursuit: the host nearest its gaze, the same one as last look
+        # (its box overlaps the last one), and how both moved since.
+        near = min(boxes, key=lambda b: ((b[2] + b[4]) / 2 - g[0]) ** 2 + ((b[3] + b[5]) / 2 - g[1]) ** 2) if boxes else None
+        prev = self._pursuit
+        step = None
+        if near is not None and prev is not None and prev[1] is not None:
+            pb = prev[1]
+            same = min(pb[4], near[4]) > max(pb[2], near[2]) and min(pb[5], near[5]) > max(pb[3], near[3])
+            if same:
+                dg = (g[0] - prev[0][0], g[1] - prev[0][1])
+                dh = ((near[2] + near[4] - pb[2] - pb[4]) / 2, (near[3] + near[5] - pb[3] - pb[5]) / 2)
+                step = (dg, dh)
+                sums["pursuit_steps"] += 1
+                sums["pursuit_same"] += dg[0] * dh[0] + dg[1] * dh[1]
+                sums["pursuit_gg"] += dg[0] ** 2 + dg[1] ** 2
+                sums["pursuit_hh"] += dh[0] ** 2 + dh[1] ** 2
+                if prev[2] is not None:  # the previous step of the same pursuit
+                    (pg, ph) = prev[2]
+                    sums["pursuit_lead"] += pg[0] * dh[0] + pg[1] * dh[1]    # its gaze moved where the host then went
+                    sums["pursuit_follow"] += dg[0] * ph[0] + dg[1] * ph[1]  # its gaze went where the host had gone
+        self._pursuit = (g, near, step) if near is not None else None
+        # 2. Diet breadth: at a bite, how faint the host was (its scent: confidence
+        # x apparent size, as the prey sense weighs it), against its hunger.
+        host = prey_lib.host_box_at_mouth(boxes, st.cx, st.cy, org.aspect)
+        if host is not None and org.eating > 0:
+            s = float(host[1]) * min(1.0, (host[4] - host[2]) * (host[5] - host[3]) / 0.02)
+            h = float(org.body.hunger)
+            for k, v in (("diet_n", 1), ("diet_s", s), ("diet_h", h), ("diet_ss", s * s), ("diet_hh", h * h), ("diet_hs", h * s)):
+                sums[k] += v
+        # 3. Its perception tree's verdict on this look vs the detector's.
+        tree_yes = org.prev_response > 0.0  # its guess, 0.5 * (1 + response), above even
+        yolo_yes = prey_lib.prey_in_window(boxes, st.cx, st.cy, *st.half_extents(org.aspect)) > 0.0
+        sums["tree_looks"] += 1
+        sums["tree_yes_yolo_no"] += int(tree_yes and not yolo_yes)
+        sums["tree_no_yolo_yes"] += int(yolo_yes and not tree_yes)
 
     def _write(self) -> None:
         """The newest frames it lived, for the viewer (merged over live_status.json)."""

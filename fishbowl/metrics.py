@@ -15,6 +15,7 @@ feeding record does. Observation only: nothing here feeds back into
 fitness or the body.
 """
 
+import collections
 import math
 import statistics
 import time
@@ -33,6 +34,7 @@ class HourlyMetrics:
         self.started = now
         self.frames = self.awake = self.asleep = self.warn = self.biting = self.swats = 0
         self.look_sum = self.missed_sum = 0.0  # look interval (frames) and missed share, weighted by new frames
+        self.sums = collections.Counter()  # the live actor's per-look competence sums (fishbowl/livelife.py)
         self.bites: list[float] = []
         self.turning = 0.0
         self.path = 0.0
@@ -43,6 +45,7 @@ class HourlyMetrics:
             return
         eating, asleep, alarm = live.get("eating") or [], live.get("asleep") or [], live.get("alarm") or []
         traj = live.get("trajectory") or []
+        self.sums.update(live.get("sums") or {})
         swat_frames = set(live.get("swat_acts") or [])
         n = len(eating)
         start = 0 if self.last_index is None else max(0, self.last_index + 1 - first_index)
@@ -92,6 +95,32 @@ class HourlyMetrics:
                 self.last_heading = heading
         self.last_xy = (x, y)
 
+    def _competences(self) -> dict:
+        """Pursuit: correlation of its gaze's moves with the host's, same look
+        (tracking), its move then the host's next (leading) and the host's
+        move then its next (following). Diet: correlation of hunger with how
+        faint a bitten host was (negative = hungrier takes fainter hosts).
+        Tree: share of looks its tree saw a host the detector didn't, and
+        the reverse."""
+        s = self.sums
+        norm = math.sqrt(s["pursuit_gg"] * s["pursuit_hh"])
+        r = (lambda x: round(x / norm, 3)) if norm > 0 else (lambda x: None)
+        n = s["diet_n"]
+        diet = None
+        if n > 2:
+            vs, vh = s["diet_ss"] - s["diet_s"] ** 2 / n, s["diet_hh"] - s["diet_h"] ** 2 / n
+            if vs > 0 and vh > 0:
+                diet = round((s["diet_hs"] - s["diet_h"] * s["diet_s"] / n) / math.sqrt(vs * vh), 3)
+        looks = max(1, s["tree_looks"])
+        return {
+            "pursuit_steps": int(s["pursuit_steps"]), "pursuit_same": r(s["pursuit_same"]),
+            "pursuit_lead": r(s["pursuit_lead"]), "pursuit_follow": r(s["pursuit_follow"]),
+            "diet_bites": int(n), "diet_hunger_vs_scent": diet,
+            "diet_scent_mean": round(s["diet_s"] / n, 3) if n else None,
+            "tree_sees_unlabelled": round(s["tree_yes_yolo_no"] / looks, 3),
+            "tree_misses_labelled": round(s["tree_no_yolo_yes"] / looks, 3),
+        }
+
     def due(self) -> bool:
         return time.time() - self.started >= self.period_s
 
@@ -119,6 +148,7 @@ class HourlyMetrics:
             # looks, and the share of looks missed because its brain was still thinking.
             "look_s": round(self.look_sum / self.frames / max(1.0, fps), 3),
             "missed_share": round(self.missed_sum / self.frames, 3),
+            **self._competences(),
             **extra,
         }
         self._reset(now)
