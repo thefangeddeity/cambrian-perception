@@ -13,7 +13,7 @@
 # `livecam start`. Port 8090 only, its own folder and Python venv.
 # Re-running it updates the code and keeps state/ (checkpoint, logs).
 set -eu
-SOURCE=0 CHECKPOINT="" MODEL=""
+SOURCE="" CHECKPOINT="" MODEL=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --source) SOURCE=$2; shift 2 ;;
@@ -87,7 +87,12 @@ fi
 if [ -n "$MODEL" ]; then cp "$MODEL" "$DIR/models/yolov8n.onnx"; fi
 [ -f "$DIR/models/yolov8n.onnx" ] || echo "  WARNING: no model at $DIR/models/yolov8n.onnx -- no prey (snacks only) until one is added (--model)"
 
-# 4. What it watches: the camera (it has it whenever it runs: the livecam is off).
+# 4. What it watches: --source, else what it watched before (an update keeps
+#    it), else the camera (it has it whenever it runs: the livecam is off).
+if [ -z "$SOURCE" ] && [ -f "$DIR/cambrian.json" ]; then
+    SOURCE=$("$DIR/.venv/bin/python" -c 'import json, sys; print(json.load(open(sys.argv[1])).get("source", "0"))' "$DIR/cambrian.json" 2>/dev/null || true)
+fi
+SOURCE=${SOURCE:-0}
 echo "  source: $SOURCE"
 printf '{"source": "%s", "viewer_port": 8090}\n' "$SOURCE" > "$DIR/cambrian.json"
 

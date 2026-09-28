@@ -11,7 +11,7 @@
   Python venv. Re-running it updates the code and keeps state\ (checkpoint, logs).
 #>
 param(
-    [string]$Source = "0",
+    [string]$Source = "",
     [string]$Checkpoint = "",
     [string]$Model = "",
     [string]$InstallDir = "C:\ProgramData\cambrian\cambrian-perception",
@@ -72,7 +72,12 @@ if ($Model) { Copy-Item $Model $modelDst -Force }
 elseif (-not (Test-Path $modelDst) -and (Test-Path $livecamModel)) { Copy-Item $livecamModel $modelDst -Force }
 if (-not (Test-Path $modelDst)) { Write-Warning "no YOLO model at $modelDst -- it runs without prey (snacks only) until one is added (-Model <yolov8n.onnx>)" }
 
-# 4. What it watches: the camera (it has it whenever it runs: the livecam is off).
+# 4. What it watches: -Source, else what it watched before (an update keeps
+#    it), else the camera (it has it whenever it runs: the livecam is off).
+if (-not $Source -and (Test-Path "$InstallDir\cambrian.json")) {
+    try { $Source = [string](Get-Content "$InstallDir\cambrian.json" -Raw | ConvertFrom-Json).source } catch {}
+}
+if (-not $Source) { $Source = "0" }
 Write-Host "  source: $Source"
 @{ source = $Source; viewer_port = $ViewerPort } | ConvertTo-Json | Set-Content -Encoding utf8 "$InstallDir\cambrian.json"
 
