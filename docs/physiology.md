@@ -81,6 +81,14 @@ Fat can't fuel a burst or a brain.
 
 - **Sugar feeds the brain**, and so do the sensors (receptors, thinking). Fat
   can't: fatty acids don't fuel a brain, and fat can't become glucose.
+- **How long glycogen lasts is not a constant.** Fat pays the body in a
+  fast, so glycogen carries only the glucose-obligate part: the brain and its
+  sensors (the retina's analogue). That share is the brain's real cost, set by
+  its size (evolved) and its host's climate (CPU scarcity). Measured on
+  2026-09-28, it was 15-43% of the waking rest across lineages and newborns.
+  At that share, glycogen alone carries the brain for 17-69 h. For comparison,
+  a mouse's lasts 12-36 h and a human's ~24 h, where other obligate tissue
+  (red cells, renal medulla) draws on it too.
 - **Ketones.** Once glycogen is gone, the fat body / liver makes ketones. They
   ramp up over ~12 h and cover up to two-thirds of the brain's need (Owen et
   al. 1967).

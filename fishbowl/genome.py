@@ -57,6 +57,10 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump")
 STABILIZER_SIGMA = 0.1
+# The feeding pump has no biological bounds: its upkeep and its intake set
+# its limits, and log-normal steps can shrink it toward a nip without ever
+# reaching zero. These only keep the float sane (numerical guards).
+PUMP_GUARD = (1e-6, 1e6)
 ZOOM_SIGMA = STABILIZER_SIGMA  # a reflex gain, 0..1, mutates as the stabilizer's does
 # The traits from the 2026-09-27 panels mutate at the same scale (assumption):
 # metabolism (0.1 ectotherm .. 1 endotherm, born 1: today's body), host
@@ -226,7 +230,7 @@ class Genome:
         # at its mouth. Born where the old per-look meal fed it at its own
         # resting tempo, so no lineage jumps.
         self.pump = float(np.clip(pump if pump is not None else PUMP_REF / max(1, int(pace)),
-                                  0.1 * PUMP_REF, 10.0 * PUMP_REF))
+                                  PUMP_GUARD[0] * PUMP_REF, PUMP_GUARD[1] * PUMP_REF))
         self.prey_sense = int(np.clip(prey_sense, 0, MAX_PREY_SENSE))
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
@@ -481,7 +485,7 @@ class Genome:
             return "replay", (choice if new != old else "noop_inapplicable")
         if choice == "mutate_pump":
             old = self.pump
-            self.pump = float(np.clip(old * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), 0.1 * PUMP_REF, 10.0 * PUMP_REF))
+            self.pump = float(np.clip(old * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), PUMP_GUARD[0] * PUMP_REF, PUMP_GUARD[1] * PUMP_REF))
             return "pump", (choice if self.pump != old else "noop_inapplicable")
         if choice == "mutate_vigilance":
             old = self.vigilance
