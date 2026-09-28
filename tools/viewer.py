@@ -678,6 +678,17 @@ PAGE = r"""<!doctype html>
     <div class="cap" id="cam-note" style="margin-top:6px"></div>
     <div class="cap" id="hud-legend" style="margin-top:6px"><label><input type="checkbox" id="hud-on" checked> HUD</label> -- <span id="hud-legend-text"></span></div>
     <div class="cap" id="stream-link-row" style="margin-top:6px; display:none"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a> (some streams don't allow embedding)</div>
+    <!-- what it watches: a YouTube video instead of its camera (frames are never saved) -->
+    <div id="dessert-card" style="margin-top:12px">
+      <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px">
+        <input type="text" id="custom-url" placeholder="a YouTube URL to watch instead of the camera (frames are never saved)" style="flex:1 1 260px">
+        <button id="custom-url-submit">watch this</button>
+        <button id="dessert-cancel">back to camera</button>
+      </div>
+      <label class="cap" style="display:block; margin-top:6px"><input type="checkbox" id="dessert-timed"> back to the camera by itself at <input type="time" id="dessert-until" value="07:00"></label>
+      <div id="submit-status" class="cap" style="margin-top:6px"></div>
+    </div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -707,18 +718,6 @@ PAGE = r"""<!doctype html>
 
 <div class="vision">
   <div class="stack">
-    <div class="panel" id="dessert-card">
-      <h2>dessert</h2>
-      <div class="cap">A YouTube video instead of the camera. Frames are never saved.</div>
-      <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
-      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px">
-        <input type="text" id="custom-url" placeholder="paste a YouTube URL (live or recorded)..." style="flex:1 1 260px">
-        <button id="custom-url-submit">switch to this video</button>
-        <button id="dessert-cancel">back to camera now</button>
-      </div>
-      <label class="cap" style="display:block; margin-top:6px"><input type="checkbox" id="dessert-timed"> go back to the camera by itself at <input type="time" id="dessert-until" value="07:00"></label>
-      <div id="submit-status" class="cap" style="margin-top:6px"></div>
-    </div>
     <div class="panel">
       <h2>its perception tree</h2>
       <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
