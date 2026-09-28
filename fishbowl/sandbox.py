@@ -38,6 +38,18 @@ SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
 HANDLER_STATE_PATH = STATE_DIR / "handler_state.json"
 
 
+METRICS_PATH = STATE_DIR / "metrics.jsonl"
+
+
+def append_metrics(line: dict) -> None:
+    """One hour's metrics (fishbowl/metrics.py): an O(1) append, ~24 lines a day."""
+    try:
+        with open(METRICS_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(line, separators=(",", ":")) + "\n")
+    except OSError as e:
+        print(f"metrics: could not append ({e})")
+
+
 def load_quota_pct(default: float) -> float:
     """The CPU quota resource_handler.py last actually set (its own
     written record) -- read-only, used to price the look's size."""

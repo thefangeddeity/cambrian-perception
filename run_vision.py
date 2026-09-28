@@ -59,6 +59,7 @@ from fishbowl import fovea, genome as G, hostspeed, reflexes, sandbox, video_sou
 from fishbowl.state import MosquitoState
 from fishbowl import prey as prey_lib
 from fishbowl.bouts import FeedingRecord, fit_bout_criterion
+from fishbowl.metrics import HourlyMetrics
 from fishbowl.controller import TREE_HIDDEN
 # The organism itself and the world's fixed physics it lives by -- one
 # implementation, shared with any live host (fishbowl/organism.py).
@@ -1154,6 +1155,20 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         return True
     signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__("now", True))
 
+    metrics = HourlyMetrics()
+
+    def _metrics_line() -> None:
+        line = metrics.flush(world.fps, {
+            "generation": box.generation, "watching": clip_path,
+            "pump": round(genome.pump, 3), "metabolism": round(genome.metabolism, 3), "pace": genome.pace,
+            "kc": genome.kc, "receptors": genome.receptors, "zoom": round(genome.zoom, 3),
+            "vigilance": round(genome.vigilance, 3), "quota_pct": quota_pct,
+            "body": {k: round(float(body_now[k]), 3) for k in ("energy", "glycogen", "reserve", "ketone", "wasting")
+                     if body_now and k in body_now},
+        })
+        if line:
+            sandbox.append_metrics(line)
+
     while box.should_continue() and not stop["now"]:
         if sandbox.STOP_REQUEST_PATH.exists():  # a deliberate stop (docs/packaging.md)
             print("Stop requested -- saving and exiting.")
@@ -1322,6 +1337,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             memory_now = survivor_memory
         # Its feeding record: the survivor's acts on frames not lived before
         # (a live feed only -- a file is re-watched, not lived).
+        metrics.add(survivor, world.first_index, world.fps)  # Gelman's hourly metrics (observation only)
+        if metrics.due():
+            _metrics_line()
         if world.first_index is not None:
             for kind in ("meal", "snack"):
                 feeding[kind].add([world.first_index + k for k in survivor.get(kind + "_acts", [])],
@@ -1546,6 +1564,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             _save()
 
     _save()
+    _metrics_line()  # the hour so far
     if workers:
         workers.close()
     if feed is not None:

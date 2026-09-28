@@ -420,7 +420,10 @@ LOCK_HUD_JS = r"""
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
-                  ...(fs.warn ? [[blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']] : []),
+                  // Its warning: lit when it warns; for the owner, a dim lamp otherwise -- untrained
+                  // (only the owner's feedback is meant to select it). Clients see it only when lit.
+                  ...(fs.warn ? [[blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']]
+                      : (opts && opts.internals ? [['WARN', 'rgba(255, 68, 68, 0.28)', 'bold 12px monospace']] : [])),
                   [fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped', '#9fb6c6', '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
@@ -572,7 +575,7 @@ PAGE = r"""<!doctype html>
       <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
       <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion (size = how much); its brain gets this location</span>
       <span><b style="color:var(--red)">red frame</b> something dark approaching</span>
-      <span><b style="color:#ff5fa2">- - -</b> a host (anything with blood that YOLO names: people and animals); <b style="color:#ff5fa2">BITING</b> = a host under its mouth</span>
+      <span><b style="color:#ff5fa2">- - - TARGET</b> a host (anything with blood that YOLO names: people and animals); <b style="color:#ff5fa2">BITING</b> = blood from a host under its mouth; <b style="color:#c88fff">SIPPING</b> = nectar (a surprise snack); <b style="color:rgba(255,68,68,0.5)">WARN</b> dim = its warning, untrained (only the owner's feedback is meant to select it), lit = warning</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
@@ -672,7 +675,6 @@ PAGE = r"""<!doctype html>
     if (c.kind === 'predict') return side === 'in' ? `err ${INPUT_NAMES[c.target]}` : `predict ${INPUT_NAMES[c.target]}`;
     return side === 'in' ? `loop ${k + 1} (back)` : `loop ${k + 1}` + (c.copy_of !== undefined ? ` (from ${OUTPUT_NAMES[c.copy_of] || 'loop'})` : '');
   }
-  const PREY_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
   const REPLAY_FPS = 15;
   let D = null, t0 = performance.now();
   const CLK = { t0 };  // the one clock of the visual field and the picture (replayAt)
@@ -754,12 +756,15 @@ PAGE = r"""<!doctype html>
     pb.forEach(([cls, conf, x0, y0, x1, y1]) => {
       ctx.strokeStyle = '#ff5fa2'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
       ctx.strokeRect(x0 * W, y0 * H, (x1 - x0) * W, (y1 - y0) * H); ctx.setLineDash([]);
-      ctx.fillStyle = '#ff5fa2'; ctx.fillText(`${PREY_NAMES[cls] || cls} ${(conf * 100).toFixed(0)}%`, x0 * W + 2, y0 * H - 2);
+      ctx.fillStyle = '#ff5fa2'; ctx.fillText(`TARGET ${(conf * 100).toFixed(0)}%`, x0 * W + 2, y0 * H - 2);  // every host is a target (its preferences are in the traits)
     });
     const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
     if (eat > 0.01) {
       ctx.fillStyle = 'rgba(255, 95, 162, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top';
       ctx.fillText(`BITING ${(eat * 100).toFixed(0)}%`, 10, 10);
+    } else {
+      const sip = (d.snacks && d.snacks[Math.min(cur, d.snacks.length - 1)]) || 0;  // nectar: a surprise snack
+      if (sip > 0.01) { ctx.fillStyle = 'rgba(200, 136, 255, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top'; ctx.fillText('SIPPING', 10, 10); }
     }
     ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
     let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
@@ -866,6 +871,9 @@ PAGE = r"""<!doctype html>
       ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(mx, my, ms, ms);
       ctx.fillStyle = 'rgba(255, 95, 162, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
       ctx.fillText(`BITING ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    } else if (cells && !shut && (R.snack || 0) > 0.01) {  // nectar: a surprise snack, sipped
+      ctx.fillStyle = 'rgba(200, 136, 255, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+      ctx.fillText('SIPPING', W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     }
     const biteAge = now - (LOOK.biteT ?? -1e9);
     if (biteAge < 400) {
@@ -1009,7 +1017,7 @@ PAGE = r"""<!doctype html>
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
   const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55',grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
       (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +
