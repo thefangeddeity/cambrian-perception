@@ -980,7 +980,11 @@ PAGE = r"""<!doctype html>
     const c = $('replay-eye'); if (!c) return;
     const r = d.replay_eye, W = c.width, ctx = c.getContext('2d');
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, W);
-    if (!r) { $('replay-eye-cap').textContent = 'Nothing replayed lately (it replays asleep, or awake in quiet moments).'; drawDreamMap(d); return; }
+    if (!r) {
+      $('replay-eye-cap').textContent = !d.kc ? 'No mushroom body yet: nothing to replay until one evolves.'
+        : 'Nothing replayed lately (it replays asleep, or awake in quiet moments).';
+      drawDreamMap(d); return;
+    }
     const n = r.n, s = W / n;
     const fade = Math.max(0.25, 1 - r.age / 10);
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
