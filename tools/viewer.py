@@ -435,7 +435,7 @@ LOCK_HUD_JS = r"""
       });
     }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
-    const tag = (fs.delay != null ? 'DELAYED' : 'REPLAY') + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
+    const tag = (fs.delay != null ? (d.live_actor ? 'LIVE' : 'DELAYED') : 'REPLAY')  // LIVE: the organism acting live (fishbowl/livelife.py) + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
     lockShadow(ctx, true);
     ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
     ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
