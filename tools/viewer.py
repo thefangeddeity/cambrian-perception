@@ -474,16 +474,18 @@ LOCK_HUD_JS = r"""
     rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
     ctx.textAlign = 'left';
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
-    // Arabic, right-justified at the right margin (mirroring the left column):
-    // the canvas's own right-to-left direction keeps each line's word order and
-    // its digits and signs in place, and an Arabic font is named, because
-    // monospace has no Arabic glyphs and a silent fallback measures and draws
-    // unevenly (the advice of an Arabic type designer on the panel).
-    ctx.save(); ctx.direction = 'rtl'; ctx.textAlign = 'right';
+    // Arabic, right-justified at the right margin (mirroring the left column).
+    // The canvas stays left-to-right, where "right" means the right edge in
+    // every browser (under a right-to-left canvas some browsers swap
+    // left/right for start/end, which left the lines short of the margin in
+    // one and past it in another); each line is marked right-to-left inside
+    // the text itself (a Unicode right-to-left isolate), which orders its
+    // words, digits and signs. An Arabic font is named: monospace has none.
+    ctx.save(); ctx.direction = 'ltr'; ctx.textAlign = 'right';
     rows.forEach(([text, colour, font], k) => {
       if (!text) return;
       ctx.font = font.replace('monospace', AR_FONT); ctx.fillStyle = colour;
-      ctx.fillText(toArabic(text), bw - 16, 18 + 16 * k);
+      ctx.fillText('\u2067' + toArabic(text) + '\u2069', bw - 16, 18 + 16 * k);
     });
     ctx.restore();
     lockShadow(ctx, false);
