@@ -921,11 +921,18 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             load_source = _resolve_live_url(clip_path)
         except Exception as e:
             # Audit: a chosen stream that ended used to crash here forever
-            # (Restart=always). Drop the choice and go back to the camera.
-            print(f"Live stream unavailable ({e}) -- clearing the video choice, back to {home_source}.")
-            if dessert is not None:
-                sandbox.clear_selected_source(dessert["url"] if dessert else None)
+            # (Restart=always). Drop the choice and go back to the camera --
+            # but only once it has failed a few runs in a row: one timeout
+            # is a network hiccup, not a stream that ended.
+            if dessert is not None and sandbox.source_failed(dessert["url"]):
+                print(f"Live stream unavailable ({e}) -- failed {sandbox.SOURCE_FAILURES_TO_DROP} runs in a row: "
+                      f"clearing the video choice, back to {home_source}.")
+                sandbox.clear_selected_source(dessert["url"])
+                sandbox.source_opened()
+            else:
+                print(f"Live stream unavailable ({e}) -- trying again on the next run.")
             return
+        sandbox.source_opened()
 
     clip_name = _clip_display_name(source, clip_path)
 

@@ -100,6 +100,26 @@ def load_checkpoint() -> dict | None:
     return None
 
 
+SOURCE_FAILURES_PATH = STATE_DIR / "source_failures.json"
+SOURCE_FAILURES_TO_DROP = 3  # a chosen stream is dropped after this many failed runs in a row
+
+
+def source_failed(url: str) -> bool:
+    """A chosen stream failed to open: count it, and say whether to give up
+    on it. One timeout (a network hiccup) used to drop a human's choice for
+    good; now only a stream that fails SOURCE_FAILURES_TO_DROP runs in a row
+    (about a minute apart, as the supervisor restarts it) is dropped."""
+    seen = _read_json(SOURCE_FAILURES_PATH, {}) if SOURCE_FAILURES_PATH.exists() else {}
+    count = (int(seen.get("count", 0)) if seen.get("url") == url else 0) + 1
+    _write_json_atomic(SOURCE_FAILURES_PATH, {"url": url, "count": count})
+    return count >= SOURCE_FAILURES_TO_DROP
+
+
+def source_opened() -> None:
+    """A chosen stream opened: its failure count starts over."""
+    SOURCE_FAILURES_PATH.unlink(missing_ok=True)
+
+
 def clear_selected_source(url: str | None = None) -> None:
     """Drop the video choice (a chosen stream failed): back to the camera.
     With url, only if that is still the choice -- a run must never wipe a
