@@ -386,14 +386,15 @@ LOCK_HUD_JS = r"""
     const host = canvas && canvas.parentElement; if (!host) return;
     if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host._hudT = performance.now();
-    const spots = { ar: ['rtl', 'top:10px;right:16px;text-align:right', AR_FONT, toArabic],
-                    uk: ['ltr', 'bottom:8px;left:16px;text-align:left', 'monospace', toUkrainian],
-                    tw: ['ltr', 'bottom:8px;right:16px;text-align:right', TW_FONT, toTaiwanese] };
+    const spots = { ar: ['rtl', 'top:14px;right:24px;text-align:right', AR_FONT, toArabic],
+                    uk: ['ltr', 'bottom:14px;left:24px;text-align:left', 'monospace', toUkrainian],
+                    tw: ['ltr', 'bottom:14px;right:24px;text-align:right', TW_FONT, toTaiwanese] };
+    rows = rows.filter(r => r[3] !== 'telemetry').map(([t, c, f]) => [t, c, f.replace(/(\d+)px/, (_, n) => Math.round(n * 0.85) + 'px')]);
     Object.entries(spots).forEach(([key, [dir, where, family, conv]]) => {
       let el = host.querySelector(':scope > .hud-' + key);
       if (!el) {
         el = document.createElement('div'); el.className = 'hud-' + key + ' hud-lang'; el.dir = dir;
-        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;'
+        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;opacity:0.72;'
           + `text-shadow:1px 1px 3px #000,1px 1px 1px #000,0 0 6px ${HUD_GLOW};` + where;
         host.appendChild(el);
       }
@@ -428,6 +429,11 @@ LOCK_HUD_JS = r"""
   const HUD_SCANNING = '#ff8a78', HUD_TRACK = '#ffb066', HUD_LOCK = '#ff4f6f', HUD_SLEEP = '#c98aa8';
   const HUD_AGREE = '#fff0c0', HUD_DISAGREE = '#ffb066', HUD_CATCH = '#ffb066';
   const HUD_SNACK = '#e0909c', HUD_MEAL = '#ff6f8a', HUD_WARN = '#ff3b28', HUD_HOST = '#ff6f8a';
+  // Roles (a 2026-09-28 critique, taken up by the UX panel): red/magenta = target
+  // and acquisition; amber = behaviour; cool steel = system telemetry; grey =
+  // labels. Three tiers of text: the state, then the delay, then small telemetry.
+  const HUD_BEHAV = '#d9a066', HUD_SYS = '#a9bcc8', HUD_LABEL = '#8c8680';
+  const HUD_MOUTH = 22 / 64 / 2;  // its mouth, of the frame's height (prey.MOUTH_SIDE)
   const HUD_GLOW = 'rgba(255, 40, 20, 0.95)';
   const HUD_FILM = 'rgba(80, 0, 0, 0.14)', HUD_SCAN = 'rgba(0, 0, 0, 0.08)';
   function drawLock(ctx, bw, bh, fs, d, picture, imgAspect, now, st, opts) {
@@ -472,21 +478,22 @@ LOCK_HUD_JS = r"""
           ctx.restore();
         }
       }
-      // its mouth (the gaze's centre: prey under it is a meal): a diamond that spins on LOCK
-      const r = Math.min(gw, gh) / 4;
+      // Its mouth, the one real feature at the centre: its true square at its
+      // true size (prey under it is a meal); filled, pulsing, while it bites.
       if (!sleeping) {
-        ctx.save(); ctx.translate(x, y); ctx.rotate(L.mode === 'LOCK' ? now / 300 : Math.PI / 4);
-        ctx.strokeRect(-r / Math.SQRT2, -r / Math.SQRT2, 2 * r / Math.SQRT2, 2 * r / Math.SQRT2);
-        ctx.restore();
-        ctx.beginPath();
-        [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([sx, sy]) => { ctx.moveTo(x + sx * r * 1.15, y + sy * r * 1.15); ctx.lineTo(x + sx * r * 1.6, y + sy * r * 1.6); });
-        ctx.stroke();
-      }
-      if (L.mode !== 'LOCK' || blink) {
-        ctx.font = 'bold 12px monospace'; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-        const label = L.mode + lockIdText(L.id), ly = Math.min(h - 18, y + gh / 2 + 6);
-        lockShadow(ctx, true); ctx.fillStyle = col; ctx.fillText(label, x, ly); lockShadow(ctx, false);
-        ctx.textAlign = 'left';
+        const m = HUD_MOUTH * h;
+        if (L.mode === 'LOCK') { ctx.fillStyle = `rgba(255, 79, 111, ${0.18 + 0.14 * (0.5 + 0.5 * Math.sin(now / 110))})`; ctx.fillRect(x - m / 2, y - m / 2, m, m); }
+        ctx.lineWidth = 1.5; ctx.strokeRect(x - m / 2, y - m / 2, m, m);
+        // where its eye is moving: a short vector from the mouth (its real eye motion between looks)
+        const tr = fs.traj || [], j = fs.i || 0;
+        if (tr.length > 1 && j > 0) {
+          const vx = (tr[j][0] - tr[j - 1][0]) * w, vy = (tr[j][1] - tr[j - 1][1]) * h, v = Math.hypot(vx, vy);
+          if (v > 1) {
+            const len = Math.min(gw * 0.6, 3 * v), ux = vx / v, uy = vy / v;
+            ctx.strokeStyle = HUD_BEHAV; ctx.lineWidth = 1.5; ctx.beginPath();
+            ctx.moveTo(x + ux * m / 2, y + uy * m / 2); ctx.lineTo(x + ux * (m / 2 + len), y + uy * (m / 2 + len)); ctx.stroke();
+          }
+        }
       }
       ctx.restore();
     }
@@ -522,18 +529,18 @@ LOCK_HUD_JS = r"""
     // right-justified as Arabic reads.
     const tw = ctx.measureText(tag).width, tx = bw / 2 - (tw + 9) / 2;
     ctx.fillStyle = blink ? HUD_HOT : HUD_ASH; ctx.beginPath(); ctx.arc(tx + 4, 18, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = HUD_HOT; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
+    ctx.fillStyle = HUD_SYS; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
     // Left-hand readout, top to bottom: mode + ID, delay, (operators only)
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals, then its warning.
-    const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
-                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_EMBER, '11px monospace']];
+    const rows = [[L.mode + lockIdText(L.id), col, 'bold 14px monospace'],
+                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_SYS, '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
-      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_AGREE : HUD_DISAGREE, '11px monospace']);
+      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_AGREE : HUD_DISAGREE, '10px monospace', 'telemetry']);
     }
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
-    rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_SNACK, '11px monospace']);
-    rows.push([`meals ${boutText('meal', st.meals)}`, HUD_MEAL, '11px monospace']);
+    rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
+    rows.push([`meals ${boutText('meal', st.meals)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
     // it warns, a dim lamp otherwise. The client page never shows it.
