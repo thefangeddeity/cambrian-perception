@@ -39,6 +39,8 @@ if ($Repo -ne $InstallDir) {
     if ($LASTEXITCODE -ge 8) { throw "copying the code failed (robocopy $LASTEXITCODE)" }
 }
 New-Item -ItemType Directory -Force "$InstallDir\state", "$InstallDir\models" | Out-Null
+# `cambrian --stop | --yield` leave their notes in state\ from any terminal, elevated or not.
+icacls "$InstallDir\state" /grant "*S-1-5-32-545:(OI)(CI)M" /Q | Out-Null  # BUILTIN\Users: modify
 
 # 2. Python (3.11+), then the organism's own venv with the pinned libraries.
 function Find-Python {

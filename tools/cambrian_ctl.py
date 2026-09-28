@@ -47,12 +47,24 @@ def _service_pid() -> int | None:
     return int(out[0]) if out else None
 
 
+def _running() -> bool:
+    """Is the organism's supervisor up? On Windows a non-elevated terminal
+    can't read a boot task's process command line (the pid lookup comes back
+    empty), so the task's own state decides there too -- without this,
+    `cambrian --status` said NOT RUNNING and `--stop` did nothing."""
+    if _service_pid():
+        return True
+    if WINDOWS:
+        return _ps(f"(Get-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue).State") == "Running"
+    return False
+
+
 def start() -> int:
     # Taking the camera: the livecam yields first (the suite, docs/suite.md).
     suite.YIELDED.unlink(missing_ok=True)
     if not suite.yield_livecam():
         return 1  # never both on the camera
-    if _service_pid():
+    if _running():
         print("already running")
         return status()
     if WINDOWS:
@@ -60,21 +72,20 @@ def start() -> int:
     else:  # macOS: the login agent (deploy/macos/install.sh); a clean stop keeps it down
         subprocess.run(["launchctl", "kickstart", f"gui/{os.getuid()}/{AGENT}"])
     for _ in range(30):
-        if _service_pid():
+        if _running():
             break
         time.sleep(1)
     return status()
 
 
 def stop() -> int:
-    pid = _service_pid()
-    if not pid:
+    if not _running():
         print("not running")
         return 0
     (STATE / "service.stop").touch()
     print("stopping (the organism finishes its generation and saves) ...", flush=True)
     for _ in range(200):
-        if not _service_pid():
+        if not _running():
             print("stopped (checkpoint saved)")
             return 0
         time.sleep(1)
@@ -90,8 +101,9 @@ def yield_(by: str = "livecam") -> int:
 
 def status() -> int:
     pid = _service_pid()
+    up = pid or _running()
     y = suite.yielded()
-    print(f"service   : {'running (pid %d)' % pid if pid else suite.describe_yielded(y) if y else 'NOT RUNNING'}")
+    print(f"service   : {('running (pid %d)' % pid if pid else 'running') if up else suite.describe_yielded(y) if y else 'NOT RUNNING'}")
     if WINDOWS:
         t = _ps(f"$t = Get-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue; "
                 "if ($t) { \"$($t.State), at boot as $($t.Principal.UserId)\" } else { 'none' }")
@@ -99,7 +111,7 @@ def status() -> int:
     elif sys.platform == "darwin":
         loaded = subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{AGENT}"], capture_output=True).returncode == 0
         print(f"login job : {'LaunchAgent ' + AGENT if loaded else 'none loaded'}")
-    if pid and suite.livecam_command():
+    if up and suite.livecam_command():
         print("livecam   : off while the organism runs (starting the livecam stops the organism)")
     try:
         cfg = json.loads((ROOT / "cambrian.json").read_text(encoding="utf-8-sig"))
@@ -121,7 +133,7 @@ def status() -> int:
         print("organism  : no live status yet")
     print(f"quota     : {json.loads((STATE / 'handler_state.json').read_text(encoding="utf-8-sig")).get('last_quota_pct', '?') if (STATE / 'handler_state.json').exists() else '?'}% of a core (hard cap)")
     print(f"viewer    : http://{socket.gethostname()}:{cfg.get('viewer_port', 8090)}/")
-    return 0 if pid else 1
+    return 0 if up else 1
 
 
 def main() -> int:
