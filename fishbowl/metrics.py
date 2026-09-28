@@ -31,7 +31,7 @@ class HourlyMetrics:
 
     def _reset(self, now: float) -> None:
         self.started = now
-        self.frames = self.awake = self.asleep = self.warn = self.biting = 0
+        self.frames = self.awake = self.asleep = self.warn = self.biting = self.swats = 0
         self.bites: list[float] = []
         self.turning = 0.0
         self.path = 0.0
@@ -42,6 +42,7 @@ class HourlyMetrics:
             return
         eating, asleep, alarm = live.get("eating") or [], live.get("asleep") or [], live.get("alarm") or []
         traj = live.get("trajectory") or []
+        swat_frames = set(live.get("swat_acts") or [])
         n = len(eating)
         start = 0 if self.last_index is None else max(0, self.last_index + 1 - first_index)
         if start > 0 and self.last_index + 1 < first_index:  # a gap in the feed: a bite can't span it
@@ -58,6 +59,8 @@ class HourlyMetrics:
             self.awake += 1
             if k < len(alarm) and alarm[k]:
                 self.warn += 1
+            if k in swat_frames:
+                self.swats += 1
             if eating[k] > 0:
                 self.biting += 1
                 self.bite_run += 1
@@ -107,6 +110,7 @@ class HourlyMetrics:
             "loops_per_awake_min": round(abs(self.turning) / (2 * math.pi) / waking_min, 3) if waking_min else None,
             "path_per_awake_min": round(self.path / waking_min, 3) if waking_min else None,
             "warn_share_awake": round(self.warn / max(1, self.awake), 4),
+            "swats": self.swats,
             **extra,
         }
         self._reset(now)

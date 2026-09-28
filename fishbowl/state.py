@@ -176,6 +176,7 @@ class MosquitoState:
     debt: float = 0.0          # anaerobic debt (0..1 = exhausted), felt as fatigue, repaid over hours
     metabolism: float = 1.0    # its inherited metabolic strategy (genome.metabolism; set by the organism, not saved)
     pump: float = PUMP_REF     # its feeding pump's rate, B/s (genome.pump; set by the organism, not saved)
+    bite_blood: float = 0.0    # blood (legacy units) taken in the bite going on now: what a swat takes back
 
     # ---- what the organism "feels" ------------------------------------
     @property
@@ -416,7 +417,23 @@ class MosquitoState:
         """A bite as a flow: a host under its mouth for `seconds`, blood at
         its pump's rate x the catch's confidence (awake, past grogginess)."""
         if self.can_eat:
+            before = self.gut
             self._swallow(self.pump * _clamp(confidence) * max(0.0, seconds) * self.efficiency / LEGACY_UNIT)
+            self.bite_blood += (self.gut - before) * GUT_CAP / LEGACY_UNIT
+
+    def swat(self) -> float:
+        """Host defense (a 2026-09-28 panel): the host it is biting came at
+        it, and this bite's blood is lost -- a blood-full mosquito flies slower
+        and is hit more (Roitberg et al. 2003), so staying longer risks more
+        (Lima & Dill 1990). Returns what was lost (legacy units)."""
+        lost = min(self.bite_blood, self.gut * GUT_CAP / LEGACY_UNIT)
+        self.gut = _clamp(self.gut - lost * LEGACY_UNIT / GUT_CAP)
+        self.bite_blood = 0.0
+        return lost
+
+    def bite_over(self) -> None:
+        """The host left its mouth (or it left the host): the bite is over."""
+        self.bite_blood = 0.0
 
     def feed_prey(self, amount: float) -> None:
         """A real meal: prey (a person or animal, per YOLO) held in the

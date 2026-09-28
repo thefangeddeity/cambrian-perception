@@ -41,6 +41,19 @@ backup fuel.
   is more muscle to keep. At the reference rate its upkeep is 5% of the resting
   burn, scaled with pump size and metabolic strategy. **This 5% is a guess**,
   borrowed from the brain's measured share (Mink 1981); see the audit.
+- **Host defense: a swat.** A host it is biting can swat it: the same host,
+  nearer than at its last look (its box overlaps the last one and grew),
+  while the field looms past the line that already counts as a big change
+  (`WAKE_LOOM`). A swat takes back **that bite's blood**. Blood-full
+  mosquitoes fly slower and are hit more (Roitberg et al. 2003), so staying
+  longer risks more: the foraging-under-risk trade-off (Lima & Dill 1990),
+  which lets nipping versus gorging evolve. Nothing forces it to leave.
+  Tissue damage was left out: nothing measures its size (panel 9–2).
+- **Danger is learned, if evolution wants it.** An aversive compartment of the
+  mushroom body (like the fly's punishment compartments, Aso et al. 2014)
+  learns, by the same three-factor rule, what came before a swat. It feeds the
+  brain a "danger" input, born with zero weights. Its learning rate is its own
+  trait, born 0 (off). Once on, its output neuron costs its multiply-adds.
 - **Snacks are nectar.** Surprise in the gaze pays a little. That keeps it
   going but can't sustain it.
 - **Digestion costs a fifth of every meal** (specific dynamic action, Secor).

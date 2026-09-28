@@ -55,7 +55,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
-            "mutate_replay", "mutate_vigilance", "mutate_pump")
+            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive")
 STABILIZER_SIGMA = 0.1
 # The feeding pump has no biological bounds: its upkeep and its intake set
 # its limits, and log-normal steps can shrink it toward a nip without ever
@@ -194,6 +194,7 @@ class Genome:
         rem_share: float = 0.0,
         vigilance: float = 1.0,
         pump: float | None = None,
+        aversive_rate: float = 0.0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -208,6 +209,8 @@ class Genome:
         self.kc = int(np.clip(kc, 0, MAX_KC))
         self.kc_seed = int(kc_seed) if kc_seed is not None else random.randrange(2 ** 31)
         self.learning_rate = float(np.clip(learning_rate, 0.0, LEARNING_MAX))
+        # Its aversive compartment's learning rate (fishbowl/mushroom.py): born 0, off.
+        self.aversive_rate = float(np.clip(aversive_rate, 0.0, LEARNING_MAX))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -273,6 +276,7 @@ class Genome:
             self.rem_share,
             self.vigilance,
             self.pump,
+            self.aversive_rate,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -441,6 +445,13 @@ class Genome:
             else:
                 self.learning_rate = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), LEARNING_MIN, LEARNING_MAX))
             return "brain", (choice if self.learning_rate != old else "noop_inapplicable")
+        if choice == "mutate_aversive":  # drawn and stepped as the reward learning rate is
+            old = self.aversive_rate
+            if old <= 0.0:
+                self.aversive_rate = float(LEARNING_MIN * (LEARNING_MAX / LEARNING_MIN) ** rng.random())
+            else:
+                self.aversive_rate = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), LEARNING_MIN, LEARNING_MAX))
+            return "brain", (choice if self.aversive_rate != old else "noop_inapplicable")
         if choice == "mutate_cones":
             old = self.cones
             self.cones = int(np.clip(old + rng.choice((-2, 2)), 0, self.receptors))  # one ring of cones
@@ -617,6 +628,7 @@ class Genome:
             "rem_share": self.rem_share,
             "vigilance": self.vigilance,
             "pump": self.pump,
+            "aversive_rate": self.aversive_rate,
         }
 
     @staticmethod
@@ -676,6 +688,7 @@ class Genome:
             rem_share=float(data.get("rem_share", 0.0)),
             vigilance=float(data.get("vigilance", 1.0)),
             pump=data.get("pump"),
+            aversive_rate=float(data.get("aversive_rate", 0.0)),
         )
 
 

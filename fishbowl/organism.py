@@ -27,12 +27,12 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
-from .controller import INTRUDER_INPUT, PLACE_INPUTS, REFERENCE_MACS
+from .controller import DANGER_INPUT, INTRUDER_INPUT, PLACE_INPUTS, REFERENCE_MACS
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import MushroomBody, macs as kc_macs
 from .state import (FOOD_PER_LOOK, LEGACY_UNIT, LIGHT_SLOW_S, PREY_FOOD_PER_LOOK, SLEEP_SETTLE_S, TEMPO_SHARE,
-                    WAKE_FLOOR, MosquitoState)
+                    WAKE_FLOOR, WAKE_LOOM, MosquitoState)
 from . import reflexes
 
 # --- Prices (the body pays per gaze, x CPU scarcity) -----------------------
@@ -324,8 +324,16 @@ class Organism:
         # Its mushroom body (fishbowl/mushroom.py): what it has LEARNED is
         # memory, carried like the surprise memory (the third item of memory).
         learned = memory[2] if memory is not None and len(memory) > 2 else None
-        self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned)
+        danger = memory[6] if memory is not None and len(memory) > 6 else None  # its aversive memory (item 7)
+        self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger)
         self.learning_rate = float(getattr(g, "learning_rate", 0.0))
+        self.aversive_rate = float(getattr(g, "aversive_rate", 0.0))
+        self.danger_value = 0.0
+        # Host defense: the host at its mouth last look (a swat is that host
+        # coming at it), and the frames of the looks it was swatted on.
+        self.prev_mouth_box = None
+        self.swats = 0
+        self.swat_frames: list = []
         self.food_value = 0.0
         self.value_errors = []
         # Colour vision: how many opponent channels this genome's gaze has
@@ -468,6 +476,7 @@ class Organism:
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
         kc_active = self.mb.active(v, n, self.live_kc) if not was_asleep else np.zeros(0, dtype=int)
         self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
+        self.danger_value = float(np.clip(self.mb.danger(kc_active), -1.0, 1.0)) if self.aversive_rate > 0.0 else 0.0
         cell = self._cell(state.cx, state.cy)
         place_dx, place_dy, place_value = self._place_sense(state.cx, state.cy)
         self.intruder = self._intruder(boxes, body.daylight, self.last_interval / max(1.0, self.fps))
@@ -483,7 +492,7 @@ class Organism:
             out = brain.step(
                 lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
-                self.food_value, place_dx, place_dy, place_value, self.intruder,
+                self.food_value, place_dx, place_dy, place_value, self.intruder, self.danger_value,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -530,8 +539,28 @@ class Organism:
             pan = tilt = 0.0
             prey_now = snack = 0.0
             interval = MAX_INTERVAL
+            self.prev_mouth_box = None
+            body.bite_over()
         else:
             prey_now = prey_lib.prey_at_mouth(boxes, state.cx, state.cy, self.aspect)  # its mouth: the gaze centre
+            # Host defense (a 2026-09-28 panel): a swat is the host it is biting
+            # coming at it -- the same host, nearer than last look, while the
+            # field looms past the line that already counts as a big change
+            # (WAKE_LOOM). The swat takes back this bite's blood; whether to
+            # stay is its own business.
+            host = prey_lib.host_box_at_mouth(boxes, state.cx, state.cy, self.aspect)
+            punishment = 0.0
+            if host is not None and loom >= WAKE_LOOM and prey_lib.approached(self.prev_mouth_box, host):
+                punishment = body.swat() / PREY_FOOD_PER_LOOK  # in meals, like the reward
+                prey_now = 0.0  # swatted: no blood this interval
+                self.swats += 1
+                if rec is not None:
+                    self.swat_frames.append(self.k)
+            elif host is None:
+                body.bite_over()
+            self.prev_mouth_box = host
+            if len(kc_active) and self.aversive_rate > 0.0:
+                self.mb.learn_danger(kc_active, punishment, self.aversive_rate)
             snack = feed_on_novelty(self.memory, v, state, self.variance, self.aspect)
             # Lifetime learning: what it ate this look (in meals: a full look at
             # prey = 1) teaches its mushroom body what the look showed.
@@ -661,9 +690,10 @@ class Organism:
                     gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"]
                                  + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
-                                 + (THINK_COST * kc_macs(self.live_kc) / REFERENCE_MACS if p["kc_on"] else 0.0)
+                                 + (THINK_COST * (kc_macs(self.live_kc) + (self.live_kc if self.aversive_rate > 0.0 else 0))
+                                    / REFERENCE_MACS if p["kc_on"] else 0.0)  # + the aversive output neuron, once it exists
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
-                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT,))
+                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT))
                                  + THINK_COST * p["replay_macs"] / REFERENCE_MACS) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),
                     field_light=p["field_light"])

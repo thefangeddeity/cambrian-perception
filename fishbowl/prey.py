@@ -140,6 +140,31 @@ def _coverage(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: flo
 MOUTH_SIDE = 22 / 64 / 2  # of the frame's height (fovea: DEFAULT_RECEPTORS x RECEPTOR_PITCH / 2)
 
 
+def host_box_at_mouth(boxes: list[list[float]], cx: float, cy: float, aspect: float):
+    """The host under its mouth (the surest, if several), or None."""
+    hy = MOUTH_SIDE / 2.0
+    hx = hy / aspect
+    best = None
+    for b in boxes or ():
+        _, conf, x0, y0, x1, y1 = b
+        if min(x1, cx + hx) > max(x0, cx - hx) and min(y1, cy + hy) > max(y0, cy - hy):
+            if best is None or conf > best[1]:
+                best = b
+    return best
+
+
+def approached(prev, cur) -> bool:
+    """The host at its mouth came at it: the same host (its box overlaps the
+    last look's) and nearer (its box grew)."""
+    if prev is None or cur is None:
+        return False
+    _, _, a0, b0, a1, b1 = prev
+    _, _, x0, y0, x1, y1 = cur
+    if not (min(a1, x1) > max(a0, x0) and min(b1, y1) > max(b0, y0)):
+        return False
+    return (x1 - x0) * (y1 - y0) > (a1 - a0) * (b1 - b0)
+
+
 def prey_at_mouth(boxes: list[list[float]], cx: float, cy: float, aspect: float) -> float:
     """
     The meal a look catches, 0..1: prey under its mouth (a square MOUTH_SIDE

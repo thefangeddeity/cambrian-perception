@@ -74,13 +74,14 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 33  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder
+BASE_INPUTS = 34  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
 # sense -- a person where its own experience says people don't appear.
 PLACE_INPUTS = (29, 30, 31)
 INTRUDER_INPUT = 32
+DANGER_INPUT = 33  # its aversive compartment's learned danger of what it sees (fishbowl/mushroom.py)
 INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
 HIDDEN = 16         # a newborn brain's hidden layer
 TREE_HIDDEN = 16    # how many hidden units the perception tree reads (its inputs keep fixed positions)
@@ -194,6 +195,7 @@ class MosquitoBrain:
         place_dy: float = 0.0,
         place_value: float = 0.0,
         intruder: float = 0.0,
+        danger: float = 0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -209,6 +211,7 @@ class MosquitoBrain:
             food_value,  # its mushroom body's learned value of what it sees (fishbowl/mushroom.py)
             place_dx, place_dy, place_value,  # its place map: where food has been (fishbowl/organism.py)
             intruder,  # a person where its own experience says people don't appear
+            danger,  # what its aversive compartment has learned comes before a swat
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):

@@ -55,10 +55,15 @@ def macs(n_kc: int) -> int:
 
 
 class MushroomBody:
-    def __init__(self, n_kc: int, seed: int, weights: np.ndarray | None = None):
+    def __init__(self, n_kc: int, seed: int, weights: np.ndarray | None = None, danger: np.ndarray | None = None):
         self.n_kc = int(n_kc)
         self.pos = _wiring(int(seed))[:self.n_kc]
         self.weights = resize(weights, self.n_kc)
+        # An aversive compartment (like the fly's PPL1 punishment compartments,
+        # Aso et al. 2014): a second output neuron reading the same Kenyon
+        # cells, learning what came before a swat. Its learning rate is its own
+        # trait (genome.aversive_rate, born 0: off until evolution turns it on).
+        self.danger_weights = resize(danger, self.n_kc)
         self.k = max(1, int(round(KC_ACTIVE * self.n_kc))) if self.n_kc else 0
 
     def active(self, look: np.ndarray, n: int, live: int | None = None) -> np.ndarray:
@@ -77,6 +82,18 @@ class MushroomBody:
 
     def value(self, active: np.ndarray) -> float:
         return float(self.weights[active].mean()) if len(active) else 0.0
+
+    def danger(self, active: np.ndarray) -> float:
+        return float(self.danger_weights[active].mean()) if len(active) else 0.0
+
+    def learn_danger(self, active: np.ndarray, punishment: float, rate: float) -> float:
+        """The same three-factor rule, with punishment (blood lost to a swat,
+        in meals) as the teaching signal; returns the prediction error."""
+        if not len(active) or rate <= 0.0:
+            return 0.0
+        error = punishment - self.danger(active)
+        self.danger_weights[active] += rate * error
+        return error
 
     def learn(self, active: np.ndarray, reward: float, rate: float) -> float:
         """The three-factor update; returns the prediction error."""
