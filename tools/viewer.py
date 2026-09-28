@@ -686,7 +686,7 @@ PAGE = r"""<!doctype html>
       <label><input type="checkbox" data-layer="people"> <b style="color:#ff6f8a">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
       <label><input type="checkbox" data-layer="dreams"> <b style="color:#e0909c">replay</b> &amp; <b style="color:#fff0c0">dreams</b></label></div>
-    <div class="cap">What its wide-field eyes sense: movement, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">TARGET</b> = a host; red frame = something looming.</div>
+    <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">TARGET</b> = a host; red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
   </div>
   <div class="panel" id="brain-panel">
@@ -853,8 +853,11 @@ PAGE = r"""<!doctype html>
     // cell, scaled by its own motion gain -- as heat. (It never senses a
     // picture; without a live actor, the dim brightness grid stands in.)
     if (d.field_motion && d.world_grid_shape) {
-      const gain = d.field_motion_gain || 300;
-      drawGrid(ctx, d.field_motion.map(v => Math.sqrt(Math.min(1, v * gain))), d.world_grid_shape, 0, 0, W, H, true);
+      // each cell's share of the frame's movement -- the weights its motion-
+      // location sense takes its centroid over (a walking camera saturates the
+      // absolute amount everywhere; where it moves most is what it uses)
+      const top = Math.max(1e-6, ...d.field_motion);
+      drawGrid(ctx, d.field_motion.map(v => v / top), d.world_grid_shape, 0, 0, W, H, true);
     } else drawGrid(ctx, d.world_grid.map(v => 0.35 * v), d.world_grid_shape, 0, 0, W, H);
     drawLayers(ctx, d, W, H);
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
