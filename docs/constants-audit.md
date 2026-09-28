@@ -66,10 +66,8 @@ yardsticks are found.
 | `S_RISE_S`, `S_FALL_S` | 18.2 h, 4.2 h | S | Daan, Beersma & Borbely 1984 |
 | `SLEEP_SETTLE_S`, `SLEEP_INERTIA_S` | 10 s, 7 s | **G** | |
 | `COLLAPSE_S`, `COLLAPSE_RELEASE_S` | 0.95, 0.8 | **G** | safety net |
-| `HUNGER_WAKE_R`, `EMPTY_G` | 0.05, 0.1 | P | what counts as an empty body (degraded). `HUNGER_WAKE_G` (0.15, starvation forcing it awake) was retired 2026-09-27: hunger now makes it sleepy and sleep deepens into torpor |
-| `SLEEP_ONSET_*`, `SLEEP_END_*`, `NIGHT_LIGHT`, `DAY_LIGHT` | 0.15/0.45, 0.01/0.04, 0.15/0.5 | **G** | Borbely's two thresholds; published threshold values are for humans in normalised units, not yet mapped. Boredom lowers them as darkness does, and hunger scales both toward 0; no new constants |
-| `TORPOR_METABOLISM` | 0.05 B/s (~5% of waking basal) | S | deep hibernation falls below 5% of basal (Geiser 2004, Annu Rev Physiol, as reviewed; paper not read in full); daily torpor stays higher. Torpor is entered through NREM, with a lowered set point (Heller & Glotzbach 1977) |
-| `TORPOR_ENTRY_S`, `TORPOR_EXIT_S`, `TORPOR_CAN_EAT` | 1 h, 30 min, 0.5 | **G** | orders of magnitude for small mammals; Heller's lab found synaptic losses of hibernation reversed within 2-3 h of arousal |
+| `HUNGER_WAKE_G`, `HUNGER_WAKE_R`, `EMPTY_G` | 0.15, 0.05, 0.1 | P | |
+| `SLEEP_ONSET_*`, `SLEEP_END_*`, `NIGHT_LIGHT`, `DAY_LIGHT` | 0.15/0.45, 0.01/0.04, 0.15/0.5 | **G** | Borbely's two thresholds; published threshold values are for humans in normalised units, not yet mapped |
 
 ### fishbowl/fovea.py, retina.py (the eye)
 
