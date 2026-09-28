@@ -1176,6 +1176,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "pump": round(genome.pump, 3), "metabolism": round(genome.metabolism, 3), "pace": genome.pace,
             "kc": genome.kc, "receptors": genome.receptors, "zoom": round(genome.zoom, 3),
             "vigilance": round(genome.vigilance, 3), "quota_pct": quota_pct,
+            "mobilize": round(genome.mobilize, 3), "store": round(genome.store, 3),
             "body": {k: round(float(body_now[k]), 3) for k in ("energy", "glycogen", "reserve", "ketone", "wasting")
                      if body_now and k in body_now},
         })
@@ -1528,6 +1529,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "danger_value": live_info.get("danger_value"),
             "aversive_rate": genome.aversive_rate,
             "receptor_slowness": genome.receptor_slowness,
+            "setpoints": {"mobilize": round(genome.mobilize, 3), "store": round(genome.store, 3)},
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.extent(fovea.MAX_RECEPTORS),

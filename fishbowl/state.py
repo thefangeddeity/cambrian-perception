@@ -93,6 +93,11 @@ TEMPO_SHARE = 0.4
 # Metabolic strategy (genome.metabolism: the resting and sleeping burn's
 # multiplier, 0.1 = ectotherm .. 1 = endotherm):
 MIN_METABOLISM = 0.1   # an ectotherm rests at ~1/10 of an endotherm's rate (Bennett & Ruben 1979: 5-10x; the upper end)
+# No upper limit but a numerical guard: a body can run hotter than a newborn
+# (hummingbirds, shrews), paying a higher resting burn for a higher aerobic
+# ceiling -- Bennett & Ruben's aerobic-capacity trade, which is what this
+# trait models (endothermy as stamina; warmth came along).
+METABOLISM_GUARD = 1e3
 AEROBIC_SCOPE = 10.0   # sustained activity up to ~10x resting (vertebrate factorial aerobic scope)
 # The three energy systems for activity above the aerobic ceiling: the
 # phosphagen first (seconds), then glycolysis (minutes, running a debt).
@@ -176,6 +181,8 @@ class MosquitoState:
     debt: float = 0.0          # anaerobic debt (0..1 = exhausted), felt as fatigue, repaid over hours
     metabolism: float = 1.0    # its inherited metabolic strategy (genome.metabolism; set by the organism, not saved)
     pump: float = PUMP_REF     # its feeding pump's rate, B/s (genome.pump; set by the organism, not saved)
+    mobilize: float = MOBILIZE_BELOW  # its fasted line (glucagon), inherited (genome.mobilize; set by the organism, not saved)
+    store: float = STORE_ABOVE        # its storage line (insulin -> fat), inherited (genome.store; set by the organism, not saved)
     bite_blood: float = 0.0    # blood (legacy units) taken in the bite going on now: what a swat takes back
 
     # ---- what the organism "feels" ------------------------------------
@@ -298,7 +305,7 @@ class MosquitoState:
         # most of it parked as lactate and returned as the debt clears, and
         # a debt felt as fatigue. Sensing and thinking (aperture_cost) are
         # the brain's: sugar or, after glycogen runs out, ketones -- never fat.
-        m = min(1.0, max(MIN_METABOLISM, self.metabolism))
+        m = min(METABOLISM_GUARD, max(MIN_METABOLISM, self.metabolism))
         ceiling = AEROBIC_SCOPE * WAKE_FLOOR * m  # B/s it can sustain aerobically
         muscle = EFFORT_COST * motor_effort * LEGACY_UNIT  # B-seconds this gaze
         fade = 1.0 - math.exp(-seconds / DEBT_TAU_S)
@@ -342,7 +349,7 @@ class MosquitoState:
         # At the line counts as fasted: glycogen holds blood sugar there, and
         # fat must do the work meanwhile (strictly below, fat never burned while
         # any glycogen was left -- glycogen paid the whole body) ---
-        if g_bs <= MOBILIZE_BELOW * G_CAP + 1e-9:
+        if g_bs <= self.mobilize * G_CAP + 1e-9:
             from_fat = min(fat_bs, FAT_MAX_SHARE * ceiling * seconds, aerobic_need)
             fat_bs -= from_fat
             aerobic_need -= from_fat
@@ -353,26 +360,26 @@ class MosquitoState:
         g_bs -= aerobic_need + brain + glyco_fuel
         # glucagon / adrenaline: glycogen tops blood sugar back up -- fast
         # enough for waking at the aerobic ceiling, plus a burst's fuel
-        if g_bs < MOBILIZE_BELOW * G_CAP:
-            release = min(gly_bs, MOBILIZE_BELOW * G_CAP - g_bs, ceiling * seconds + glyco_fuel)
+        if g_bs < self.mobilize * G_CAP:
+            release = min(gly_bs, self.mobilize * G_CAP - g_bs, ceiling * seconds + glyco_fuel)
             gly_bs -= release
             g_bs += release
         # what sugar still can't pay is paid by the body's own tissue
         if g_bs < 0.0:
             self.wasting = _clamp(self.wasting - g_bs / PROTEIN_CAP)
             g_bs = 0.0
-        elif g_bs > MOBILIZE_BELOW * G_CAP:
+        elif g_bs > self.mobilize * G_CAP:
             self.wasting *= math.exp(-seconds / WASTING_REBUILD_S)  # fed: tissue regrows
         # --- fed (insulin): glycogen fills as soon as it is fed (above the
         # fasted line), so a body climbing out of a deficit banks its first
         # meals there; fat is made from sugar only from a real surplus ---
-        if g_bs > MOBILIZE_BELOW * G_CAP:
-            to_gly = min(g_bs - MOBILIZE_BELOW * G_CAP, GLYCOGEN_CAP / GLYCOGEN_FILL_S * seconds,
+        if g_bs > self.mobilize * G_CAP:
+            to_gly = min(g_bs - self.mobilize * G_CAP, GLYCOGEN_CAP / GLYCOGEN_FILL_S * seconds,
                          (GLYCOGEN_CAP - gly_bs) / GLYCOGEN_EFFICIENCY)
             g_bs -= to_gly
             gly_bs += to_gly * GLYCOGEN_EFFICIENCY
-        if g_bs > STORE_ABOVE * G_CAP:
-            to_fat = min(g_bs - STORE_ABOVE * G_CAP, STORE_RATE * seconds)
+        if g_bs > self.store * G_CAP:
+            to_fat = min(g_bs - self.store * G_CAP, STORE_RATE * seconds)
             g_bs -= to_fat
             fat_bs += to_fat * STORE_EFFICIENCY
         # ketosis ramps while glycogen is empty, fades once it is back

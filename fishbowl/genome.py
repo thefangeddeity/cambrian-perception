@@ -28,7 +28,7 @@ from . import blocks, fovea
 from .controller import MosquitoBrain
 from .mushroom import MAX_KC
 from .prey import PREY_CLASSES
-from .state import MIN_METABOLISM, PUMP_REF
+from .state import METABOLISM_GUARD, MIN_METABOLISM, MOBILIZE_BELOW, PUMP_REF, STORE_ABOVE
 
 # mutate_fovea grows or shrinks its eye by one ring of receptors
 # (genome.receptors, fovea.py) instead of touching a tree -- same fitness
@@ -55,7 +55,8 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
-            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed")
+            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed",
+            "mutate_setpoints")
 STABILIZER_SIGMA = 0.1
 # The feeding pump has no biological bounds: its upkeep and its intake set
 # its limits, and log-normal steps can shrink it toward a nip without ever
@@ -197,6 +198,8 @@ class Genome:
         pump: float | None = None,
         aversive_rate: float = 0.0,
         receptor_slowness: float = 0.0,
+        mobilize: float = MOBILIZE_BELOW,
+        store: float = STORE_ABOVE,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -216,6 +219,12 @@ class Genome:
         # Its photoreceptors' speed (organism.py): extra integration time, in
         # reference frames (1/15 s). Born 0: as fast as the camera's frames.
         self.receptor_slowness = float(np.clip(receptor_slowness, 0.0, SLOWNESS_GUARD))
+        # Its fuel set points (state.py), inherited, born at the rulebook's
+        # values: blood sugar below `mobilize` counts as fasted (glucagon),
+        # above `store` a surplus goes to fat (insulin). 0 < mobilize < store < 1.
+        self.mobilize, self.store = float(mobilize), float(store)
+        if not 0.0 < self.mobilize < self.store < 1.0:
+            self.mobilize, self.store = MOBILIZE_BELOW, STORE_ABOVE
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -223,7 +232,7 @@ class Genome:
         # Its zoom lens's gain (fovea.magnification): 0 = its zoom output does nothing.
         self.zoom = float(np.clip(zoom, 0.0, 1.0))
         # Its metabolic strategy (state.py): 1 = endotherm (today's body), down to an ectotherm's 0.1.
-        self.metabolism = float(np.clip(metabolism, MIN_METABOLISM, 1.0))
+        self.metabolism = float(np.clip(metabolism, MIN_METABOLISM, METABOLISM_GUARD))
         # Its host preference: how strongly its prey sense answers each living class
         # (an odorant receptor's tuning, McBride et al. 2014); mean 1, people never below 1.
         self.host_pref = _host_pref(host_pref)
@@ -283,6 +292,8 @@ class Genome:
             self.pump,
             self.aversive_rate,
             self.receptor_slowness,
+            self.mobilize,
+            self.store,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -451,6 +462,15 @@ class Genome:
             else:
                 self.learning_rate = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), LEARNING_MIN, LEARNING_MAX))
             return "brain", (choice if self.learning_rate != old else "noop_inapplicable")
+        if choice == "mutate_setpoints":
+            # One operator steps both lines (Wagner: many small traits dilute the
+            # search); a step that would cross them (or leave 0..1) doesn't apply.
+            m = self.mobilize + rng.gauss(0.0, TRAIT_SIGMA)
+            s = self.store + rng.gauss(0.0, TRAIT_SIGMA)
+            if not 0.0 < m < s < 1.0:
+                return "body", "noop_inapplicable"
+            self.mobilize, self.store = float(m), float(s)
+            return "body", choice
         if choice == "mutate_receptor_speed":
             # Steps scale with its size, so it can creep off 0 and still move once slow.
             old = self.receptor_slowness
@@ -485,7 +505,7 @@ class Genome:
             return "stabilizer", (choice if self.stabilizer != old else "noop_inapplicable")
         if choice == "mutate_metabolism":
             old = self.metabolism
-            self.metabolism = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA), MIN_METABOLISM, 1.0))
+            self.metabolism = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA), MIN_METABOLISM, METABOLISM_GUARD))
             return "metabolism", (choice if self.metabolism != old else "noop_inapplicable")
         if choice == "mutate_host":
             old = dict(self.host_pref)
@@ -641,6 +661,8 @@ class Genome:
             "pump": self.pump,
             "aversive_rate": self.aversive_rate,
             "receptor_slowness": self.receptor_slowness,
+            "mobilize": self.mobilize,
+            "store": self.store,
         }
 
     @staticmethod
@@ -702,6 +724,8 @@ class Genome:
             pump=data.get("pump"),
             aversive_rate=float(data.get("aversive_rate", 0.0)),
             receptor_slowness=float(data.get("receptor_slowness", 0.0)),
+            mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
+            store=float(data.get("store", STORE_ABOVE)),
         )
 
 
