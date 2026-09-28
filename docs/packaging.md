@@ -23,6 +23,25 @@ supervisor, the CPU budget, where frames live, and the camera.
 - **State that survives upgrades and uninstall** (`state/`: checkpoint,
   logs). Removing it takes an explicit purge.
 
+## Installing it
+
+| Host | How | Update |
+|---|---|---|
+| Arch | `cd deploy/arch && makepkg -si` (or `yay -Bi .`) in a clone; the PKGBUILD builds from GitHub, no AUR needed | the same again |
+| Debian / Ubuntu | `sh deploy/debian/build-deb.sh`, then `sudo apt install ./dist/cambrian-perception_*.deb` | build and install the new one |
+| a git checkout (Linux) | `sudo sh /srv/cambrian/cambrian-perception/deploy/install.sh` | the same again (it pulls) |
+| macOS | `sh deploy/macos/install.sh` from the repo | the same again |
+| Windows | `deploy\windows\install.ps1`, elevated | the same again |
+
+The packages and the Linux installer make the same host: `/srv/cambrian/cambrian-perception`,
+the `cambrian` account (in the video group), `requirements.lock` in its own venv, the units
+under `cambrian.target`, the polkit rule and the `cambrian` command -- the packages through
+one shared post-install (`deploy/packaging/post-install.sh`). A packaged host's code is
+root's (the organism can't change its own program); its state, model and venv are its own.
+Removing a package stops it and keeps its state. Versions come from the release tag:
+`0.1.0`, then `0.1.0.r3.gabc1234` (Arch) / `0.1.0+r3.gabc1234` (Debian) three commits later.
+Don't install a package over a git-checkout host without moving its `state/` aside first.
+
 ## Living beside laptop-livecam (no clash, by construction)
 
 The two are a camera suite and never run together: starting either stops the

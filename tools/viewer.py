@@ -393,7 +393,7 @@ LOCK_HUD_JS = r"""
       let el = host.querySelector(':scope > .hud-' + key);
       if (!el) {
         el = document.createElement('div'); el.className = 'hud-' + key + ' hud-lang'; el.dir = dir;
-        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;text-shadow:0 0 3px #000,0 0 2px #000;' + where;
+        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;text-shadow:0 0 4px #000,0 0 2px #000,0 0 1px #000;' + where;
         host.appendChild(el);
       }
       el.style.display = '';
@@ -416,7 +416,7 @@ LOCK_HUD_JS = r"""
   // The HUD's palette, "red phosphor" (a 2026-09-28 UX panel, 8-2): one red
   // ramp, meaning carried by brightness and weight (it survives without
   // colour), bone-white only for what matters now -- a lock, a bite, a warning.
-  const HUD_HOT = '#ff2a1a', HUD_EMBER = '#c21d12', HUD_ASH = '#7a130c', HUD_BONE = '#f2ede6';
+  const HUD_HOT = '#ff3b28', HUD_EMBER = '#e5321f', HUD_ASH = '#9a2014', HUD_BONE = '#f2ede6';  // brightened a step: legible over bright scenes
   const HUD_FILM = 'rgba(90, 0, 0, 0.22)', HUD_SCAN = 'rgba(0, 0, 0, 0.14)';
   function drawLock(ctx, bw, bh, fs, d, picture, imgAspect, now, st, opts) {
     // Red phosphor (a 2026-09-28 UX panel): the picture under a thin red film
@@ -1299,7 +1299,7 @@ PAGE = r"""<!doctype html>
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = a bite: a snapshot moment / SLEEP = eyes shut); pink corners = prey found; top right: its own prey guess vs YOLO (green = agree). Client view: /live.';
+  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = a bite: a snapshot moment / SLEEP = eyes shut); red corners = hosts found; its own prey guess vs YOLO (bright = agree). Red phosphor: brightness says how much it matters, white = a lock, a bite or a warning. English top left, Arabic top right, Ukrainian and Taiwanese below. Client view: /live.';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');

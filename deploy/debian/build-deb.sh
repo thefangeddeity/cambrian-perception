@@ -5,7 +5,12 @@
 # install it over such a checkout without moving its state/ aside first.
 set -eu
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-VER="0~r$(git -C "$REPO" rev-list --count HEAD).g$(git -C "$REPO" rev-parse --short HEAD)"
+# the release tag (v0.1.0 -> 0.1.0), commits since it, the commit: 0.1.0+r3.gabc1234
+if VER=$(git -C "$REPO" describe --long --tags --abbrev=7 2>/dev/null); then
+    VER=$(echo "$VER" | sed 's/^v//; s/-\([0-9]*\)-g/+r\1.g/')
+else
+    VER="0~r$(git -C "$REPO" rev-list --count HEAD).g$(git -C "$REPO" rev-parse --short HEAD)"
+fi
 OUT=${1:-$REPO/dist}
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
