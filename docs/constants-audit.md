@@ -128,7 +128,7 @@ yardsticks are found.
 |---|---|---|---|
 | `KC_INPUTS` | 7 | S | inputs per Kenyon cell (Caron et al. 2013) |
 | `KC_ACTIVE` | 5% | S | share of Kenyon cells responding (Turner et al. 2008; Honegger et al. 2011) |
-| `MAX_KC` | 4096 | B | the price limits it |
+| `MAX_KC` | 16384 | B | the price limits it; raised from 4096 when a lineage pressed it (Tina at 3,904, 2026-09-28; panel 8-2), after the week |
 | `KC_STEP` (genome) | 64 | P | cells added or removed per mutation |
 | `LEARNING_MIN`, `LEARNING_MAX`, `LEARNING_SIGMA` (genome) | 0.001, 1, 0.5 | P / M | the maximum is principled: above 1, one update overshoots its own prediction error |
 | reward scale | 1 = a full look at prey | P | the energy it ate, in meals |

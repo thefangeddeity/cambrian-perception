@@ -37,7 +37,7 @@ import numpy as np
 
 KC_INPUTS = 7        # inputs per Kenyon cell (Caron et al. 2013)
 KC_ACTIVE = 0.05     # share of Kenyon cells active on a look (Turner et al. 2008)
-MAX_KC = 4096        # a safety bound only; the price limits it
+MAX_KC = 16384       # a safety bound only; the price limits it (4096 until a lineage pressed it, 2026-09-28)
 _WIRING: dict[int, np.ndarray] = {}
 
 
