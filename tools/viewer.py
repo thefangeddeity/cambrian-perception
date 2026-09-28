@@ -624,6 +624,7 @@ PAGE = r"""<!doctype html>
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
+  @media (min-width: 1251px) { #look-panel { order: 1; } #brain-panel { order: 2; } #field-panel { order: 3; } }  /* desktop: gaze top right, visual field below it */
   @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #field-panel { order: 2; } #brain-panel { order: 3; } }
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
@@ -667,8 +668,8 @@ PAGE = r"""<!doctype html>
   <span class="chip" id="h-stale"></span>
 </header>
 
-<!-- The four views, clockwise from top left: what the camera (or stream)
-     shows, its visual field, its gaze, its brain. -->
+<!-- The four views: what the camera (or stream) shows, its gaze, its brain,
+     its visual field (on desktop: picture and gaze on top). -->
 <div class="quad">
   <div class="panel" id="live-panel">
     <h2 id="live-title">live view</h2>
@@ -884,6 +885,8 @@ PAGE = r"""<!doctype html>
     const pb = (d.prey_boxes && d.prey_boxes[Math.min(cur, d.prey_boxes.length - 1)]) || [];
     ctx.font = '12px monospace'; ctx.textBaseline = 'bottom';
     pb.forEach(([cls, conf, x0, y0, x1, y1]) => {
+      ctx.fillStyle = 'rgba(255, 111, 138, 0.18)';  // a host: its cells tinted
+      ctx.fillRect(snapL(x0), snapT(y0), snapR(x1) - snapL(x0), snapB(y1) - snapT(y0));
       ctx.strokeStyle = '#ff6f8a'; ctx.lineWidth = 3; ctx.setLineDash([8, 4]);
       ctx.strokeRect(snapL(x0), snapT(y0), snapR(x1) - snapL(x0), snapB(y1) - snapT(y0)); ctx.setLineDash([]);
     });
@@ -900,10 +903,11 @@ PAGE = r"""<!doctype html>
       const sip = (d.snacks && d.snacks[Math.min(cur, d.snacks.length - 1)]) || 0;  // nectar: a surprise snack
       if (sip > 0.01) { ctx.fillStyle = 'rgba(200, 136, 255, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top'; ctx.fillText('SIPPING', 10, 10); }
     }
-    ctx.strokeStyle = 'rgba(255, 180, 166, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    // its trail over the last 3 s, in its own cells: each cell it passed, lit, fading with age
     let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
-    for (let k = k0; k <= i; k++) { const px = cellX(traj[k][0]), py = cellY(traj[k][1]); k === k0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
-    ctx.stroke();
+    const lit = new Map();
+    for (let k = k0; k <= i; k++) lit.set(snapL(Math.min(0.9999, traj[k][0])) + ',' + snapT(Math.min(0.9999, traj[k][1])), (k - k0 + 1) / (i - k0 + 1));
+    lit.forEach((age, key) => { const [tx, ty] = key.split(',').map(Number); ctx.fillStyle = `rgba(255, 180, 166, ${0.12 + 0.3 * age})`; ctx.fillRect(tx, ty, cellW, cellH); });
     const [cx, cy, f] = traj[i];
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
     ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 5;

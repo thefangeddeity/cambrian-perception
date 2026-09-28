@@ -23,6 +23,17 @@ install -Dm644 -t "$STAGE/usr/lib/systemd/system/" "$REPO/deploy/cambrian.target
 install -Dm644 "$REPO/deploy/50-cambrian.rules" "$STAGE/usr/share/polkit-1/rules.d/50-cambrian.rules"
 install -Dm644 "$REPO/deploy/packaging/sysusers.conf" "$STAGE/usr/lib/sysusers.d/cambrian-perception.conf"
 install -Dm644 "$REPO/deploy/packaging/tmpfiles.conf" "$STAGE/usr/lib/tmpfiles.d/cambrian-perception.conf"
+install -d "$STAGE/usr/share/doc/cambrian-perception"
+{
+    echo "Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/"
+    echo "Upstream-Name: cambrian-perception"
+    echo "Source: https://github.com/thefangeddeity/cambrian-perception"
+    echo ""
+    echo "Files: *"
+    echo "License: GPL-3.0-only"
+    echo " On Debian systems, the full text is in /usr/share/common-licenses/GPL-3,"
+    echo " and in /srv/cambrian/cambrian-perception/LICENSE."
+} > "$STAGE/usr/share/doc/cambrian-perception/copyright"
 mkdir -p "$STAGE/usr/bin"
 ln -s /srv/cambrian/cambrian-perception/tools/cambrian "$STAGE/usr/bin/cambrian"
 {
