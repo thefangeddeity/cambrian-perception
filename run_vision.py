@@ -36,6 +36,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import math
 import os
 
@@ -60,6 +61,7 @@ from fishbowl.state import MosquitoState
 from fishbowl import prey as prey_lib
 from fishbowl.bouts import FeedingRecord, fit_bout_criterion
 from fishbowl.metrics import HourlyMetrics
+from fishbowl.livelife import LiveLife
 from fishbowl.controller import TREE_HIDDEN
 # The organism itself and the world's fixed physics it lives by -- one
 # implementation, shared with any live host (fishbowl/organism.py).
@@ -1163,7 +1165,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     metrics = HourlyMetrics()
 
     def _metrics_line() -> None:
-        line = metrics.flush(world.fps, {
+        with (life.lock if life is not None else contextlib.nullcontext()):
+            line = _metrics_flush()
+        if line:
+            sandbox.append_metrics(line)
+
+    def _metrics_flush():
+        return metrics.flush(world.fps, {
             "generation": box.generation, "watching": clip_path,
             "pump": round(genome.pump, 3), "metabolism": round(genome.metabolism, 3), "pace": genome.pace,
             "kc": genome.kc, "receptors": genome.receptors, "zoom": round(genome.zoom, 3),
@@ -1171,8 +1179,17 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "body": {k: round(float(body_now[k]), 3) for k in ("energy", "glycogen", "reserve", "ketone", "wasting")
                      if body_now and k in body_now},
         })
-        if line:
-            sandbox.append_metrics(line)
+
+    # The organism acting live (fishbowl/livelife.py; a 2026-09-28 panel: act
+    # live, learn offline). On a live feed, one living body lives every frame
+    # as it arrives; its body and memory are the ones of record -- each
+    # generation's children start from a copy -- and a winning child's genome
+    # is adopted by it (a brain transplant). A recorded file has no live body:
+    # there the survivor's window carries the body on, as before.
+    life = None
+    if feed is not None:
+        life = LiveLife(feed, genome, body_now, memory_now, price_quota, host_rate, feed_epoch,
+                        sandbox.LIVE_STATUS_PATH.with_name("live_actor.json"), metrics, _fps())
 
     while box.should_continue() and not stop["now"]:
         if sandbox.STOP_REQUEST_PATH.exists():  # a deliberate stop (docs/packaging.md)
@@ -1264,6 +1281,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                     _stream_failed(dessert)
                 break
             seen_total = total
+        if life is not None:
+            if life.error:
+                print(f"Its live body failed ({life.error}); the survivors carry its body for the rest of this run.")
+                life = None
+            else:
+                if box.generation % 50 == 0:
+                    life.set_prices(price_quota, host_rate)
+                body_now, memory_now = life.snapshot()  # the children start from the living body and memory
         futures = None
         if n_children > 1 and workers is not False:
             try:
@@ -1325,6 +1350,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             best_fitness = candidate_fitness
             margin = max(0.005, margin * 0.995)
             _publish_champion()
+            if life is not None:
+                life.adopt(genome)  # the living body takes the new genome: a brain transplant
         elif both_finite:
             # Keep best_fitness in sync with reality even on a reject
             # -- it's the PARENT's own freshly-scored real fitness now,
@@ -1333,34 +1360,44 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if math.isfinite(best_fitness):
             peak_fitness_seen = max(peak_fitness_seen, best_fitness)
 
-        # Advance the lasting body toward the survivor's end-of-window body,
-        # by the fraction of the window's real duration that actually passed.
-        end_body = (live_info if accepted else parent_info).get("body")
-        survivor = live_info if accepted else parent_info
-        survivor_memory = survivor.get("_memory")
-        if survivor_memory is not None:
-            memory_now = survivor_memory
-        # Its feeding record: the survivor's acts on frames not lived before
-        # (a live feed only -- a file is re-watched, not lived).
-        metrics.add(survivor, world.first_index, world.fps)  # Gelman's hourly metrics (observation only)
-        if metrics.due():
-            _metrics_line()
-        if world.first_index is not None:
-            for kind in ("meal", "snack"):
-                feeding[kind].add([world.first_index + k for k in survivor.get(kind + "_acts", [])],
-                                  world.first_index + len(world.frames) - 1, world.fps, feed_epoch)
-        if end_body:
-            now = time.time()
-            fps_real = feed.frames_per_second() if feed is not None else 15.0
-            window_s = len(world.frames) / max(1.0, fps_real)
-            f = min(1.0, (now - body_clock) / max(1.0, window_s))
-            body_clock = now
-            start = body_now or MosquitoState().to_dict()
-            body_now = {k: start.get(k, v) + (v - start.get(k, v)) * f for k, v in end_body.items()}
-            # Asleep or awake is a state, not a quantity: take where it ended.
-            for k in ("asleep", "sleep_clock"):
-                if k in end_body:
-                    body_now[k] = end_body[k]
+        if life is not None:
+            # Its body and memory are the living ones (the next generation
+            # takes a fresh copy); its feeding record and the hourly metrics
+            # come from what it lived, each frame once.
+            for kind, acts in life.drain_acts().items():
+                if acts:
+                    feeding[kind].add(acts, life.last, _fps(), feed_epoch)
+            if metrics.due():
+                _metrics_line()
+        else:
+            # Advance the lasting body toward the survivor's end-of-window body,
+            # by the fraction of the window's real duration that actually passed.
+            end_body = (live_info if accepted else parent_info).get("body")
+            survivor = live_info if accepted else parent_info
+            survivor_memory = survivor.get("_memory")
+            if survivor_memory is not None:
+                memory_now = survivor_memory
+            # Its feeding record: the survivor's acts on frames not lived before
+            # (a live feed only -- a file is re-watched, not lived).
+            metrics.add(survivor, world.first_index, world.fps)  # Gelman's hourly metrics (observation only)
+            if metrics.due():
+                _metrics_line()
+            if world.first_index is not None:
+                for kind in ("meal", "snack"):
+                    feeding[kind].add([world.first_index + k for k in survivor.get(kind + "_acts", [])],
+                                      world.first_index + len(world.frames) - 1, world.fps, feed_epoch)
+            if end_body:
+                now = time.time()
+                fps_real = feed.frames_per_second() if feed is not None else 15.0
+                window_s = len(world.frames) / max(1.0, fps_real)
+                f = min(1.0, (now - body_clock) / max(1.0, window_s))
+                body_clock = now
+                start = body_now or MosquitoState().to_dict()
+                body_now = {k: start.get(k, v) + (v - start.get(k, v)) * f for k, v in end_body.items()}
+                # Asleep or awake is a state, not a quantity: take where it ended.
+                for k in ("asleep", "sleep_clock"):
+                    if k in end_body:
+                        body_now[k] = end_body[k]
 
         # The real, continuous meta-mutation step (see
         # Genome.update_mutation_weights) -- applied to whichever
@@ -1572,6 +1609,11 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if box.generation % 100 == 0:
             _save()
 
+    if life is not None:
+        life.stop()
+        body_now, memory_now = life.snapshot()
+        if life.error:
+            print(f"Its live body had failed: {life.error}")
     _save()
     _metrics_line()  # the hour so far
     if workers:

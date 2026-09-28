@@ -415,6 +415,19 @@ class LiveFeed:
         return ([it[0] for it in items], np.array([it[1] for it in items]), total,
                 [it[2] for it in items], [it[3] for it in items])
 
+    def since(self, index: int | None) -> list:
+        """Frames kept after the feed's frame `index` (None: just the newest),
+        oldest first, as (index, grey, prey boxes, colour frame, arrival time):
+        what a live organism hasn't lived yet (fishbowl/livelife.py)."""
+        with self._lock:
+            n = len(self._buf)
+            first = self.total - n
+            start = max(0, n - 1) if index is None else max(0, index + 1 - first)
+            if start >= n:
+                return []
+            items, times = list(self._buf)[start:], list(self._times)[start:]
+        return [(first + start + k, it[0], it[2], it[3], t) for k, (it, t) in enumerate(zip(items, times))]
+
     def frames_per_second(self) -> float:
         """Real rate of kept frames (the camera's own rate varies with light)."""
         with self._lock:

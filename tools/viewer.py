@@ -269,6 +269,11 @@ LOCK_HUD_JS = r"""
     } else {
       cur = Math.floor(Math.max(0, now - clk.t0) / 1000 * fps) % (lastIdx + 1);
     }
+    return frameAt(d, { traj, fps, lastIdx, delay, catching }, cur);
+  }
+  // The replay's state at one frame (cur: frames after world_first_index).
+  function frameAt(d, base, cur) {
+    const { traj, fps, lastIdx, delay, catching } = base;
     let i = 0; while (i + 1 < traj.length && (traj[i + 1][3] ?? (i + 1)) <= cur) i++;
     const at = a => a && a.length ? a[Math.min(cur, a.length - 1)] : null;
     return {
@@ -281,6 +286,19 @@ LOCK_HUD_JS = r"""
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
       delay, catching,
     };
+  }
+  // The HUD belongs to the picture under it. When the picture lags (a slow or
+  // missing frame), the HUD is drawn for the frame actually on screen -- never
+  // a live HUD over a stale picture; null = that frame has left the record
+  // (draw no HUD until the picture catches up).
+  function hudFor(d, R, F) {
+    if (R.frame == null || F.shown == null) return R;
+    const [e, g] = String(F.shown).split(':').map(Number);
+    if (e !== R.epoch) return null;
+    if (g === R.frame) return R;
+    const off = g - d.world_first_index;
+    if (off < 0 || off > R.lastIdx) return null;
+    return frameAt(d, R, off);
   }
   // Keeps an <img> on the wanted frame of the replay. Each frame is loaded
   // off-screen first and only shown once it has loaded, so a missing frame
@@ -315,7 +333,6 @@ LOCK_HUD_JS = r"""
   //         the whole field still reaches it, as light through closed eyes.
   // ID = the prey nearest its gaze center, per the detector; pink corner
   // marks = all prey the detector found in that frame.
-  const LOCK_NAMES = { 0: 'person', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe' };
   function lockCorners(ctx, X0, Y0, X1, Y1, L) {
     ctx.beginPath();
     [[X0, Y0, 1, 1], [X1, Y0, -1, 1], [X0, Y1, 1, -1], [X1, Y1, -1, -1]].forEach(([x, y, sx, sy]) => { ctx.moveTo(x + sx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * L); });
@@ -333,7 +350,7 @@ LOCK_HUD_JS = r"""
     });
     return { mode: fs.eat > 0.01 ? 'LOCK' : inGaze ? 'TRACK' : 'SCAN', id };
   }
-  function lockIdText(id) { return id ? ` ${(LOCK_NAMES[id[0]] || ('class ' + id[0])).toUpperCase()} ${(id[1] * 100).toFixed(0)}%` : ''; }
+  function lockIdText(id) { return id ? ` TARGET ${(id[1] * 100).toFixed(0)}%` : ''; }  // every host is a target
   // Draws the HUD on a bw x bh box. fs = the replay's current frame
   // (replayAt), d = status, picture = a frame is shown (the reticle is drawn
   // only then), imgAspect = the picture's width / height (fitted inside the
@@ -480,9 +497,10 @@ LIVE_PAGE = r"""<!doctype html>
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, bw, bh);
     if (d.generation === undefined) return;
-    const R = replayAt(d, now, clk);
-    F.show(R.frame, R.epoch);
-    drawLock(ctx, bw, bh, R, d, F.shown != null, F.aspect, now, st, { gen: false, snap: true });
+    const R0 = replayAt(d, now, clk);
+    F.show(R0.frame, R0.epoch);
+    const R = hudFor(d, R0, F);
+    if (R) drawLock(ctx, bw, bh, R, d, F.shown != null, F.aspect, now, st, { gen: false, snap: true });
   }
   poll(); requestAnimationFrame(frame);
 </script>
@@ -822,7 +840,9 @@ PAGE = r"""<!doctype html>
     requestAnimationFrame(drawLook);
     const d = D;
     if (!d || !d.frame_w) return;
-    const R = replayAt(d, now, CLK, REPLAY_FPS), fmax = d.max_fraction || 0.6, N = d.receptors || 12;
+    let R = replayAt(d, now, CLK, REPLAY_FPS);
+    if (typeof F !== 'undefined') R = hudFor(d, R, F) || R;  // its gaze on the picture actually shown
+    const fmax = d.max_fraction || 0.6, N = d.receptors || 12;
     const C = Math.min(N, d.cones ?? N), c0 = (N - C) >> 1;  // its cones: the central C x C (rods around them)
     const img = $('cam');
     let cells = null;
@@ -1144,9 +1164,10 @@ PAGE = r"""<!doctype html>
     ctx.clearRect(0, 0, bw, bh);
     $('cam-note').textContent = F.failed && F.shown == null ? 'no frames to show (a file source, or CAMBRIAN_CAMERA_PREVIEW=0)' : '';
     if (!D || D.generation === undefined) return;
-    const R = replayAt(D, now, CLK, REPLAY_FPS);
-    F.show(R.frame, R.epoch);
-    if (HUD.on) drawLock(ctx, bw, bh, R, D, F.shown != null, F.aspect, now, HUD, { gen: true, internals: true });
+    const R0 = replayAt(D, now, CLK, REPLAY_FPS);
+    F.show(R0.frame, R0.epoch);
+    const R = hudFor(D, R0, F);
+    if (HUD.on && R) drawLock(ctx, bw, bh, R, D, F.shown != null, F.aspect, now, HUD, { gen: true, internals: true });
   }
   requestAnimationFrame(drawHud);
 
@@ -1256,6 +1277,17 @@ class Handler(BaseHTTPRequestHandler):
                 body = LIVE_STATUS_PATH.read_bytes()
             else:
                 body = b"{}"
+            # The organism acting live (fishbowl/livelife.py): its newest frames
+            # replace the generation's replay, when it is fresh and of this run.
+            actor = LIVE_STATUS_PATH.with_name("live_actor.json")
+            try:
+                if actor.exists() and time.time() - actor.stat().st_mtime < 10.0:
+                    d, a = json.loads(body or b"{}"), json.loads(actor.read_bytes())
+                    if a.get("world_epoch") == d.get("world_epoch"):
+                        d.update(a)
+                        body = json.dumps(d, separators=(",", ":")).encode("utf-8")
+            except (OSError, ValueError):
+                pass
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
