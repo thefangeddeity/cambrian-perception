@@ -397,8 +397,9 @@ LOCK_HUD_JS = r"""
         host.appendChild(el);
       }
       el.style.display = '';
-      const html = rows.filter(r => r[0]).map(([t, colour, font]) =>
-        `<div style="color:${colour};font:${font.replace('monospace', family)};line-height:16px">${esc(conv(t))}</div>`).join('');
+      // every row, blank ones too (WARN blinking off), so each line stays level with the English
+      const html = rows.map(([t, colour, font]) =>
+        `<div style="color:${colour};font:${font.replace('monospace', family)};line-height:16px;height:16px">${t ? esc(conv(t)) : '&nbsp;'}</div>`).join('');
       if (el._html !== html) { el._html = html; el.innerHTML = html; }
     });
   }
@@ -502,13 +503,8 @@ LOCK_HUD_JS = r"""
     ctx.fillStyle = '#cfe6f5'; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
     // Left-hand readout, top to bottom: mode + ID, delay, (operators only)
     // its perception tree's own guess next to the teacher's -- green when
-    // they agree -- then snacks, then meals.
+    // they agree -- then snacks, then meals, then its warning.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
-                  // Its warning, for the owner only until the owner's feedback has trained it
-                  // (untrained, it drifts: one lineage warned in every waking frame): lit when
-                  // it warns, a dim lamp otherwise. The client page never shows it.
-                  ...(opts && opts.internals ? [fs.warn ? [blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']
-                                                        : ['WARN', 'rgba(255, 68, 68, 0.28)', 'bold 12px monospace']] : []),
                   [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? '#fd4' : '#9fb6c6', '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
@@ -516,6 +512,11 @@ LOCK_HUD_JS = r"""
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
     rows.push([`snacks ${boutText('snack', st.snacks)}`, '#d8b4ff', '11px monospace']);
     rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
+    // Its warning, last, for the owner only until the owner's feedback has trained
+    // it (untrained, it drifts: one lineage warned in every waking frame): lit when
+    // it warns, a dim lamp otherwise. The client page never shows it.
+    if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']
+                                                  : ['WARN', 'rgba(255, 68, 68, 0.28)', 'bold 12px monospace']);
     ctx.textAlign = 'left';
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
     hudOverlay(ctx.canvas, rows);  // Arabic, Ukrainian, Taiwanese: page text over the HUD
