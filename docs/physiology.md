@@ -64,7 +64,17 @@ backup fuel.
   comes first. Its mushroom body learns sips as food, so its place map learns
   where the pot is. A plant sense (scent, then direction) is inherited, born
   off, priced like the prey sense. Plants are never hosts.
-- **Snacks are surprise** (nectar in name only). Surprise in the gaze pays a little. That keeps it
+- **Snacks are surprise** (nectar in name only).
+
+## Signals cost their sender
+
+Its warning (the alarm output, WARN) is made like a movement: while positive,
+it costs force squared per frame, as the eye's muscle does (a 2026-09-28
+panel; alarm calls cost their callers, Sherman; Zahavi's handicap). Free, it
+drifted until most lineages warned most of the time; priced (for one lineage
+about 8% of its resting burn at the warning it had evolved), an untrained
+warning is pushed toward silence until something -- the owner's feedback --
+makes it pay. Surprise in the gaze pays a little. That keeps it
   going but can't sustain it.
 - **Digestion costs a fifth of every meal** (specific dynamic action, Secor).
 

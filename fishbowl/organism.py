@@ -643,6 +643,7 @@ class Organism:
         self.pending = {"pan": pan, "tilt": tilt, "asleep": asleep, "colour_on": colour_on, "kc_on": bool(len(kc_active)),
                         "replay_macs": replay_macs,
                         "interval": interval, "done": 0, "effort": 0.0, "force": (0.0, 0.0),
+                        "alarm": max(0.0, float(alarm)),
                         "cx0": state.cx, "cy0": state.cy, "periph_motion": periph_motion, "loom": loom,
                         "field_light": field_light, "prey_now": prey_now, "snack": snack,
                         "sip": sip_key if not asleep else None}
@@ -793,7 +794,10 @@ class Organism:
             self.stab_dx, self.stab_dy = self.stab_dx + nx - state.cx, self.stab_dy + ny - state.cy
             state = fovea.FoveaState(cx=nx, cy=ny, n=state.n, vx=state.vx, vy=state.vy, mag=state.mag)
         self.state = state
-        p["effort"] += force_x * force_x + force_y * force_y
+        # Muscle, force squared per frame pushed -- and a warning is made like a
+        # movement (a 2026-09-28 panel: every real signal costs its sender;
+        # Sherman, Zahavi): its alarm output, while positive, costs the same.
+        p["effort"] += force_x * force_x + force_y * force_y + p.get("alarm", 0.0) ** 2
         p["force"] = (force_x, force_y)
         p["done"] += 1
 
