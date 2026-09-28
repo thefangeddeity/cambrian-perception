@@ -30,7 +30,7 @@ from . import fovea, prey as prey_lib
 from .controller import DANGER_INPUT, INTRUDER_INPUT, PLACE_INPUTS, PLANT_INPUTS, REFERENCE_MACS
 from .retina import field_shape
 from .genome import RETINA_PLANES
-from .mushroom import MushroomBody, macs as kc_macs
+from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
 from .state import (FOOD_PER_LOOK, GUT_CAP, LEGACY_UNIT, LIGHT_SLOW_S, PREY_FOOD_PER_LOOK, SLEEP_SETTLE_S, TEMPO_SHARE,
                     WAKE_FLOOR, WAKE_LOOM, MosquitoState)
 from . import reflexes
@@ -340,7 +340,12 @@ class Organism:
         self.nectar = dict(memory[8]) if memory is not None and len(memory) > 8 and memory[8] else {}
         self.plant_level = int(getattr(g, "plant_sense", 0))
         self.sips = 0
-        self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger)
+        proto = memory[9] if memory is not None and len(memory) > 9 else None  # its imagery (item 10)
+        self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger, proto)
+        self.imagery = bool(getattr(g, "imagery", 0))
+        self.feed_index = None      # the feed's index of the frame being lived (set by a live actor)
+        self.episode_meta: list = []  # each episode's (feed index, gaze cx, cy, extent): what it saw then
+        self.imagery_sums = [0.0] * 6  # n, sx, sy, sxx, syy, sxy: its reconstructions against what it saw
         self.learning_rate = float(getattr(g, "learning_rate", 0.0))
         self.aversive_rate = float(getattr(g, "aversive_rate", 0.0))
         # Photoreceptor speed (after a 2026-09-28 panel; Laughlin & Weckstrom
@@ -400,7 +405,8 @@ class Organism:
         self.replays = {"awake": 0, "nrem": 0, "rem": 0}
         self.last_kc = np.zeros(0, dtype=int)  # the Kenyon cells firing at its latest look (for the viewer)
         self.replay_log: list = []             # recent replays: (kind, field row, col, frame), for the viewer's dreams
-        self.last_replay = None                # (kind, Kenyon-cell code, seconds lived): its latest replayed memory, for the viewer
+        self.last_replay = None                # (kind, Kenyon-cell code, seconds lived, episode meta): its latest replay, for the viewer
+        self.dreaming = False                  # its eye sees its reconstruction this look (asleep, with imagery)
         self.intruder = 0.0
         self.last_alarm = 0.0
         # Tissue still alive (a wasting body loses its costliest structure:
@@ -482,6 +488,16 @@ class Organism:
         brain.live_units = max(1, int(round(brain.n_hidden * (1.0 - w)))) if w > 0.0 else None
         self.live_n = max(2, 2 * int(n * (1.0 - w) / 2)) if w > 0.0 else n
         v = np.zeros(self.n_cells) if was_asleep else self._blind(fovea.extract(frame, state), n)
+        # Dreaming, it sees its dream (a 2026-09-28 panel): eyes shut, its eye
+        # gets its own reconstruction of what it replayed last look -- never a
+        # recorded frame -- so its brain and mushroom body run on the dream.
+        dreaming = False
+        if was_asleep and self.imagery and self.last_replay is not None and self.lived_s - self.last_replay[2] < 1.0:
+            dream_img = self.mb.reconstruct(np.asarray(self.last_replay[1])[np.asarray(self.last_replay[1]) < self.mb.n_kc])
+            if dream_img is not None:
+                v = cv2.resize(dream_img.reshape(PROTO_SIDE, PROTO_SIDE).astype(np.float32), (n, n), interpolation=cv2.INTER_LINEAR).ravel()
+                dreaming = True
+        self.dreaming = dreaming
         if rec is not None:
             rec["positions"].append((state.cx, state.cy))
             rec["fracs"].append(state.extent)
@@ -514,7 +530,7 @@ class Organism:
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
         plant_scent, plant_dx, plant_dy = prey_sense(plants or [], state.cx, state.cy, self.plant_level, None)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
-        kc_active = self.mb.active(v, n, self.live_kc) if not was_asleep else np.zeros(0, dtype=int)
+        kc_active = self.mb.active(v, n, self.live_kc) if (not was_asleep or dreaming) else np.zeros(0, dtype=int)
         self.last_kc = kc_active
         self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
         self.danger_value = float(np.clip(self.mb.danger(kc_active), -1.0, 1.0)) if self.aversive_rate > 0.0 else 0.0
@@ -579,6 +595,7 @@ class Organism:
         # Eating happens at the gaze: prey under its centre (its mouth) is a meal;
         # genuinely new structure there is a small snack.
         sip_key = None  # the plant it sips from this look, if any
+        proto_macs = 0  # its imagery's learning this look
         if asleep:
             # Asleep: no eating, no gazing, slow coarse sampling of the field.
             pan = tilt = 0.0
@@ -627,6 +644,19 @@ class Organism:
                 self.value_errors.append(abs(err))
                 self.episodes.append((kc_active.copy(), reward, cell))
                 self.priority.append(abs(err))
+                self.episode_meta.append((self.feed_index, state.cx, state.cy, state.extent))
+            proto_macs = 0
+            if self.imagery and len(kc_active) and self.learning_rate > 0.0:
+                # its imagery: what the eye sees now, on the prototypes' grid;
+                # first how well its memory predicts it (Gelman's measure), then learn
+                seen = cv2.resize(v.reshape(n, n).astype(np.float32), (PROTO_SIDE, PROTO_SIDE),
+                                  interpolation=cv2.INTER_AREA if n >= PROTO_SIDE else cv2.INTER_LINEAR).ravel()
+                guess = self.mb.reconstruct(kc_active)
+                sm = self.imagery_sums
+                for idx, val in enumerate((1.0, guess.sum(), seen.sum(), (guess * guess).sum(), (seen * seen).sum(), (guess * seen).sum())):
+                    sm[idx] += float(val) if idx else float(len(seen))
+                self.mb.learn_proto(kc_active, seen, self.learning_rate)
+                proto_macs = 2 * len(kc_active) * PROTO_SIDE * PROTO_SIDE
             if self.learning_rate > 0.0 and cell is not None:
                 self.place[cell] += self.learning_rate * (reward - self.place[cell])
             interval = int(np.clip(round(self.pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
@@ -646,7 +676,8 @@ class Organism:
                         "alarm": max(0.0, float(alarm)),
                         "cx0": state.cx, "cy0": state.cy, "periph_motion": periph_motion, "loom": loom,
                         "field_light": field_light, "prey_now": prey_now, "snack": snack,
-                        "sip": sip_key if not asleep else None}
+                        "sip": sip_key if not asleep else None,
+                        "proto_macs": 0 if asleep else proto_macs}
         self.prev_frame = frame
 
     def _blind(self, look: np.ndarray, n: int) -> np.ndarray:
@@ -745,7 +776,7 @@ class Organism:
                 (ci, ri, cell_i), (cj, rj, cell_j) = self.episodes[i], self.episodes[j]
                 half = max(1, len(ci) // 2)
                 code = np.unique(np.concatenate([ci[:half], cj[half:]]))
-                self.last_replay = ("rem", code, self.lived_s)
+                self.last_replay = ("rem", code, self.lived_s, None)  # recombined: no one moment it saw
                 self.mb.learn(code, 0.5 * (ri + rj), self.learning_rate)
                 self.replays["rem"] += 1
                 self.seq += 1
@@ -766,7 +797,8 @@ class Organism:
                     self.seq += 1
                     seq = self.seq
                 code, reward, cell = self.episodes[i]
-                self.last_replay = ("nrem" if asleep_settled else "awake", code, self.lived_s)
+                self.last_replay = ("nrem" if asleep_settled else "awake", code, self.lived_s,
+                                    self.episode_meta[i] if i < len(self.episode_meta) else None)
                 target = reward
                 if self.replay_backup > 0.0 and i + 1 < len(self.episodes):
                     target = reward + self.replay_backup * self.mb.value(self.episodes[i + 1][0])
@@ -823,7 +855,7 @@ class Organism:
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT))
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
-                                 + THINK_COST * p["replay_macs"] / REFERENCE_MACS) * self.scarcity,
+                                 + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)) / REFERENCE_MACS) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),
                     field_light=p["field_light"])
         cleared = body.take_cleared()

@@ -710,11 +710,16 @@ PAGE = r"""<!doctype html>
     <div class="cap" id="replay-clock">--</div>
   </div>
   <div class="panel" id="dream-panel">
-    <h2>replay &amp; dreams</h2>
-    <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start">
-      <div><canvas id="replay-eye" width="160" height="160" class="px"></canvas><div class="cap" id="replay-eye-cap" style="max-width:200px"></div></div>
-      <div style="flex:1 1 240px"><canvas id="dream-map" class="px"></canvas><div class="cap">Paths it replays (blue NREM, violet REM, grey awake) and dreams (gold: imagined through its own maps), on its place map.</div></div>
+    <h2>sleep, replay &amp; dreams</h2>
+    <div class="cap" id="sleep-line">--</div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px">
+      <div><canvas id="replay-eye" width="120" height="120" class="px"></canvas><div class="cap">on its eye</div></div>
+      <div><canvas id="replay-recon" width="120" height="120" class="px"></canvas><div class="cap">what it dreams</div></div>
+      <div><canvas id="replay-seen" width="120" height="120"></canvas><div class="cap">what it saw then</div></div>
     </div>
+    <div class="cap" id="replay-eye-cap" style="margin-top:4px"></div>
+    <canvas id="dream-map" class="px" style="margin-top:10px"></canvas>
+    <div class="cap">Paths on its place map: blue NREM, violet REM, grey awake replay; gold imagined (dreamt through its maps).</div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
@@ -982,11 +987,26 @@ PAGE = r"""<!doctype html>
   // Its latest replayed memory on its eye (NREM, REM or awake): the receptors
   // the reactivated Kenyon cells sample, back-projected onto its gaze. Not a
   // picture it makes -- which parts of its eye the memory is built from.
+  const SEEN = { key: null, ok: false, img: new Image() };
+  // Its sleep in a line: asleep or awake (and for how long), sleep pressure,
+  // whether it is dreaming now, and the inherited shape of its replay.
+  function drawSleepLine(d) {
+    const el = $('sleep-line'), z = d.sleep; if (!el) return;
+    if (!z) { el.textContent = '--'; return; }
+    const t = z.traits, mins = Math.round(z.for_s / 60);
+    el.innerHTML = (z.asleep ? `<b style="color:#e0909c">asleep</b> ${mins} min` : '<b style="color:#a9bcc8">awake</b>')
+      + ` &middot; sleep pressure ${(100 * z.pressure).toFixed(0)}%`
+      + (z.dreaming ? ' &middot; <b style="color:#fff0c0">dreaming</b>' : '')
+      + ` &middot; replays ${t.awake} awake / ${t.asleep} asleep, REM ${(100 * t.rem).toFixed(0)}%, backup ${t.backup}, dream steps ${t.dream_steps}`
+      + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet');
+  }
   function drawReplayEye(d) {
+    drawSleepLine(d);
     const c = $('replay-eye'); if (!c) return;
     const r = d.replay_eye, W = c.width, ctx = c.getContext('2d');
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, W);
     if (!r) {
+      ['replay-recon', 'replay-seen'].forEach(id => { const x = $(id).getContext('2d'); x.fillStyle = '#05070a'; x.fillRect(0, 0, W, W); });
       $('replay-eye-cap').textContent = !d.kc ? 'No mushroom body yet: nothing to replay until one evolves.'
         : 'Nothing replayed lately (it replays asleep, or awake in quiet moments).';
       drawDreamMap(d); return;
@@ -998,8 +1018,27 @@ PAGE = r"""<!doctype html>
       ctx.globalAlpha = fade; ctx.fillStyle = heatColour(v); ctx.fillRect(Math.floor(j * s), Math.floor(i * s), Math.ceil(s), Math.ceil(s));
     }
     ctx.globalAlpha = 1;
+    // its own reconstruction (imagery, when its lineage has evolved it): its prototypes, summed
+    const rc = $('replay-recon'), rctx = rc.getContext('2d'); rctx.fillStyle = '#05070a'; rctx.fillRect(0, 0, W, W);
+    if (r.recon) {
+      const k = r.recon_side, q = W / k;
+      for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) {
+        const g = Math.round(255 * Math.max(0, Math.min(1, r.recon[i * k + j])));
+        rctx.fillStyle = `rgb(${g},${Math.round(g * 0.92)},${Math.round(g * 0.88)})`; rctx.fillRect(Math.floor(j * q), Math.floor(i * q), Math.ceil(q), Math.ceil(q));
+      }
+    } else { rctx.fillStyle = '#9a6f67'; rctx.font = '11px monospace'; rctx.fillText('no imagery yet', 8, 62); }
+    // what it saw then: the frame the memory formed on, cropped to its gaze, if the frame ring still holds it
+    const sc = $('replay-seen'), sctx = sc.getContext('2d'); sctx.fillStyle = '#05070a'; sctx.fillRect(0, 0, W, W);
+    if (r.seen) {
+      const key = (d.world_epoch || 0) + ':' + r.seen.i;
+      if (SEEN.key !== key) { SEEN.key = key; SEEN.ok = false; SEEN.img.onload = () => { SEEN.ok = true; }; SEEN.img.onerror = () => { SEEN.ok = false; }; SEEN.img.src = '/frame?i=' + r.seen.i + '&e=' + (d.world_epoch || 0); }
+      if (SEEN.ok && SEEN.img.naturalWidth) {
+        const iw = SEEN.img.naturalWidth, ih = SEEN.img.naturalHeight, side = r.seen.f * ih;
+        sctx.drawImage(SEEN.img, r.seen.cx * iw - side / 2, r.seen.cy * ih - side / 2, side, side, 0, 0, W, W);
+      } else { sctx.fillStyle = '#9a6f67'; sctx.font = '11px monospace'; sctx.fillText('no longer held', 8, 62); }
+    } else { sctx.fillStyle = '#9a6f67'; sctx.font = '11px monospace'; sctx.fillText(r.kind === 'rem' ? 'recombined' : '--', 8, 62); }
     const name = { nrem: 'NREM replay', rem: 'REM (recombined)', awake: 'awake replay' }[r.kind] || r.kind;
-    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago, on its eye: the receptors the replayed memory is built from (a back-projection, not a picture it makes).`;
+    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago. What it dreams is what its eye sees while it sleeps; what it saw then is for you only (the last minutes of frames, in RAM).`;
     drawDreamMap(d);
   }
   // Replayed and dreamt paths on its place map (its field's grid): a small
@@ -1294,8 +1333,8 @@ PAGE = r"""<!doctype html>
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#ffe2d6', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', mutate_imagery: '#fff0c0', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     // the mutation chart spans its whole row, with a line per kind (their names are long and many)
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"${ch.mutations ? ' style="grid-column: 1 / -1"' : ''}><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +

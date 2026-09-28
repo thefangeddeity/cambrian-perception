@@ -569,7 +569,7 @@ def evaluate_genome(
         # Memory carried to the next generation: surprise, the mushroom body's
         # learning, the place map and where people are expected (day, night).
         "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night, org.mb.danger_weights,
-                    org.value_map, dict(org.nectar)),
+                    org.value_map, dict(org.nectar), org.mb.proto),
         # Per frame: its alarm (the warning) and the intruder sense, for the viewer.
         "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
         "replays": dict(org.replays),
@@ -877,6 +877,31 @@ def _dessert() -> dict | None:
 TREE_PLAIN_INPUTS = 2 + TREE_HIDDEN
 
 
+def _pack_proto(proto) -> dict | None:
+    """Its imagery prototypes, compact for the checkpoint: 8-bit, base64."""
+    if proto is None or not len(proto):
+        return None
+    import base64
+    q = np.clip(np.round(np.asarray(proto) * 255.0), 0, 255).astype(np.uint8)
+    return {"shape": list(q.shape), "b64": base64.b64encode(q.tobytes()).decode("ascii")}
+
+
+def _unpack_proto(packed):
+    if not packed:
+        return None
+    import base64
+    q = np.frombuffer(base64.b64decode(packed["b64"]), dtype=np.uint8).reshape(packed["shape"])
+    return q.astype(np.float32) / 255.0
+
+
+def _for_evaluation(memory):
+    """Memory as the children are scored from, without the imagery prototypes
+    (megabytes each, and a child's run needs only their price, not them)."""
+    if memory is None or len(memory) <= 9:
+        return memory
+    return tuple(memory[:9]) + (None,)
+
+
 def _stream_failed(dessert: dict | None) -> None:
     """The chosen stream failed this run. Its choice is dropped (back to the
     camera) only after it fails sandbox.SOURCE_FAILURES_TO_DROP runs in a
@@ -1110,7 +1135,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                       np.array(m["var"], dtype=float),
                       np.array(m.get("learned") or [], dtype=float),
                       *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")),
-                      dict(m.get("nectar") or {}))
+                      dict(m.get("nectar") or {}),
+                      _unpack_proto(m.get("proto")))
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
@@ -1143,7 +1169,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                           for i, k in ((3, "place"), (4, "people_day"), (5, "people_night"), (6, "danger"), (7, "value"))
                           if len(memory_now) > i and memory_now[i] is not None},
                        # the plants' standing crops, as it has lived them (item 9)
-                       "nectar": {k: round(float(v), 4) for k, v in memory_now[8].items()} if len(memory_now) > 8 and memory_now[8] else {}}
+                       "nectar": {k: round(float(v), 4) for k, v in memory_now[8].items()} if len(memory_now) > 8 and memory_now[8] else {},
+                       "proto": _pack_proto(memory_now[9]) if len(memory_now) > 9 else None}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })
@@ -1296,17 +1323,18 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 if box.generation % 50 == 0:
                     life.set_prices(price_quota, host_rate)
                 body_now, memory_now = life.snapshot()  # the children start from the living body and memory
+        memory_eval = _for_evaluation(memory_now)  # the children are scored without the imagery prototypes
         futures = None
         if n_children > 1 and workers is not False:
             try:
                 if workers is None:
                     workers = _Workers(max(1, (os.cpu_count() or 2) - 1))
                 if workers.publish(world):
-                    futures = [workers.submit(c, price_quota, body_now, _fps(), memory_now, host_rate) for c, _, _ in children]
+                    futures = [workers.submit(c, price_quota, body_now, _fps(), memory_eval, host_rate) for c, _, _ in children]
             except Exception as e:  # no worker processes on this host: serial from here on
                 print(f"Parallel evaluation unavailable ({e}); continuing serially.")
                 workers, futures = False, None
-        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
+        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_eval, world.colour, host_rate)
         if futures is not None:
             results = []
             for (c, _, _), fut in zip(children, futures):
@@ -1315,9 +1343,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 except Exception as e:  # a lost worker: score that child here instead
                     if not stop["now"]:
                         print(f"Worker failed ({type(e).__name__}); scoring the child here.")
-                    results.append(evaluate_genome(c, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate))
+                    results.append(evaluate_genome(c, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_eval, world.colour, host_rate))
         else:
-            results = [evaluate_genome(c, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
+            results = [evaluate_genome(c, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_eval, world.colour, host_rate)
                        for c, _, _ in children]
         best = max(range(len(children)), key=lambda k: results[k][0] if math.isfinite(results[k][0]) else -math.inf)
         candidate, channel, applied = children[best]
@@ -1338,8 +1366,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if accepted and both_finite and candidate_fitness > parent_fitness + margin and world_prev is not None:
             # The best of several children re-checked on the previous
             # snapshot: it must not be worse there (see RECHECK above).
-            p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour, host_rate)
-            c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_now, world_prev.colour, host_rate)
+            p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
+            c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
             if not (math.isfinite(c2) and math.isfinite(p2) and c2 >= p2 - NEUTRAL_EPSILON):
                 accepted, rechecked_out = False, True
 

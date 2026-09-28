@@ -37,6 +37,7 @@ import numpy as np
 
 KC_INPUTS = 7        # inputs per Kenyon cell (Caron et al. 2013)
 KC_ACTIVE = 0.05     # share of Kenyon cells active on a look (Turner et al. 2008)
+PROTO_SIDE = 16      # its reconstructions' grid, relative to its eye (a storage and display bound)
 MAX_KC = 16384       # a safety bound only; the price limits it (4096 until a lineage pressed it, 2026-09-28)
 _WIRING: dict[int, np.ndarray] = {}
 
@@ -55,7 +56,8 @@ def macs(n_kc: int) -> int:
 
 
 class MushroomBody:
-    def __init__(self, n_kc: int, seed: int, weights: np.ndarray | None = None, danger: np.ndarray | None = None):
+    def __init__(self, n_kc: int, seed: int, weights: np.ndarray | None = None, danger: np.ndarray | None = None,
+                 proto: np.ndarray | None = None):
         self.n_kc = int(n_kc)
         self.pos = _wiring(int(seed))[:self.n_kc]
         self.weights = resize(weights, self.n_kc)
@@ -64,6 +66,12 @@ class MushroomBody:
         # cells, learning what came before a swat. Its learning rate is its own
         # trait (genome.aversive_rate, born 0: off until evolution turns it on).
         self.danger_weights = resize(danger, self.n_kc)
+        # Imagery (genome.imagery, born off; a 2026-09-28 panel): each Kenyon
+        # cell's prototype -- the average of what its eye saw (PROTO_SIDE^2,
+        # relative to the eye) when the cell fired -- a way back from memory to
+        # the eye, like feedback connections carrying predictions. Summed over a
+        # replayed code, it is its own reconstruction of that memory.
+        self.proto = resize_proto(proto, self.n_kc)
         self.k = max(1, int(round(KC_ACTIVE * self.n_kc))) if self.n_kc else 0
 
     def active(self, look: np.ndarray, n: int, live: int | None = None) -> np.ndarray:
@@ -95,6 +103,13 @@ class MushroomBody:
         self.danger_weights[active] += rate * error
         return error
 
+    def learn_proto(self, active: np.ndarray, seen: np.ndarray, rate: float) -> None:
+        if len(active) and rate > 0.0:
+            self.proto[active] += rate * (seen - self.proto[active])
+
+    def reconstruct(self, active: np.ndarray) -> np.ndarray | None:
+        return self.proto[active].mean(axis=0) if len(active) else None
+
     def learn(self, active: np.ndarray, reward: float, rate: float) -> float:
         """The three-factor update; returns the prediction error."""
         if not len(active) or rate <= 0.0:
@@ -102,6 +117,17 @@ class MushroomBody:
         error = reward - self.value(active)
         self.weights[active] += rate * error
         return error
+
+
+def resize_proto(proto: np.ndarray | None, n_kc: int) -> np.ndarray:
+    """Prototypes for n_kc cells: kept where they exist; mid-grey for new ones."""
+    out = np.full((int(n_kc), PROTO_SIDE * PROTO_SIDE), 0.5, dtype=np.float32)
+    if proto is not None and len(proto):
+        p = np.asarray(proto, dtype=np.float32)
+        if p.ndim == 2 and p.shape[1] == PROTO_SIDE * PROTO_SIDE:
+            m = min(int(n_kc), len(p))
+            out[:m] = p[:m]
+    return out
 
 
 def resize(weights: np.ndarray | None, n_kc: int) -> np.ndarray:

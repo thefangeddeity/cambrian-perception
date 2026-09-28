@@ -196,5 +196,14 @@ Sleep replays experience:
   place worth most. Each dream step costs one brain step. How many steps it
   dreams is inherited, born 0; a dream teaches nothing without a backup above 0.
 
+- **Imagery, and seeing its dreams** (inherited, born off): each Kenyon cell
+  learns a prototype, the average of what its eye saw (on a 16×16 grid
+  relative to the eye) when it fired: a way back from memory to the eye, like
+  feedback connections carrying predictions. Summed over a replayed code, the
+  prototypes are its own reconstruction of the memory, and asleep its eye sees
+  that reconstruction instead of darkness, so its brain and mushroom body run
+  on the dream. It never sees recorded frames. The learning costs its
+  multiply-adds; the prototypes are saved with its memory (8-bit).
+
 It can also replay awake, in quiet moments. How much of each is inherited,
 starting at 0.

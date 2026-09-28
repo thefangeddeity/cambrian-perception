@@ -21,6 +21,13 @@ import statistics
 import time
 
 
+def _corr(n, sx, sy, sxx, syy, sxy):
+    if n < 3:
+        return None
+    vx, vy = sxx - sx * sx / n, syy - sy * sy / n
+    return round((sxy - sx * sy / n) / math.sqrt(vx * vy), 3) if vx > 0 and vy > 0 else None
+
+
 class HourlyMetrics:
     def __init__(self, period_s: float = 3600.0):
         self.period_s = period_s
@@ -131,6 +138,8 @@ class HourlyMetrics:
             "replay_rem": int(s["replay_rem"]), "replay_sequences": int(s["replay_sequences"]),
             "dreams": int(s["dreams"]),
             "nectar_sips": int(s["sips"]),
+            # its imagery (Gelman's measure): how its reconstructions match what it saw
+            "imagery_corr": _corr(s["img_n"], s["img_sx"], s["img_sy"], s["img_sxx"], s["img_syy"], s["img_sxy"]),
         }
 
     def due(self) -> bool:

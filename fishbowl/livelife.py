@@ -32,6 +32,7 @@ import numpy as np
 from . import fovea, prey as prey_lib
 from .field import FieldSignals
 from .metrics import HourlyMetrics
+from .mushroom import PROTO_SIDE
 from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENCE_MACS, RESTING_BURN, THINK_COST,
                        Organism, kc_macs)
 from .state import EMPTY_G, LEGACY_UNIT
@@ -45,7 +46,8 @@ def memory_of(org: Organism) -> tuple:
     def c(a):
         return None if a is None else np.array(a, dtype=float, copy=True)
     return (c(org.memory), c(org.variance), c(org.mb.weights), c(org.place), c(org.people_day),
-            c(org.people_night), c(org.mb.danger_weights), c(org.value_map), dict(org.nectar))
+            c(org.people_night), c(org.mb.danger_weights), c(org.value_map), dict(org.nectar),
+            np.array(org.mb.proto, copy=True))
 
 
 def _carry(old: Organism, new: Organism) -> None:
@@ -66,8 +68,9 @@ def _carry(old: Organism, new: Organism) -> None:
         n = new.mb.n_kc
         new.episodes = [(code[code < n], reward, cell) for code, reward, cell in old.episodes]
     new.replay_log, new.value_errors, new.seq, new.dreams = old.replay_log, old.value_errors, old.seq, old.dreams
-    new.last_replay = old.last_replay
+    new.last_replay, new.dreaming = old.last_replay, old.dreaming
     new.nectar, new.sips = old.nectar, old.sips
+    new.episode_meta, new.imagery_sums = old.episode_meta, old.imagery_sums
     if ob.hidden.shape == nb.hidden.shape:
         nb.hidden = ob.hidden.copy()
         if len(ob.layer_hidden) == len(nb.layer_hidden):
@@ -130,7 +133,7 @@ def _circuits(org: Organism) -> dict:
     # makes: which parts of its eye the memory is built from)
     lr = org.last_replay
     if lr is not None and org.lived_s - lr[2] < 10.0 and mb.n_kc and len(lr[1]):
-        kind, code, t = lr
+        kind, code, t, meta = lr
         n = org.state.n
         pos = mb.pos[np.asarray(code)[np.asarray(code) < mb.n_kc]].reshape(-1, 2)
         idx = np.clip(np.floor((pos + 0.5) * n).astype(int), 0, n - 1)
@@ -138,6 +141,18 @@ def _circuits(org: Organism) -> dict:
         np.add.at(grid, (idx[:, 1], idx[:, 0]), 1.0)
         out["replay_eye"] = {"kind": kind, "age": round(org.lived_s - t, 1), "n": n,
                              "grid": np.round(grid / max(1.0, grid.max()), 3).ravel().tolist()}
+        if org.imagery:  # its own reconstruction of the memory (its prototypes, summed)
+            rec = mb.reconstruct(np.asarray(code)[np.asarray(code) < mb.n_kc])
+            if rec is not None:
+                out["replay_eye"]["recon"] = np.round(rec, 3).tolist()
+                out["replay_eye"]["recon_side"] = PROTO_SIDE
+        if meta is not None and meta[0] is not None:  # what it saw then: the frame, if the ring still holds it
+            out["replay_eye"]["seen"] = {"i": int(meta[0]), "cx": round(meta[1], 4), "cy": round(meta[2], 4), "f": round(meta[3], 4)}
+    b = org.body
+    out["sleep"] = {"asleep": bool(b.asleep >= 0.5), "for_s": round(b.sleep_clock, 0), "pressure": round(b.sleep_pressure, 3),
+                    "dreaming": bool(org.dreaming), "imagery": bool(org.imagery),
+                    "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
+                               "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}
     fps = max(1.0, org.fps)
     out["dreams"] = [[kind, r, c, round(org.lived_s - t, 1), seq] for kind, r, c, t, seq in org.replay_log
                      if org.lived_s - t < 10.0]  # ages in the seconds it lived (the frame rate varies)
@@ -224,6 +239,7 @@ class LiveLife:
             org.fps = fps
             missed0 = org.missed
             replays0, seq0, dreams0, sips0 = dict(org.replays), org.seq, org.dreams, org.sips
+            img0 = list(org.imagery_sums)
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
                 prev_v = self.field.last_vector
                 sig, shift = self.field.step(grey)
@@ -232,6 +248,7 @@ class LiveLife:
                     self.field_motion = change if self.field_motion is None or self.field_motion.shape != change.shape \
                         else 0.7 * self.field_motion + 0.3 * change
                 swats0 = org.swats
+                org.feed_index = index
                 out = org.frame(grey, sig, boxes or [], colour, shift)
                 hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 snack = org.pending["snack"] if out["gazed"] and org.pending else 0.0
@@ -261,6 +278,8 @@ class LiveLife:
                 self.last, self.last_time = index, arrived
             missed = org.missed - missed0
             batch["sums"]["sips"] += org.sips - sips0
+            for key, now_v, then_v in zip(("img_n", "img_sx", "img_sy", "img_sxx", "img_syy", "img_sxy"), org.imagery_sums, img0):
+                batch["sums"][key] += now_v - then_v
             # what it replayed and dreamt (for the hourly metrics)
             for kind in ("awake", "nrem", "rem"):
                 batch["sums"]["replay_" + kind] += org.replays[kind] - replays0.get(kind, 0)
