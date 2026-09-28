@@ -74,8 +74,13 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 29  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value
+BASE_INPUTS = 33  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
+# Its place map (fishbowl/organism.py): the direction from its gaze to the
+# spot that has fed it best, and how good that spot was; and the intruder
+# sense -- a person where its own experience says people don't appear.
+PLACE_INPUTS = (29, 30, 31)
+INTRUDER_INPUT = 32
 INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
 HIDDEN = 16         # a newborn brain's hidden layer
 TREE_HIDDEN = 16    # how many hidden units the perception tree reads (its inputs keep fixed positions)
@@ -95,7 +100,8 @@ HEAVY_TAIL_MAX = 2.0
 INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "eye size", "blood sugar",
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
-               "prey scent", "prey dir x", "prey dir y", "food value")
+               "prey scent", "prey dir x", "prey dir y", "food value", "place dx", "place dy", "place value",
+               "intruder")
 OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
 
 
@@ -182,6 +188,10 @@ class MosquitoBrain:
         prey_dx: float = 0.0,
         prey_dy: float = 0.0,
         food_value: float = 0.0,
+        place_dx: float = 0.0,
+        place_dy: float = 0.0,
+        place_value: float = 0.0,
+        intruder: float = 0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -195,6 +205,8 @@ class MosquitoBrain:
             field_light, state.light_trend,
             prey_scent, prey_dx, prey_dy,
             food_value,  # its mushroom body's learned value of what it sees (fishbowl/mushroom.py)
+            place_dx, place_dy, place_value,  # its place map: where food has been (fishbowl/organism.py)
+            intruder,  # a person where its own experience says people don't appear
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):
@@ -236,6 +248,10 @@ class MosquitoBrain:
     def loop_synapses(self) -> float:
         """Total weight on the channels' way back in (their energy price)."""
         return float(np.abs(self.weights_ih[:, BASE_INPUTS:]).sum())
+
+    def sense_synapses(self, inputs: tuple) -> float:
+        """Weight on a sense's inputs (its synaptic price, like the prey sense's)."""
+        return float(np.abs(self.weights_ih[:, list(inputs)]).sum())
 
     def prey_synapses(self, level: int) -> float:
         """Weight on the prey-sense inputs it has (level 1: scent; 2: + direction)."""

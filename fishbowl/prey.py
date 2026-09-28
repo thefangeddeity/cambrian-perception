@@ -35,8 +35,14 @@ DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL")
                      or (_LOCAL_MODEL if _LOCAL_MODEL.exists() else "/srv/cambrian/models/yolov8n.onnx"))
 
 # COCO classes that are living things: prey.
+# Its food, the clade's rule (a design panel, 2026-09-27): living things --
+# "protein", like every mosquito's blood meal or every crocodile's catch.
+# Plants and COCO's food items are not food for it. Which of these it is
+# drawn to evolves (genome.host_pref); people are always food and always
+# sensed, so every lineage can track people.
 PREY_CLASSES = {0: "person", 14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep",
                 19: "cow", 20: "elephant", 21: "bear", 22: "zebra", 23: "giraffe"}
+PERSON_CLASS = 0
 # The detector's own calibration (Ultralytics' shipped defaults for YOLOv8
 # prediction), not a hand-picked cut: confidence 0.25, NMS IoU 0.7. Food is
 # weighted by confidence anyway, so a 0.3 bird counts, just less than a sure one.

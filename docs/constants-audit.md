@@ -58,7 +58,12 @@ yardsticks are found.
 | `DIGEST_TAU_S` | 240 s | P | |
 | `STORE_ABOVE`, `STORE_RATE`, `MOBILIZE_BELOW`, `MOBILIZE_RATE` | 0.8, 1.0, 0.5, 0.5 | P | chosen so the reserve can carry sleep but not waking |
 | `STORE_EFFICIENCY` | 0.75 | P | order of real fat-storage efficiency |
-| `SLEEP_METABOLISM`, `WAKE_FLOOR`, `TEMPO_SHARE` | 0.3, 0.6, 0.4 B/s | P | |
+| `SLEEP_METABOLISM`, `WAKE_FLOOR`, `TEMPO_SHARE` | 0.3, 0.6, 0.4 B/s | P | the endotherm end; resting and sleeping burn scale with the inherited metabolic strategy (2026-09-27) |
+| `MIN_METABOLISM` | 0.1 | S | an ectotherm rests at ~1/10 of an endotherm (Bennett & Ruben 1979: 5-10x, the upper end) |
+| `AEROBIC_SCOPE` | 10 x resting | S | vertebrate factorial aerobic scope (Bennett & Ruben); insects' is far higher -- not modelled |
+| `BURST_S`, `DEBT_TAU_S` | 120 s, 2 h | **G** | anaerobic capacity (lizards exhaust within minutes, Bennett 1978) and recovery (crocodiles take hours): orders of magnitude |
+| `SDA_FRACTION` | 0.2 | S / **G** | digestion's cost (specific dynamic action; within Secor's range for ectotherms, the exact value chosen) |
+| activity's per-unit cost | same for every strategy | **G** | assumption: equal cost of moving; only what is sustainable differs |
 | `LIGHT_FAST_S`, `LIGHT_SLOW_S` | 60 s, 1200 s | P | its day/night sense |
 | `TIRED_EFFICIENCY` | 0.5 | **G** | the invented cost of skipping sleep; the proposed sleep redefinition would retire it (awaiting a go) |
 | `ACCLIMATIZE_HALF_LIFE_S` | 80 s | **G** | |
@@ -67,7 +72,8 @@ yardsticks are found.
 | `S_RISE_S`, `S_FALL_S` | 18.2 h, 4.2 h | S | Daan, Beersma & Borbely 1984 |
 | `SLEEP_SETTLE_S`, `SLEEP_INERTIA_S` | 10 s, 7 s | **G** | |
 | `COLLAPSE_S`, `COLLAPSE_RELEASE_S` | 0.95, 0.8 | **G** | safety net |
-| `HUNGER_WAKE_G`, `HUNGER_WAKE_R`, `EMPTY_G` | 0.15, 0.05, 0.1 | P | |
+| `HUNGER_WAKE_R`, `EMPTY_G` | 0.05, 0.1 | P | an empty body (degraded). `HUNGER_WAKE_G` retired 2026-09-27 with the starvation-forces-awake rule (it made sleep flap as the gut crossed its line) |
+| `WAKE_LOOM`, `WAKE_MOTION` | 0.18, 0.6 | **G** | what wakes it from sleep, now divided by the inherited vigilance (born 1: unchanged) |
 | `SLEEP_ONSET_*`, `SLEEP_END_*`, `NIGHT_LIGHT`, `DAY_LIGHT` | 0.15/0.45, 0.01/0.04, 0.15/0.5 | **G** | Borbely's two thresholds; published threshold values are for humans in normalised units, not yet mapped |
 
 ### fishbowl/fovea.py, retina.py (the eye)
@@ -90,6 +96,12 @@ yardsticks are found.
 | `HEAVY_TAIL_P`, `HEAVY_TAIL_SCALE`, `HEAVY_TAIL_MAX` | 0.1, 0.1, 2.0 | **G** | heavy-tailed mutations are grounded (the distribution of fitness effects is leptokurtic, Eyre-Walker & Keightley 2007); the mix is not |
 | `STABILIZER_SIGMA` | 0.1 | **G** | |
 | `ZOOM_SIGMA` | = `STABILIZER_SIGMA` | **G** | a 0..1 reflex gain, mutated at the same scale; the zoom gain is born 0 (off) |
+| `TRAIT_SIGMA` | = `STABILIZER_SIGMA` | **G** | the 2026-09-27 traits (metabolism, host preference, REM share, vigilance) mutate at the stabilizer's scale |
+| `MAX_REPLAYS`, `MIN_VIGILANCE`, `MAX_VIGILANCE` | 16, 0.25, 4 | B | bounds only: replay is limited by its price and the look's deadline |
+| replay rules | prioritized by surprise (Mattar & Daw); REM = two experiences' halves at mean reward (Hoel) | P | Crick & Mitchison's REM unlearning not modelled; the place map's NREM downscaling reuses `CONSOLIDATE_RATE` |
+| place map learning rate | = `genome.learning_rate` | P | the mushroom body's own rate (one lifetime learner) |
+| intruder memory | over `LIGHT_SLOW_S` (~20 min), per light phase | P | its day/night sense's slow average reused as "lately" |
+| host preference | mean 1, people >= 1 | P | tuning redistributes attention; people always tracked (the clade's rule) |
 | `MIN_PACE`, `MAX_PACE` | 1, 6 | **G** | |
 | `BRAIN_FLOOR` | 0.3 | **G** | an audit fix against operator starvation |
 | `OP_SUCCESS_EMA_ALPHA` | 0.05 | **G** | |

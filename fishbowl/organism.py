@@ -27,10 +27,12 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
-from .controller import REFERENCE_MACS
+from .controller import INTRUDER_INPUT, PLACE_INPUTS, REFERENCE_MACS
+from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import MushroomBody, macs as kc_macs
-from .state import FOOD_PER_LOOK, LEGACY_UNIT, PREY_FOOD_PER_LOOK, TEMPO_SHARE, WAKE_FLOOR, MosquitoState
+from .state import (FOOD_PER_LOOK, LEGACY_UNIT, LIGHT_SLOW_S, PREY_FOOD_PER_LOOK, SLEEP_SETTLE_S, TEMPO_SHARE,
+                    WAKE_FLOOR, MosquitoState)
 from . import reflexes
 
 # --- Prices (the body pays per gaze, x CPU scarcity) -----------------------
@@ -132,6 +134,32 @@ SURPRISE_SIGMAS = 4.0      # change beyond ~4x a spot's usual variation counts a
 NOISE_FLOOR = 0.02         # smallest variation any spot is assumed to have (sensor noise)
 MEAN_RATE, VAR_RATE = 0.1, 0.05
 
+# --- Place map, replay and the intruder sense (2026-09-27 design panels) ---------
+# Place map: over the whole field's grid, what each spot has fed it (learned
+# with its mushroom body's learning rate, the same three-factor rule), read
+# by the brain as the direction to the best spot and how good it was --
+# where food recurs (bees learning a route, Lihoreau 2012). Priced by the
+# weight on those inputs, like the prey sense.
+# Replay (after panels on sleep: Foster & Wilson, Mattar & Daw, Tononi &
+# Cirelli, Diekelmann & Born, Hoel): each waking look's (Kenyon-cell code,
+# what it ate, where) is kept for this life. It re-learns from them --
+#   awake, in quiet moments (nothing in view, no big change: a change cuts
+#     it short), genome.awake_replay per look;
+#   asleep (settled), genome.sleep_replay per look: NREM replays the biggest
+#     surprises first (prioritized, Mattar & Daw), and the place map is
+#     scaled back down as sleep clears pressure (synaptic homeostasis --
+#     the same consolidation rate as the habituation memory); REM
+#     (genome.rem_share of them) replays recombined halves of two
+#     experiences at their mean reward (Hoel's corrupted replay: generalize).
+# A replay costs what re-activating its Kenyon cells costs: thinking energy,
+# and time against the look's deadline -- heavy replay misses looks. All
+# replay starts off (0).
+# Intruder: a person at a spot where, at this time of day, people haven't
+# been over the last ~20 minutes (its day/night sense's slow average) -- its
+# own surprise; the regulars' spots become expected. One of the brain's
+# inputs; barking at it is its alarm output (nothing rewards it yet: the
+# owner's feedback is to breed that).
+
 # --- The frame's global shift (for the stabilizer) -------------------------------
 SHIFT_WIDTH = 160
 SHIFT_MIN_RESPONSE = 0.2
@@ -188,14 +216,16 @@ def feed_on_novelty(memory: np.ndarray, look: np.ndarray, st: fovea.FoveaState, 
     return float(min(1.0, surprise.sum() / (MEM_H * MEM_W) * FOOD_GAIN))
 
 
-def prey_sense(boxes: list, cx: float, cy: float, level: int) -> tuple[float, float, float]:
-    """(scent, direction x, direction y) for its prey-sense level."""
+def prey_sense(boxes: list, cx: float, cy: float, level: int, host_pref: dict | None = None) -> tuple[float, float, float]:
+    """(scent, direction x, direction y) for its prey-sense level, each prey
+    weighted by its host preference for that class (genome.host_pref)."""
     if level <= 0 or not boxes:
         return 0.0, 0.0, 0.0
-    scent = min(1.0, sum(conf * min(1.0, (x1 - x0) * (y1 - y0) / 0.02) for _, conf, x0, y0, x1, y1 in boxes))
+    w = (lambda c: host_pref.get(int(c), 1.0)) if host_pref else (lambda c: 1.0)
+    scent = min(1.0, sum(w(c) * conf * min(1.0, (x1 - x0) * (y1 - y0) / 0.02) for c, conf, x0, y0, x1, y1 in boxes))
     if level < 2:
         return scent, 0.0, 0.0
-    best = max(boxes, key=lambda b: b[1] * (b[4] - b[2]) * (b[5] - b[3]))
+    best = max(boxes, key=lambda b: w(b[0]) * b[1] * (b[4] - b[2]) * (b[5] - b[3]))
     coarse = lambda v: 0.0 if abs(v) < 0.05 else (1.0 if v > 0 else -1.0)
     return scent, coarse((best[2] + best[4]) / 2 - cx), coarse((best[3] + best[5]) / 2 - cy)
 
@@ -317,6 +347,22 @@ class Organism:
         self.zoom_gain = float(getattr(g, "zoom", 0.0))
         self.frame_h = 180  # the frame's height in pixels, from its first frame (for its lens's limit)
         self.prey_level = int(getattr(g, "prey_sense", 0)) if prey else 0
+        # Metabolic strategy, host preference, replay and vigilance (genome).
+        self.body.metabolism = float(getattr(g, "metabolism", 1.0))
+        self.host_pref = dict(getattr(g, "host_pref", {}) or {})
+        self.awake_replay = int(getattr(g, "awake_replay", 0))
+        self.sleep_replay = int(getattr(g, "sleep_replay", 0))
+        self.rem_share = float(getattr(g, "rem_share", 0.0))
+        self.vigilance = float(getattr(g, "vigilance", 1.0))
+        # Place map and the people-expectation maps (day, night): memory,
+        # carried like the rest (items 4-6 of memory); sized on the first frame.
+        extra = list(memory[3:6]) if memory is not None and len(memory) > 5 else [None, None, None]
+        self.place, self.people_day, self.people_night = (None if a is None else np.array(a, dtype=float) for a in extra)
+        self.episodes: list = []       # this life's (Kenyon-cell code, reward, field cell), for replay
+        self.priority: list = []       # each episode's last prediction error (replay order)
+        self.replays = {"awake": 0, "nrem": 0, "rem": 0}
+        self.intruder = 0.0
+        self.last_alarm = 0.0
         self.stab_dx = self.stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
         self.prev_v = np.zeros(self.n_cells)
         # Response tree's motor-efference input: the brain's real applied movement.
@@ -341,6 +387,11 @@ class Organism:
         if self.k == 0:
             self.aspect = frame.shape[1] / max(1, frame.shape[0])
             self.frame_h = frame.shape[0]
+            self.field = field_shape(frame.shape[0], frame.shape[1])
+            for name in ("place", "people_day", "people_night"):
+                a = getattr(self, name)
+                if a is None or a.shape != self.field:
+                    setattr(self, name, np.zeros(self.field))
         if self.pending is not None:
             self._substep(shift, in_world=True)
             if self.pending["done"] == self.pending["interval"]:
@@ -399,25 +450,33 @@ class Organism:
         periph_dx = float(sig["motion_cx"]) - state.cx
         periph_dy = float(sig["motion_cy"]) - state.cy
         field_light = float(sig["field_light"])
-        scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level)
+        scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
         kc_active = self.mb.active(v, n) if not was_asleep else np.zeros(0, dtype=int)
         self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
+        cell = self._cell(state.cx, state.cy)
+        place_dx, place_dy, place_value = self._place_sense(state.cx, state.cy)
+        self.intruder = self._intruder(boxes, body.daylight, self.last_interval / max(1.0, self.fps))
+        # Replay (awake in a quiet moment, or asleep once settled): it takes
+        # time from this look's deadline and costs thinking energy.
+        replay_macs = self._replay(was_asleep and body.sleep_clock > SLEEP_SETTLE_S,
+                                   not was_asleep and not boxes and not body.big_change(loom, periph_motion, self.vigilance))
         if (self.sec_per_mac and self.last_out is not None
-                and self.sec_per_mac * brain.macs() > self.last_interval / max(1.0, self.fps)):
+                and self.sec_per_mac * (brain.macs() + replay_macs) > self.last_interval / max(1.0, self.fps)):
             out = self.last_out  # still thinking: this look is missed
             self.missed += 1
         else:
             out = brain.step(
                 lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
-                self.food_value,
+                self.food_value, place_dx, place_dy, place_value, self.intruder,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
+        self.last_alarm = alarm
         # Sleep is its own choice (its sleep output); the body adds only the
         # physiological overrides -- collapse, hunger, a big change (state.py).
-        body.set_sleep(out.sleep > 0.0, loom, periph_motion)
+        body.set_sleep(out.sleep > 0.0, loom, periph_motion, self.vigilance)
         asleep = body.asleep >= 0.5
         # An empty body runs on less (soft floor): colour off, slower gazing.
         # Asleep, the eye is shut: no colour either.
@@ -464,7 +523,12 @@ class Organism:
             # prey = 1) teaches its mushroom body what the look showed.
             reward = (PREY_FOOD_PER_LOOK * prey_now + FOOD_PER_LOOK * snack) / PREY_FOOD_PER_LOOK
             if len(kc_active) and self.learning_rate > 0.0:
-                self.value_errors.append(abs(self.mb.learn(kc_active, reward, self.learning_rate)))
+                err = self.mb.learn(kc_active, reward, self.learning_rate)
+                self.value_errors.append(abs(err))
+                self.episodes.append((kc_active.copy(), reward, cell))
+                self.priority.append(abs(err))
+            if self.learning_rate > 0.0 and cell is not None:
+                self.place[cell] += self.learning_rate * (reward - self.place[cell])
             interval = int(np.clip(round(self.pace * TEMPO_RANGE ** (-float(tempo))), 1, MAX_INTERVAL))
             if body.degraded:
                 interval = min(MAX_INTERVAL, interval * 2)
@@ -477,10 +541,73 @@ class Organism:
         # held, and the damped eye keeps moving meanwhile.
         self.stab_dx = self.stab_dy = 0.0
         self.pending = {"pan": pan, "tilt": tilt, "asleep": asleep, "colour_on": colour_on, "kc_on": bool(len(kc_active)),
+                        "replay_macs": replay_macs,
                         "interval": interval, "done": 0, "effort": 0.0, "force": (0.0, 0.0),
                         "cx0": state.cx, "cy0": state.cy, "periph_motion": periph_motion, "loom": loom,
                         "field_light": field_light, "prey_now": prey_now, "snack": snack}
         self.prev_frame = frame
+
+    def _cell(self, x: float, y: float):
+        """The whole field's grid cell (row, col) at a point of the frame."""
+        if self.place is None:
+            return None
+        rows, cols = self.place.shape
+        return (min(rows - 1, max(0, int(y * rows))), min(cols - 1, max(0, int(x * cols))))
+
+    def _place_sense(self, cx: float, cy: float) -> tuple[float, float, float]:
+        """Direction from its gaze to the spot that has fed it best, and how good it was."""
+        if self.place is None or not np.any(self.place > 0.0):
+            return 0.0, 0.0, 0.0
+        rows, cols = self.place.shape
+        r, c = np.unravel_index(int(np.argmax(self.place)), self.place.shape)
+        return (c + 0.5) / cols - cx, (r + 0.5) / rows - cy, float(np.clip(self.place[r, c], -1.0, 1.0))
+
+    def _intruder(self, boxes: list, daylight: float, seconds: float) -> float:
+        """A person where, at this time of day, people haven't been lately:
+        confidence x (1 - how expected people are there). Then learns what
+        this look showed (per light phase, over ~LIGHT_SLOW_S)."""
+        if self.people_day is None:
+            return 0.0
+        people = [b for b in boxes if int(b[0]) == prey_lib.PERSON_CLASS]
+        expected = daylight * self.people_day + (1.0 - daylight) * self.people_night
+        surprise = 0.0
+        seen = np.zeros(self.people_day.shape)
+        rows, cols = seen.shape
+        for _, conf, x0, y0, x1, y1 in people:
+            r, c = self._cell((x0 + x1) / 2, (y0 + y1) / 2)
+            surprise = max(surprise, float(conf) * (1.0 - float(expected[r, c])))
+            seen[int(y0 * rows):max(int(y0 * rows) + 1, int(np.ceil(y1 * rows))),
+                 int(x0 * cols):max(int(x0 * cols) + 1, int(np.ceil(x1 * cols)))] = 1.0
+        rate = 1.0 - math.exp(-max(0.0, seconds) / LIGHT_SLOW_S)
+        self.people_day += rate * daylight * (seen - self.people_day)
+        self.people_night += rate * (1.0 - daylight) * (seen - self.people_night)
+        return float(np.clip(surprise, 0.0, 1.0))
+
+    def _replay(self, asleep_settled: bool, quiet: bool) -> int:
+        """Re-learning from this life's episodes; returns the multiply-adds spent."""
+        count = self.sleep_replay if asleep_settled else self.awake_replay if quiet else 0
+        if not count or not self.episodes or self.learning_rate <= 0.0 or not self.mb.n_kc:
+            return 0
+        rng = np.random.default_rng(self.k)  # reproducible: the same life replays the same way
+        for _ in range(count):
+            if asleep_settled and rng.random() < self.rem_share:
+                # REM: two experiences recombined, at their mean reward (generalize)
+                i, j = rng.integers(len(self.episodes), size=2)
+                (ci, ri, _), (cj, rj, _) = self.episodes[i], self.episodes[j]
+                half = max(1, len(ci) // 2)
+                code = np.unique(np.concatenate([ci[:half], cj[half:]]))
+                self.mb.learn(code, 0.5 * (ri + rj), self.learning_rate)
+                self.replays["rem"] += 1
+            else:
+                # NREM, or awake: the biggest surprise first (prioritized replay)
+                i = int(np.argmax(self.priority))
+                code, reward, cell = self.episodes[i]
+                self.mb.learn(code, reward, self.learning_rate)
+                self.priority[i] = abs(reward - self.mb.value(code))
+                if cell is not None:
+                    self.place[cell] += self.learning_rate * (reward - self.place[cell])
+                self.replays["nrem" if asleep_settled else "awake"] += 1
+        return count * kc_macs(self.mb.n_kc)
 
     def _substep(self, shift: tuple, in_world: bool) -> None:
         """The eye moves one frame on (muscle energy = force squared, per frame pushed)."""
@@ -512,13 +639,17 @@ class Organism:
                                  + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
                                  + (THINK_COST * kc_macs(self.mb.n_kc) / REFERENCE_MACS if p["kc_on"] else 0.0)
-                                 + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)) * self.scarcity,
+                                 + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
+                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT,))
+                                 + THINK_COST * p["replay_macs"] / REFERENCE_MACS) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),
                     field_light=p["field_light"])
         cleared = body.take_cleared()
         if cleared > 0.0:
             floor = NOISE_FLOOR ** 2
             self.variance[...] = floor + (self.variance - floor) * math.exp(-CONSOLIDATE_RATE * cleared)
+            if self.place is not None:  # NREM: the place map scaled back down (synaptic homeostasis)
+                self.place *= math.exp(-CONSOLIDATE_RATE * cleared)
         body.feed_visual_sustenance(p["snack"])
         body.feed_prey(p["prey_now"])
         if rec is not None:

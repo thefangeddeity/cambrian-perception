@@ -19,6 +19,7 @@ separate, less-safe code path for "the action-producing tree" versus
 """
 
 import copy
+import math
 import random
 
 import numpy as np
@@ -26,6 +27,8 @@ import numpy as np
 from . import blocks, fovea
 from .controller import MosquitoBrain
 from .mushroom import MAX_KC
+from .prey import PREY_CLASSES
+from .state import MIN_METABOLISM
 
 # mutate_fovea grows or shrinks its eye by one ring of receptors
 # (genome.receptors, fovea.py) instead of touching a tree -- same fitness
@@ -44,12 +47,24 @@ from .mushroom import MAX_KC
 # duplicated from an existing output, or a predictor of one of its inputs.
 # mutate_stabilizer changes its image-stabilization reflex gain (run_vision.py).
 # mutate_zoom changes the gain of its zoom lens (fovea.magnification: 0 = off).
+# mutate_metabolism moves its metabolic strategy between ectotherm and endotherm (state.py).
+# mutate_host retunes its prey sense across the living classes (host preference; people never below even).
+# mutate_replay changes how much it replays experience: awake in quiet moments, asleep, and the REM share.
+# mutate_vigilance changes how big a change in the field it takes to wake it (the sentry's threshold).
 TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_fovea", "mutate_brain", "mutate_pace",
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
-            "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom")
+            "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
+            "mutate_replay", "mutate_vigilance")
 STABILIZER_SIGMA = 0.1
 ZOOM_SIGMA = STABILIZER_SIGMA  # a reflex gain, 0..1, mutates as the stabilizer's does
+# The traits from the 2026-09-27 panels mutate at the same scale (assumption):
+# metabolism (0.1 ectotherm .. 1 endotherm, born 1: today's body), host
+# preference (a weight per living class, born even), replay (counts per look,
+# born 0 -- off) and vigilance (born 1: today's wake thresholds).
+TRAIT_SIGMA = STABILIZER_SIGMA
+MAX_REPLAYS = 16                 # replays per look: a bound only -- the price and the look's deadline limit it
+MIN_VIGILANCE, MAX_VIGILANCE = 0.25, 4.0   # bounds only: a quarter to four times as easily woken
 # Prey sense (run_vision.py): 0 = eyes only, 1 = scent (prey somewhere in
 # view), 2 = + a coarse direction to it. mutate_prey_sense steps it by one.
 MAX_PREY_SENSE = 2
@@ -163,6 +178,12 @@ class Genome:
         kc_seed: int | None = None,
         learning_rate: float = 0.0,
         zoom: float = 0.0,
+        metabolism: float = 1.0,
+        host_pref: dict | None = None,
+        awake_replay: int = 0,
+        sleep_replay: int = 0,
+        rem_share: float = 0.0,
+        vigilance: float = 1.0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -183,6 +204,18 @@ class Genome:
         self.stabilizer = float(np.clip(stabilizer, 0.0, 1.0))
         # Its zoom lens's gain (fovea.magnification): 0 = its zoom output does nothing.
         self.zoom = float(np.clip(zoom, 0.0, 1.0))
+        # Its metabolic strategy (state.py): 1 = endotherm (today's body), down to an ectotherm's 0.1.
+        self.metabolism = float(np.clip(metabolism, MIN_METABOLISM, 1.0))
+        # Its host preference: how strongly its prey sense answers each living class
+        # (an odorant receptor's tuning, McBride et al. 2014); mean 1, people never below 1.
+        self.host_pref = _host_pref(host_pref)
+        # Replay (fishbowl/organism.py): per quiet waking look, per sleeping look, and
+        # the share of sleep replays that are REM (recombined) rather than NREM.
+        self.awake_replay = int(np.clip(awake_replay, 0, MAX_REPLAYS))
+        self.sleep_replay = int(np.clip(sleep_replay, 0, MAX_REPLAYS))
+        self.rem_share = float(np.clip(rem_share, 0.0, 1.0))
+        # Vigilance: how easily a change in the field wakes it (state.big_change).
+        self.vigilance = float(np.clip(vigilance, MIN_VIGILANCE, MAX_VIGILANCE))
         self.prey_sense = int(np.clip(prey_sense, 0, MAX_PREY_SENSE))
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
@@ -218,6 +251,12 @@ class Genome:
             self.kc_seed,
             self.learning_rate,
             self.zoom,
+            self.metabolism,
+            dict(self.host_pref),
+            self.awake_replay,
+            self.sleep_replay,
+            self.rem_share,
+            self.vigilance,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -406,6 +445,32 @@ class Genome:
             old = self.stabilizer
             self.stabilizer = float(np.clip(old + rng.gauss(0.0, STABILIZER_SIGMA), 0.0, 1.0))
             return "stabilizer", (choice if self.stabilizer != old else "noop_inapplicable")
+        if choice == "mutate_metabolism":
+            old = self.metabolism
+            self.metabolism = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA), MIN_METABOLISM, 1.0))
+            return "metabolism", (choice if self.metabolism != old else "noop_inapplicable")
+        if choice == "mutate_host":
+            old = dict(self.host_pref)
+            w = dict(self.host_pref)
+            c = rng.choice(sorted(w))
+            w[c] *= math.exp(rng.gauss(0.0, TRAIT_SIGMA))
+            self.host_pref = _host_pref(w)
+            return "host", (choice if self.host_pref != old else "noop_inapplicable")
+        if choice == "mutate_replay":
+            old = (self.awake_replay, self.sleep_replay, self.rem_share)
+            which = rng.randrange(3)
+            if which == 0:
+                self.awake_replay = int(np.clip(self.awake_replay + rng.choice((-1, 1)), 0, MAX_REPLAYS))
+            elif which == 1:
+                self.sleep_replay = int(np.clip(self.sleep_replay + rng.choice((-1, 1)), 0, MAX_REPLAYS))
+            else:
+                self.rem_share = float(np.clip(self.rem_share + rng.gauss(0.0, TRAIT_SIGMA), 0.0, 1.0))
+            new = (self.awake_replay, self.sleep_replay, self.rem_share)
+            return "replay", (choice if new != old else "noop_inapplicable")
+        if choice == "mutate_vigilance":
+            old = self.vigilance
+            self.vigilance = float(np.clip(old * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), MIN_VIGILANCE, MAX_VIGILANCE))
+            return "vigilance", (choice if self.vigilance != old else "noop_inapplicable")
         if choice == "mutate_zoom":
             old = self.zoom
             self.zoom = float(np.clip(old + rng.gauss(0.0, ZOOM_SIGMA), 0.0, 1.0))
@@ -525,6 +590,12 @@ class Genome:
             "stabilizer": self.stabilizer,
             "prey_sense": self.prey_sense,
             "zoom": self.zoom,
+            "metabolism": self.metabolism,
+            "host_pref": {str(k): round(v, 4) for k, v in self.host_pref.items()},
+            "awake_replay": self.awake_replay,
+            "sleep_replay": self.sleep_replay,
+            "rem_share": self.rem_share,
+            "vigilance": self.vigilance,
         }
 
     @staticmethod
@@ -577,7 +648,33 @@ class Genome:
             kc_seed=data.get("kc_seed"),
             learning_rate=float(data.get("learning_rate", 0.0)),
             zoom=float(np.clip(data.get("zoom", 0.0), 0.0, 1.0)),
+            metabolism=float(data.get("metabolism", 1.0)),
+            host_pref={int(k): float(v) for k, v in (data.get("host_pref") or {}).items()},
+            awake_replay=int(data.get("awake_replay", 0)),
+            sleep_replay=int(data.get("sleep_replay", 0)),
+            rem_share=float(data.get("rem_share", 0.0)),
+            vigilance=float(data.get("vigilance", 1.0)),
         )
+
+
+PERSON = 0  # COCO's person class: the prey every lineage must be able to track
+
+
+def _host_pref(w: dict | None) -> dict:
+    """A host preference over the living classes (prey.PREY_CLASSES): mean 1
+    (tuning redistributes attention, it doesn't add any), people never below
+    the even weight 1, so every lineage can track people (the clade's rule).
+    Missing classes start even."""
+    classes = sorted(PREY_CLASSES)
+    w = {c: max(1e-3, float((w or {}).get(c, 1.0))) for c in classes}
+    mean = sum(w.values()) / len(w)
+    w = {c: v / mean for c, v in w.items()}
+    if w[PERSON] < 1.0:
+        others = [c for c in classes if c != PERSON]
+        rest = sum(w[c] for c in others)
+        scale = (len(classes) - 1.0) / rest if rest > 0 else 1.0
+        w = {c: (1.0 if c == PERSON else w[c] * scale) for c in classes}
+    return {c: round(v, 6) for c, v in w.items()}
 
 
 def _migrate_flat_inputs(node: blocks.Node, old_n_vars: int, scale: float) -> None:

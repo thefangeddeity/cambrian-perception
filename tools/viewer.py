@@ -271,7 +271,7 @@ LOCK_HUD_JS = r"""
       fw: (traj[i][2] || 0.35) * (d.frame_h || 9) / (d.frame_w || 16),
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
       guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null, snack: at(d.snacks) || 0,
-      asleep: !!at(d.asleep_frames),
+      asleep: !!at(d.asleep_frames), bark: !!at(d.alarm_frames),
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
       delay,
     };
@@ -420,6 +420,7 @@ LOCK_HUD_JS = r"""
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
+                  ...(fs.bark ? [[blink ? 'BARK' : '', '#ff4444', 'bold 12px monospace']] : []),
                   [fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped', '#9fb6c6', '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
@@ -540,6 +541,9 @@ PAGE = r"""<!doctype html>
   <span class="chip">colour <b id="h-colour">--</b></span>
   <span class="chip">stabilizer <b id="h-stab">--</b></span>
   <span class="chip">zoom lens <b id="h-zoom">--</b></span>
+  <span class="chip">metabolism <b id="h-metab">--</b></span>
+  <span class="chip">vigilance <b id="h-vigil">--</b></span>
+  <span class="chip">replay <b id="h-replay">--</b></span>
   <span class="chip">prey sense <b id="h-prey">--</b></span>
   <span class="chip">CPU quota <b id="h-quota">--</b></span>
   <span class="chip" id="h-stale"></span>
@@ -638,6 +642,11 @@ PAGE = r"""<!doctype html>
     <tr><td><span class="tag hand">teacher</span></td><td class="minus">-3.0</td><td>perception tree's error</td><td>The perception tree is graded on predicting, from its own pixels, how much prey fills its gaze -- YOLO's boxes as the teacher's soft labels, error balanced between frames with and without prey. Its prediction also goes to the brain, so a tree that sees food lets the brain steer to it. YOLO is the shortcut; the tree is to become its own detector.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>image stabilizer</td><td>A reflex gain from 0 to 1, inherited and evolving: every frame its gaze moves by that fraction of the whole frame's shift from the last frame -- camera shake -- the way an eye's optokinetic reflex holds the image still between deliberate movements. Global only (a cut or a big moving object gives no shift), so it never follows prey; that stays the brain's job. Costs energy per gaze x gain, so it only spreads where the camera shakes enough to pay for it.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>zoom lens</td><td>Zoom in only, like attention narrowing: its brain's zoom output, times an inherited gain from 0 (off, as it is born) to 1, concentrates the same receptors on a smaller patch -- each receptor smaller, down to one pixel of the frame and never below, so it never shows a blown-up pixel. It costs no receptors; what it gives up is area: zoomed in, it sees less of the world.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>metabolic strategy</td><td>From endotherm (1, as it is born: a high resting burn, any pace sustainable) to ectotherm (0.1: a tenth of the resting and sleeping burn -- a crocodile's cheap waiting, sensors still on). An ectotherm can sustain only ~10x its resting rate; beyond that a chase is an anaerobic burst whose debt it feels as fatigue and repays over hours. Sensing and thinking cost the same either way.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>physics</td><td>digestion</td><td>Digesting costs a fifth of every meal (specific dynamic action), for everyone.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>host preference</td><td>Its food is living things -- people and animals ("protein"), never plants or food items. Which of them its prey sense answers most strongly evolves, like a mosquito's odour tuning; people are never below the even weight, so every lineage can track people.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>place map and replay</td><td>It learns which spots of its field have fed it, and its brain can read where the best one is. It can replay what it lived: awake in quiet moments (a big change cuts it short), and asleep -- NREM replays the biggest surprises first and scales the place map back down; REM replays recombined experiences. Replay costs thinking energy and time against each look's deadline. All off as it is born.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>vigilance and intruders</td><td>How big a change it takes to wake it evolves (its sensors stay on while it sleeps). Its intruder sense: a person where, at this time of day, people haven't been lately. Its alarm is its bark (BARK on the camera); nothing rewards barking yet -- the livecam owner's feedback is to breed that.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while blood sugar and gut are low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>motor</td><td>sleep</td><td>Its own choice (a brain output), with three physiological overrides: it collapses when sleep pressure maxes out (and can't wake by choice until it has recovered), starving wakes it (and keeps even an exhausted animal up), and a big change in the field wakes it. Asleep: eyes shut, no eating, slow sampling of the field, a third of the waking burn -- the reserve can cover sleep but not waking, so sleep is how to get through a quiet room. Sleep also pays back tiredness (at full pressure it gets only half of what it catches) and consolidates its habituation memory. It can only fall asleep once it is tired enough (sleep pressure above a threshold, lower in the dark), and wakes by itself once rested (Borbely's two thresholds), so it can't sleep through a busy room. Falling asleep takes a moment to settle; waking, it is groggy for a few seconds and can't eat. Its sense of day and night is the field's light and its trend.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
@@ -652,7 +661,7 @@ PAGE = r"""<!doctype html>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder'];
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
@@ -905,6 +914,7 @@ PAGE = r"""<!doctype html>
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
       gauge('arousal', b.arousal, '#7fd4ff', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
+      gauge('anaerobic debt', b.debt, '#f60', 'from bursts beyond what it can sustain; felt as fatigue, repaid over hours') +
       `<div class="cap" style="margin-top:4px">tempo: <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes/s on average in its latest run (resting: ${d.pace_accepted ? ((d.frames_per_second || 15) / d.pace_accepted).toFixed(1) : '--'}). It can speed up or slow down 3x either way, any time -- a continuum, like a bear sluggish in winter and hyper in spring.</div>` +
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
@@ -992,8 +1002,8 @@ PAGE = r"""<!doctype html>
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#4fa', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
       (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +
@@ -1131,6 +1141,10 @@ PAGE = r"""<!doctype html>
         $('h-colour').textContent = ['none (light only)', 'red-green', 'red-green + blue-yellow'][d.colour_channels ?? 0] || '--';
         $('h-stab').textContent = d.stabilizer !== undefined ? `gain ${Number(d.stabilizer).toFixed(2)}` : '--';
         $('h-zoom').textContent = d.zoom_gain !== undefined ? (d.zoom_gain > 0 ? `gain ${Number(d.zoom_gain).toFixed(2)}` : 'off') : '--';
+        $('h-metab').textContent = d.metabolism !== undefined ? `${Number(d.metabolism).toFixed(2)} (${d.metabolism >= 0.95 ? 'endotherm' : d.metabolism <= 0.15 ? 'ectotherm' : 'between'})` : '--';
+        $('h-vigil').textContent = d.vigilance !== undefined ? Number(d.vigilance).toFixed(2) : '--';
+        const rt = d.replay_traits;
+        $('h-replay').textContent = rt ? (rt.awake || rt.sleep ? `awake ${rt.awake}, asleep ${rt.sleep} (REM ${Math.round(rt.rem_share * 100)}%)` : 'off') : '--';
         $('h-prey').textContent = ['eyes only', 'scent', 'scent + direction'][d.prey_sense ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
         $('h-stale').innerHTML = '';

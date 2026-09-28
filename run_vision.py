@@ -562,7 +562,13 @@ def evaluate_genome(
         "teacher_label": [_round2(teacher_y[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]) if teacher_y else None for k in range(nf)],
         # Per frame: asleep (1), eyes shut -- for the viewer's SLEEP.
         "asleep": [int(asleeps[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] >= 0.5) if asleeps else 0 for k in range(nf)],
-        "_memory": (memory, variance, org.mb.weights),
+        # Memory carried to the next generation: surprise, the mushroom body's
+        # learning, the place map and where people are expected (day, night).
+        "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night),
+        # Per frame: its alarm (the bark) and the intruder sense, for the viewer.
+        "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
+        "replays": dict(org.replays),
+        "intruder": round(org.intruder, 3),
         "food_value": round(org.food_value, 3),
         "movement": movement,
         "field_events": [[round(float(world_signals["motion_cx"][k]), 3), round(float(world_signals["motion_cy"][k]), 3),
@@ -1077,7 +1083,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         m = checkpoint["memory"]
         memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
                       np.array(m["var"], dtype=float),
-                      np.array(m.get("learned") or [], dtype=float))
+                      np.array(m.get("learned") or [], dtype=float),
+                      *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night")))
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
@@ -1105,7 +1112,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "body": body_now,
             "memory": {"mean": [[None if np.isnan(x) else round(float(x), 4) for x in row] for row in memory_now[0]],
                        "var": [[round(float(x), 6) for x in row] for row in memory_now[1]],
-                       "learned": [round(float(x), 5) for x in memory_now[2]] if len(memory_now) > 2 else []}
+                       "learned": [round(float(x), 5) for x in memory_now[2]] if len(memory_now) > 2 else [],
+                       **{k: np.round(memory_now[i], 5).tolist()
+                          for i, k in ((3, "place"), (4, "people_day"), (5, "people_night"))
+                          if len(memory_now) > i and memory_now[i] is not None}}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })
@@ -1433,6 +1443,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "bouts": _bouts(),
             "teacher_label": live_info.get("teacher_label"),
             "asleep_frames": live_info.get("asleep"),
+            "alarm_frames": live_info.get("alarm"),
+            "replays": live_info.get("replays"),
+            "intruder": live_info.get("intruder"),
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.extent(fovea.MAX_RECEPTORS),
@@ -1440,6 +1453,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "colour_channels": genome.colour_channels,
             "stabilizer": genome.stabilizer,
             "zoom_gain": genome.zoom,
+            "metabolism": genome.metabolism,
+            "host_pref": {prey_lib.PREY_CLASSES[c]: round(w, 2) for c, w in genome.host_pref.items()},
+            "replay_traits": {"awake": genome.awake_replay, "sleep": genome.sleep_replay, "rem_share": round(genome.rem_share, 2)},
+            "vigilance": genome.vigilance,
             "prey_sense": genome.prey_sense,
             # Its lasting body right now (persists across generations and
             # restarts), vs "body" = the candidate's at the end of its window.

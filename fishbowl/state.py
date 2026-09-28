@@ -24,8 +24,20 @@ Sleep:
     clears during sleep.
   - sleep is the brain's own choice (a `sleep` output), with a settling
     period on falling asleep (no clearing yet) and grogginess on waking
-    (can't eat yet); two physiological overrides, not behaviour rules:
-    collapse when pressure maxes out, and hunger that wakes it.
+    (can't eat yet); one physiological override, not a behaviour rule:
+    collapse when pressure maxes out. (Starvation used to force it awake
+    too; retired 2026-09-27 -- it made the body flap between sleep and
+    waking as the gut crossed its threshold, losing a grogginess each time.)
+Metabolic strategy (after a design panel on poikilothermy -- Bennett &
+Ruben 1979, Secor, Huey & Pianka; genome.metabolism, inherited): from an
+endotherm (1, today's body: a high resting burn, any tempo sustainable) to an
+ectotherm (0.1: a tenth of the resting and sleeping burn -- cheap waiting,
+sensors still on -- but sustained activity capped at AEROBIC_SCOPE x its
+resting rate; faster than that is an anaerobic burst whose debt it feels as
+fatigue and repays over hours, like a crocodile after a struggle). Sensors
+and thinking keep their prices whatever the strategy (Niven & Laughlin).
+Digestion costs energy for everyone (specific dynamic action, Secor): part
+of every meal is spent digesting it.
 Sleep pays for itself twice: it saves energy when there is nothing to eat,
 and it restores what tiredness takes (a tired hunter gets less of what it
 catches; sleep also consolidates its habituation memory -- run_vision.py).
@@ -60,6 +72,13 @@ SLEEP_METABOLISM = 0.3  # B/s while asleep
 # way to hold steady in an empty room.
 WAKE_FLOOR = 0.6
 TEMPO_SHARE = 0.4
+# Metabolic strategy (genome.metabolism: the resting and sleeping burn's
+# multiplier, 0.1 = ectotherm .. 1 = endotherm):
+MIN_METABOLISM = 0.1   # an ectotherm rests at ~1/10 of an endotherm's rate (Bennett & Ruben 1979: 5-10x; the upper end)
+AEROBIC_SCOPE = 10.0   # sustained activity up to ~10x resting (vertebrate factorial aerobic scope)
+BURST_S = 120.0        # anaerobic capacity: at twice its ceiling, exhausted in ~2 min (lizards, Bennett 1978; assumption)
+DEBT_TAU_S = 7200.0    # the debt fades over hours (crocodiles recover from a struggle in hours; assumption: 2 h)
+SDA_FRACTION = 0.2     # share of each meal spent digesting it (specific dynamic action, in Secor's range; assumption)
 # Its sense of day and night: the whole field's light, averaged over about a
 # minute and about 20 minutes; their difference says dawn (rising) or dusk.
 LIGHT_FAST_S = 60.0
@@ -79,8 +98,10 @@ SLEEP_SETTLE_S = 10.0   # falling asleep: no clearing yet
 SLEEP_INERTIA_S = 7.0   # waking up: groggy, can't eat yet
 COLLAPSE_S = 0.95       # sleep pressure that forces sleep...
 COLLAPSE_RELEASE_S = 0.8  # ...and holds it until pressure is back below this
-HUNGER_WAKE_G = 0.15    # blood sugar that forces waking -- with an empty gut AND an empty
-HUNGER_WAKE_R = 0.05    # reserve: while the reserve can still carry sleep, a hungry animal may sleep
+HUNGER_WAKE_R = 0.05    # a reserve below this counts as empty (with blood sugar under EMPTY_G: degraded)
+# What wakes it from sleep: a big change in the field, at these levels x its
+# inherited vigilance's inverse (genome.vigilance: 1 = today's thresholds).
+WAKE_LOOM, WAKE_MOTION = 0.18, 0.6
 EMPTY_G = 0.1           # below this the body degrades
 # Sleep needs sleep pressure (Borbely's two thresholds, both lowered by the
 # dark -- the circadian part, from its sense of the field's light): it can
@@ -114,15 +135,22 @@ class MosquitoState:
     light_fast: float = 0.5    # whole-field light, ~1 min average
     light_slow: float = 0.5    # whole-field light, ~20 min average
     cleared: float = 0.0       # sleep pressure cleared since last asked (for memory consolidation)
+    debt: float = 0.0          # anaerobic debt (0..1 = exhausted), felt as fatigue, repaid over hours
+    metabolism: float = 1.0    # its inherited metabolic strategy (genome.metabolism; set by the organism, not saved)
 
     # ---- what the organism "feels" ------------------------------------
+    @property
+    def tiredness(self) -> float:
+        """Muscle fatigue plus anaerobic debt, as it feels them."""
+        return _clamp(self.fatigue + self.debt)
+
     def drive(self) -> float:
         """Distance from a viable state. Hunger counts the gut (a full
         stomach cuts hunger before absorption, like ghrelin) and a small
         reserve term, so building reserves shows up within a window."""
         fed = min(1.0, self.energy + 0.5 * self.gut)
         return ((1.0 - fed) ** 2 + 0.3 * (1.0 - self.reserve) ** 2
-                + self.threat ** 2 + self.fatigue ** 2 + 0.3 * self.sleep_pressure ** 2)
+                + self.threat ** 2 + self.tiredness ** 2 + 0.3 * self.sleep_pressure ** 2)
 
     @property
     def degraded(self) -> bool:
@@ -148,26 +176,29 @@ class MosquitoState:
         return self.asleep < 0.5 and self.sleep_clock >= SLEEP_INERTIA_S
 
     # ---- sleep --------------------------------------------------------
-    def set_sleep(self, wants_sleep: bool, loom: float = 0.0, field_motion: float = 0.0) -> None:
-        """The brain's choice, with the body's two overrides and a raised
+    def big_change(self, loom: float, field_motion: float, vigilance: float = 1.0) -> bool:
+        """A change in the field big enough to wake it (or cut short a
+        replay): its inherited vigilance lowers or raises the bar."""
+        v = max(1e-6, vigilance)
+        return loom > WAKE_LOOM / v or field_motion > WAKE_MOTION / v
+
+    def set_sleep(self, wants_sleep: bool, loom: float = 0.0, field_motion: float = 0.0,
+                  vigilance: float = 1.0) -> None:
+        """The brain's choice, with the body's override (collapse) and a raised
         arousal threshold while asleep (only a big change wakes it)."""
         asleep = self.asleep >= 0.5
         want = wants_sleep
-        starving = self.energy < HUNGER_WAKE_G and self.gut < 0.02 and self.reserve < HUNGER_WAKE_R
         day = self.daylight
         if want and not asleep and self.sleep_pressure < SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * day:
             want = False  # not tired enough to fall asleep
         if asleep and self.sleep_pressure < SLEEP_END_DARK + (SLEEP_END_DAY - SLEEP_END_DARK) * day:
             want = False  # slept enough: wakes by itself
-        # Exhaustion: collapse, and no waking by choice until it has recovered
-        # -- unless it is starving, which keeps even an exhausted animal up.
-        if not starving and ((not asleep and self.sleep_pressure > COLLAPSE_S)
-                             or (asleep and self.sleep_pressure > COLLAPSE_RELEASE_S)):
+        # Exhaustion: collapse, and no waking by choice until it has recovered.
+        if (not asleep and self.sleep_pressure > COLLAPSE_S) or (asleep and self.sleep_pressure > COLLAPSE_RELEASE_S):
             want = True
-        # What wakes even an exhausted animal (and keeps it up): starving, or a big change.
-        if starving:
-            want = False
-        if asleep and (loom > 0.18 or field_motion > 0.6):
+        # What wakes even an exhausted animal: a big change -- the sentry's
+        # sensors stay on while it sleeps.
+        if asleep and self.big_change(loom, field_motion, vigilance):
             want = False
         if want != asleep:
             self.asleep = 1.0 if want else 0.0
@@ -211,11 +242,24 @@ class MosquitoState:
         self.metabolic_rate = k * self.metabolic_rate + (1.0 - k) * (1.0 / max(1, pace))
 
         # --- spending (B-seconds) ---
+        # Resting and sleeping burn follow its metabolic strategy; activity
+        # (tempo, muscle) costs the same per unit for all (equal cost of
+        # moving, assumption) -- what differs is how much it can SUSTAIN:
+        # above AEROBIC_SCOPE x its resting rate the excess is an anaerobic
+        # burst that runs up a debt, felt as fatigue and repaid over hours.
+        # Sensing and thinking (aperture_cost) are priced as before.
+        m = min(1.0, max(MIN_METABOLISM, self.metabolism))
+        muscle = EFFORT_COST * motor_effort * LEGACY_UNIT  # B-seconds this gaze
+        self.debt *= math.exp(-seconds / DEBT_TAU_S)
         if asleep:
-            burn = SLEEP_METABOLISM * seconds
+            burn = SLEEP_METABOLISM * m * seconds + muscle
         else:
-            burn = (WAKE_FLOOR + TEMPO_SHARE * (1.0 + self.arousal) * self.metabolic_rate) * seconds
-        burn += (EFFORT_COST * motor_effort + aperture_cost) * LEGACY_UNIT
+            activity = TEMPO_SHARE * (1.0 + self.arousal) * self.metabolic_rate * seconds + muscle
+            ceiling = AEROBIC_SCOPE * WAKE_FLOOR * m  # B/s it can sustain aerobically
+            excess = max(0.0, activity - ceiling * seconds)
+            self.debt = _clamp(self.debt + excess / (ceiling * BURST_S))
+            burn = WAKE_FLOOR * m * seconds + activity
+        burn += aperture_cost * LEGACY_UNIT
         if self.degraded:  # soft floor: an empty body runs on less
             burn *= 0.5 + 0.5 * self.energy / EMPTY_G
         g_bs = self.energy * G_CAP - burn
@@ -224,7 +268,7 @@ class MosquitoState:
         gut_bs = self.gut * GUT_CAP
         moved = gut_bs * (1.0 - math.exp(-seconds / DIGEST_TAU_S))
         gut_bs -= moved
-        g_bs += moved
+        g_bs += moved * (1.0 - SDA_FRACTION)  # digesting costs part of the meal (specific dynamic action)
 
         # --- storage and mobilization ---
         r_bs = self.reserve * R_CAP
@@ -292,7 +336,7 @@ class MosquitoState:
 
     # ---- persistence --------------------------------------------------
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
-              "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow")
+              "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
