@@ -27,11 +27,11 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
-from .controller import DANGER_INPUT, INTRUDER_INPUT, PLACE_INPUTS, REFERENCE_MACS
+from .controller import DANGER_INPUT, INTRUDER_INPUT, PLACE_INPUTS, PLANT_INPUTS, REFERENCE_MACS
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import MushroomBody, macs as kc_macs
-from .state import (FOOD_PER_LOOK, LEGACY_UNIT, LIGHT_SLOW_S, PREY_FOOD_PER_LOOK, SLEEP_SETTLE_S, TEMPO_SHARE,
+from .state import (FOOD_PER_LOOK, GUT_CAP, LEGACY_UNIT, LIGHT_SLOW_S, PREY_FOOD_PER_LOOK, SLEEP_SETTLE_S, TEMPO_SHARE,
                     WAKE_FLOOR, WAKE_LOOM, MosquitoState)
 from . import reflexes
 
@@ -278,6 +278,12 @@ def peripheral_motion_centroid(world_vectors: np.ndarray, shape: tuple[int, int]
     return cx, cy
 
 
+# A plant's nectar (a 2026-09-28 panel): a full plant holds about one gut-full
+# (a flower's standing crop is about one mosquito sugar meal), and refills over
+# hours once drunk (nectar secretion: assumption, 3 h -- flagged in the audit).
+NECTAR_CROP = 1.0         # a full plant, in gut-fulls
+NECTAR_REFILL_S = 3 * 3600.0
+
 # What a host passes each frame about the whole field (sig): the keys below.
 SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light")
 
@@ -328,6 +334,12 @@ class Organism:
         # Its dreamed value map (item 8): what each place leads to, learned in
         # dreams (_dream); sized with the place map on the first frame.
         self.value_map = None if memory is None or len(memory) <= 7 or memory[7] is None else np.array(memory[7], dtype=float)
+        # The plants it has drunk from, by field cell: each one's standing crop
+        # of nectar (0..1 of a full plant; item 9 of memory, carried like the
+        # rest -- the world's state as it has lived it). Unknown plants are full.
+        self.nectar = dict(memory[8]) if memory is not None and len(memory) > 8 and memory[8] else {}
+        self.plant_level = int(getattr(g, "plant_sense", 0))
+        self.sips = 0
         self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger)
         self.learning_rate = float(getattr(g, "learning_rate", 0.0))
         self.aversive_rate = float(getattr(g, "aversive_rate", 0.0))
@@ -429,6 +441,8 @@ class Organism:
             f = frame.astype(np.float32)
             self.slow = f if self.slow is None or self.slow.shape != f.shape else self.slow + a * (f - self.slow)
             frame = self.slow
+        plants = prey_lib.plants_only(boxes)  # its nectar; everything else sees hosts only
+        boxes = prey_lib.hosts_only(boxes)
         if self.pending is not None:
             self._substep(shift, in_world=True)
             if self.pending["done"] == self.pending["interval"]:
@@ -437,7 +451,7 @@ class Organism:
                 self.rec["frame_path"].append((self.state.cx, self.state.cy, self.state.extent))
         gazed = self.pending is None
         if gazed:
-            self._gaze(frame, sig, boxes or [], colour_frame)
+            self._gaze(frame, sig, boxes or [], colour_frame, plants)
         self.k += 1
         self.lived_s += 1.0 / max(1.0, self.fps)
         return {"cx": self.state.cx, "cy": self.state.cy, "extent": self.state.extent, "receptors": self.state.n,
@@ -452,7 +466,7 @@ class Organism:
                 self._close()
 
     # ---- internals ---------------------------------------------------------------
-    def _gaze(self, frame: np.ndarray, sig, boxes: list, colour_frame) -> None:
+    def _gaze(self, frame: np.ndarray, sig, boxes: list, colour_frame, plants: list | None = None) -> None:
         g, brain, body, state, rec = self.g, self.brain, self.body, self.state, self.rec
         # Asleep, its eyes are shut: the gaze sees nothing. The whole field
         # still reaches it (light and movement through closed eyes), so a
@@ -498,6 +512,7 @@ class Organism:
         periph_dy = float(sig["motion_cy"]) - state.cy
         field_light = float(sig["field_light"])
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
+        plant_scent, plant_dx, plant_dy = prey_sense(plants or [], state.cx, state.cy, self.plant_level, None)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
         kc_active = self.mb.active(v, n, self.live_kc) if not was_asleep else np.zeros(0, dtype=int)
         self.last_kc = kc_active
@@ -521,6 +536,7 @@ class Organism:
                 lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
                 self.food_value, place_dx, place_dy, place_value, self.intruder, self.danger_value,
+                plant_scent, plant_dx, plant_dy,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -562,6 +578,7 @@ class Organism:
 
         # Eating happens at the gaze: prey under its centre (its mouth) is a meal;
         # genuinely new structure there is a small snack.
+        sip_key = None  # the plant it sips from this look, if any
         if asleep:
             # Asleep: no eating, no gazing, slow coarse sampling of the field.
             pan = tilt = 0.0
@@ -590,9 +607,21 @@ class Organism:
             if len(kc_active) and self.aversive_rate > 0.0:
                 self.mb.learn_danger(kc_active, punishment, self.aversive_rate)
             snack = feed_on_novelty(self.memory, v, state, self.variance, self.aspect)
+            # Nectar: a plant under its mouth, when no host is (blood first). It
+            # flows as blood does -- at its pump's rate -- times how full the
+            # plant still is; the plant's crop is drawn down by what it takes.
+            plant = prey_lib.host_box_at_mouth(plants or [], state.cx, state.cy, self.aspect) if prey_now <= 0 else None
+            sip_key = None
+            if plant is not None:
+                pcell = self._cell((plant[2] + plant[4]) / 2, (plant[3] + plant[5]) / 2)
+                if pcell is not None:
+                    sip_key = f"{pcell[0]},{pcell[1]}"
+                    self.nectar.setdefault(sip_key, 1.0)
+            crop = self.nectar.get(sip_key, 0.0) if sip_key else 0.0
             # Lifetime learning: what it ate this look (in meals: a full look at
-            # prey = 1) teaches its mushroom body what the look showed.
-            reward = (PREY_FOOD_PER_LOOK * prey_now + FOOD_PER_LOOK * snack) / PREY_FOOD_PER_LOOK
+            # prey = 1; a sip is worth as much as the plant is full) teaches its
+            # mushroom body what the look showed.
+            reward = (PREY_FOOD_PER_LOOK * prey_now + FOOD_PER_LOOK * snack) / PREY_FOOD_PER_LOOK + crop
             if len(kc_active) and self.learning_rate > 0.0:
                 err = self.mb.learn(kc_active, reward, self.learning_rate)
                 self.value_errors.append(abs(err))
@@ -615,7 +644,8 @@ class Organism:
                         "replay_macs": replay_macs,
                         "interval": interval, "done": 0, "effort": 0.0, "force": (0.0, 0.0),
                         "cx0": state.cx, "cy0": state.cy, "periph_motion": periph_motion, "loom": loom,
-                        "field_light": field_light, "prey_now": prey_now, "snack": snack}
+                        "field_light": field_light, "prey_now": prey_now, "snack": snack,
+                        "sip": sip_key if not asleep else None}
         self.prev_frame = frame
 
     def _blind(self, look: np.ndarray, n: int) -> np.ndarray:
@@ -787,6 +817,8 @@ class Organism:
                                     / REFERENCE_MACS if p["kc_on"] else 0.0)  # + the aversive output neuron, once it exists
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT))
+                                 + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
+                                    if self.plant_level else 0.0)
                                  + THINK_COST * p["replay_macs"] / REFERENCE_MACS) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),
                     field_light=p["field_light"])
@@ -797,7 +829,18 @@ class Organism:
             if self.place is not None:  # NREM: the place map scaled back down (synaptic homeostasis)
                 self.place *= math.exp(-CONSOLIDATE_RATE * cleared)
         body.feed_visual_sustenance(p["snack"])
-        body.feed_host(p["prey_now"], p["interval"] / max(1.0, self.fps))  # a flow over the look's interval
+        seconds = p["interval"] / max(1.0, self.fps)
+        body.feed_host(p["prey_now"], seconds)  # a flow over the look's interval
+        # Plants refill their nectar over hours; a sip draws its plant down.
+        refill = 1.0 - math.exp(-seconds / NECTAR_REFILL_S)
+        for k in self.nectar:
+            self.nectar[k] += refill * (1.0 - self.nectar[k])
+        if p.get("sip"):
+            crop = self.nectar.get(p["sip"], 1.0)
+            took = body.feed_nectar(body.pump * crop * seconds / LEGACY_UNIT)
+            self.nectar[p["sip"]] = max(0.0, crop - took * LEGACY_UNIT / (NECTAR_CROP * GUT_CAP))
+            if took > 0:
+                self.sips += 1
         if rec is not None:
             rec["prey_eaten"].append(p["prey_now"])
             rec["foods"].append(p["snack"])

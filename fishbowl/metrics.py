@@ -130,6 +130,7 @@ class HourlyMetrics:
             "replay_awake": int(s["replay_awake"]), "replay_nrem": int(s["replay_nrem"]),
             "replay_rem": int(s["replay_rem"]), "replay_sequences": int(s["replay_sequences"]),
             "dreams": int(s["dreams"]),
+            "nectar_sips": int(s["sips"]),
         }
 
     def due(self) -> bool:

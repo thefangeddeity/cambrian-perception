@@ -45,7 +45,7 @@ def memory_of(org: Organism) -> tuple:
     def c(a):
         return None if a is None else np.array(a, dtype=float, copy=True)
     return (c(org.memory), c(org.variance), c(org.mb.weights), c(org.place), c(org.people_day),
-            c(org.people_night), c(org.mb.danger_weights), c(org.value_map))
+            c(org.people_night), c(org.mb.danger_weights), c(org.value_map), dict(org.nectar))
 
 
 def _carry(old: Organism, new: Organism) -> None:
@@ -67,6 +67,7 @@ def _carry(old: Organism, new: Organism) -> None:
         new.episodes = [(code[code < n], reward, cell) for code, reward, cell in old.episodes]
     new.replay_log, new.value_errors, new.seq, new.dreams = old.replay_log, old.value_errors, old.seq, old.dreams
     new.last_replay = old.last_replay
+    new.nectar, new.sips = old.nectar, old.sips
     if ob.hidden.shape == nb.hidden.shape:
         nb.hidden = ob.hidden.copy()
         if len(ob.layer_hidden) == len(nb.layer_hidden):
@@ -222,7 +223,7 @@ class LiveLife:
             org = self.org
             org.fps = fps
             missed0 = org.missed
-            replays0, seq0, dreams0 = dict(org.replays), org.seq, org.dreams
+            replays0, seq0, dreams0, sips0 = dict(org.replays), org.seq, org.dreams, org.sips
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
                 prev_v = self.field.last_vector
                 sig, shift = self.field.step(grey)
@@ -236,16 +237,17 @@ class LiveLife:
                 if out["gazed"]:
                     looks += 1
                     if not out["asleep"]:
-                        self._competences(org, boxes or [], batch["sums"])
+                        self._competences(org, hosts, batch["sums"])
                     if out["eating"] > 0:
                         self.acts["meal"].append(index)
                     if snack > 0:
                         self.acts["snack"].append(index)
                 prev = self.shown[-1] if self.shown else None
+                hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 rec = {"i": index, "cx": round(out["cx"], 4), "cy": round(out["cy"], 4), "f": round(out["extent"], 4),
                        "eat": round(float(out["eating"]), 3),
                        "snack": round(float(snack), 3) if out["gazed"] else (prev["snack"] if prev else 0.0),
-                       "asleep": int(out["asleep"]), "alarm": int(org.last_alarm > 0.0), "boxes": boxes or [],
+                       "asleep": int(out["asleep"]), "alarm": int(org.last_alarm > 0.0), "boxes": hosts, "plants": plants,
                        "ev": [round(float(sig["motion_cx"]), 3), round(float(sig["motion_cy"]), 3),
                               round(float(min(1.0, sig["motion_energy"] * PERIPH_MOTION_GAIN)), 3),
                               round(float(min(1.0, sig["expansion"] * EXPANSION_GAIN)), 3), 0]}
@@ -258,6 +260,7 @@ class LiveLife:
                     batch["swat_acts"].append(j)
                 self.last, self.last_time = index, arrived
             missed = org.missed - missed0
+            batch["sums"]["sips"] += org.sips - sips0
             # what it replayed and dreamt (for the hourly metrics)
             for kind in ("awake", "nrem", "rem"):
                 batch["sums"]["replay_" + kind] += org.replays[kind] - replays0.get(kind, 0)
@@ -329,7 +332,8 @@ class LiveLife:
             "trajectory": [[r["cx"], r["cy"], r["f"], r["i"] - first] for r in shown],
             "eating": [r["eat"] for r in shown], "snacks": [r["snack"] for r in shown],
             "asleep_frames": [r["asleep"] for r in shown], "alarm_frames": [r["alarm"] for r in shown],
-            "prey_boxes": [r["boxes"] for r in shown], "field_events": [r["ev"] for r in shown],
+            "prey_boxes": [r["boxes"] for r in shown], "plant_boxes": [r["plants"] for r in shown],
+            "field_events": [r["ev"] for r in shown],
             "tree_guess": None, "teacher_label": None,  # graded only in evolution's runs
             "fovea_cx": shown[-1]["cx"], "fovea_cy": shown[-1]["cy"],
             "pace": pace, "frames_per_second": round(fps, 2), "body_now": body,

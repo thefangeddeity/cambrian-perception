@@ -55,7 +55,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
-            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed")
+            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense")
 STABILIZER_SIGMA = 0.1
 # The feeding pump has no biological bounds: its upkeep and its intake set
 # its limits, and log-normal steps can shrink it toward a nip without ever
@@ -199,6 +199,7 @@ class Genome:
         pump: float | None = None,
         aversive_rate: float = 0.0,
         receptor_slowness: float = 0.0,
+        plant_sense: int = 0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -218,6 +219,9 @@ class Genome:
         # Its photoreceptors' speed (organism.py): extra integration time, in
         # reference frames (1/15 s). Born 0: as fast as the camera's frames.
         self.receptor_slowness = float(np.clip(receptor_slowness, 0.0, SLOWNESS_GUARD))
+        # Its plant sense (0 none, 1 scent, 2 + a coarse direction), like its
+        # prey sense; born 0. Without it, it can still learn where plants fed it.
+        self.plant_sense = int(np.clip(plant_sense, 0, 2))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -293,6 +297,7 @@ class Genome:
             self.pump,
             self.aversive_rate,
             self.receptor_slowness,
+            self.plant_sense,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -461,6 +466,10 @@ class Genome:
             else:
                 self.learning_rate = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), LEARNING_MIN, LEARNING_MAX))
             return "brain", (choice if self.learning_rate != old else "noop_inapplicable")
+        if choice == "mutate_plant_sense":
+            old = self.plant_sense
+            self.plant_sense = int(np.clip(old + rng.choice((-1, 1)), 0, 2))
+            return "prey", (choice if self.plant_sense != old else "noop_inapplicable")
         if choice == "mutate_receptor_speed":
             # Steps scale with its size, so it can creep off 0 and still move once slow.
             old = self.receptor_slowness
@@ -657,6 +666,7 @@ class Genome:
             "pump": self.pump,
             "aversive_rate": self.aversive_rate,
             "receptor_slowness": self.receptor_slowness,
+            "plant_sense": self.plant_sense,
         }
 
     @staticmethod
@@ -720,6 +730,7 @@ class Genome:
             pump=data.get("pump"),
             aversive_rate=float(data.get("aversive_rate", 0.0)),
             receptor_slowness=float(data.get("receptor_slowness", 0.0)),
+            plant_sense=int(data.get("plant_sense", 0)),
         )
 
 

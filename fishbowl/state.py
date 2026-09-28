@@ -431,6 +431,15 @@ class MosquitoState:
         self.bite_blood = 0.0
         return lost
 
+    def feed_nectar(self, legacy_amount: float) -> float:
+        """A sip of nectar (sugar) into the gut; returns what it took (legacy
+        units) -- a full gut takes less, and the plant loses only that."""
+        if not self.can_eat:
+            return 0.0
+        before = self.gut
+        self._swallow(legacy_amount * self.efficiency)
+        return (self.gut - before) * GUT_CAP / LEGACY_UNIT
+
     def bite_over(self) -> None:
         """The host left its mouth (or it left the host): the bite is over."""
         self.bite_blood = 0.0

@@ -54,7 +54,17 @@ backup fuel.
   learns, by the same three-factor rule, what came before a swat. It feeds the
   brain a "danger" input, born with zero weights. Its learning rate is its own
   trait, born 0 (off). Once on, its output neuron costs its multiply-adds.
-- **Snacks are nectar.** Surprise in the gaze pays a little. That keeps it
+- **Plants are nectar** (a 2026-09-28 panel; Vosshall: mosquitoes of both
+  sexes drink nectar for flight's sugar). A potted plant (COCO's "potted
+  plant") under its mouth, when no host is, gives sugar at its pump's rate ×
+  how full the plant still is. A full plant holds about one gut-full (a
+  flower's standing crop is about one mosquito sugar meal); each sip draws it
+  down, and it refills over hours (**3 h: a guess**, flagged in the audit),
+  so the marginal value theorem applies: it should leave a drunk plant. Blood
+  comes first. Its mushroom body learns sips as food, so its place map learns
+  where the pot is. A plant sense (scent, then direction) is inherited, born
+  off, priced like the prey sense. Plants are never hosts.
+- **Snacks are surprise** (nectar in name only). Surprise in the gaze pays a little. That keeps it
   going but can't sustain it.
 - **Digestion costs a fifth of every meal** (specific dynamic action, Secor).
 

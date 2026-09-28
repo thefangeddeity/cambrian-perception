@@ -45,6 +45,19 @@ DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL")
 PREY_CLASSES = {0: "person", 14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep",
                 19: "cow", 20: "elephant", 21: "bear", 22: "zebra", 23: "giraffe"}
 PERSON_CLASS = 0
+# Plants are its nectar (a 2026-09-28 panel; Vosshall: mosquitoes of both
+# sexes drink nectar for the sugar that powers flight): COCO's "potted
+# plant". They are never hosts -- the organism takes them apart from hosts
+# at its first frame (organism.py) and everything else sees hosts only.
+PLANT_CLASS = 58
+
+
+def hosts_only(boxes):
+    return [b for b in boxes or () if int(b[0]) != PLANT_CLASS]
+
+
+def plants_only(boxes):
+    return [b for b in boxes or () if int(b[0]) == PLANT_CLASS]
 # The detector's own calibration (Ultralytics' shipped defaults for YOLOv8
 # prediction), not a hand-picked cut: confidence 0.25, NMS IoU 0.7. Food is
 # weighted by confidence anyway, so a 0.3 bird counts, just less than a sure one.
@@ -90,7 +103,7 @@ class PreyDetector:
         scores = out[:, 4:]
         cls = scores.argmax(axis=1)
         conf = scores[np.arange(len(scores)), cls]
-        keep = (conf >= MIN_CONFIDENCE) & np.isin(cls, list(PREY_CLASSES))
+        keep = (conf >= MIN_CONFIDENCE) & np.isin(cls, list(PREY_CLASSES) + [PLANT_CLASS])
         if not keep.any():
             return []
         raw = out[keep, :4]

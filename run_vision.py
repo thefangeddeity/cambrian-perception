@@ -556,7 +556,8 @@ def evaluate_genome(
         "prey_series": [round(float(np.mean(prey_eaten[k:k + step_n])), 4) for k in range(0, len(prey_eaten), step_n)],
         # prey boxes per frame + whether it was eating at that frame (held
         # from the last gaze), for the viewer
-        "prey_boxes": [world_prey[k] if world_prey is not None and k < len(world_prey) else [] for k in range(nf)],
+        "prey_boxes": [prey_lib.hosts_only(world_prey[k]) if world_prey is not None and k < len(world_prey) else [] for k in range(nf)],
+        "plant_boxes": [prey_lib.plants_only(world_prey[k]) if world_prey is not None and k < len(world_prey) else [] for k in range(nf)],
         "eating": [round(float(prey_eaten[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)]), 3) if prey_eaten else 0.0 for k in range(nf)],
         # Per frame: its perception tree's own guess at how much prey fills
         # its gaze, next to the teacher's (YOLO's) label -- for the viewer.
@@ -568,7 +569,7 @@ def evaluate_genome(
         # Memory carried to the next generation: surprise, the mushroom body's
         # learning, the place map and where people are expected (day, night).
         "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night, org.mb.danger_weights,
-                    org.value_map),
+                    org.value_map, dict(org.nectar)),
         # Per frame: its alarm (the warning) and the intruder sense, for the viewer.
         "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
         "replays": dict(org.replays),
@@ -1108,7 +1109,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
                       np.array(m["var"], dtype=float),
                       np.array(m.get("learned") or [], dtype=float),
-                      *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")))
+                      *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")),
+                      dict(m.get("nectar") or {}))
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
@@ -1139,7 +1141,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                        "learned": [round(float(x), 5) for x in memory_now[2]] if len(memory_now) > 2 else [],
                        **{k: np.round(memory_now[i], 5).tolist()
                           for i, k in ((3, "place"), (4, "people_day"), (5, "people_night"), (6, "danger"), (7, "value"))
-                          if len(memory_now) > i and memory_now[i] is not None}}
+                          if len(memory_now) > i and memory_now[i] is not None},
+                       # the plants' standing crops, as it has lived them (item 9)
+                       "nectar": {k: round(float(v), 4) for k, v in memory_now[8].items()} if len(memory_now) > 8 and memory_now[8] else {}}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })
@@ -1532,6 +1536,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "danger_value": live_info.get("danger_value"),
             "aversive_rate": genome.aversive_rate,
             "receptor_slowness": genome.receptor_slowness,
+            "plant_sense": genome.plant_sense,
+            "plant_boxes": live_info.get("plant_boxes"),
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.extent(fovea.MAX_RECEPTORS),
