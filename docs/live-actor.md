@@ -29,7 +29,7 @@ feed keeps, once, in order, as the frame arrives. It is the same
   actually lived (vote 8–2).
 - **Adoption:** when a child wins, the living body adopts its genome, a brain
   transplant as in the livecam port's `LiveActor.adopt`. Body, memory and
-  gaze position go on; the brain's recurrent state starts fresh.
+  gaze go on. The moment goes on too, wherever the new genome's shapes still fit: the brain's recurrent state, the eye's last look, and the frame it has reached. Most adoptions are neutral drift, dozens a minute, and a fresh brain state each time would wipe its short-term memory every few seconds.
 - **Fitness is unchanged:** children are still scored on past windows,
   starting from the living body and memory.
 - **Feeding record and hourly metrics** come from the live frames, each frame

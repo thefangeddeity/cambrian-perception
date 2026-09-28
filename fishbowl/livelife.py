@@ -45,6 +45,30 @@ def memory_of(org: Organism) -> tuple:
             c(org.people_night), c(org.mb.danger_weights))
 
 
+def _carry(old: Organism, new: Organism) -> None:
+    """A transplant keeps the moment going wherever the new genome's shapes
+    still fit: the gaze and its motion, the brain's recurrent state (most
+    adoptions are neutral drift, many a minute -- a fresh brain state each
+    time would wipe its short-term memory every few seconds), what the eye
+    last saw, and the frame it has reached."""
+    new.state = fovea.FoveaState(cx=old.state.cx, cy=old.state.cy, n=new.state.n,
+                                 vx=old.state.vx, vy=old.state.vy)
+    ob, nb = old.brain, new.brain
+    if ob.hidden.shape == nb.hidden.shape:
+        nb.hidden = ob.hidden.copy()
+        if len(ob.layer_hidden) == len(nb.layer_hidden):
+            nb.layer_hidden = [h.copy() for h in ob.layer_hidden]
+    if len(ob.channels) == len(nb.channels):
+        nb.loop_in, nb._pred = ob.loop_in.copy(), ob._pred.copy()
+    new.k, new.aspect, new.frame_h, new.field = old.k, old.aspect, old.frame_h, old.field
+    new.prev_frame, new.prev_response = old.prev_frame, old.prev_response
+    new.prev_dx, new.prev_dy, new.last_interval = old.prev_dx, old.prev_dy, old.last_interval
+    if new.state.n == old.state.n:
+        new.prev_v = old.prev_v.copy()
+    if new.slowness > 0.0 and old.slow is not None:
+        new.slow = old.slow
+
+
 class LiveLife:
     def __init__(self, feed, genome, body: dict | None, memory: tuple | None, quota_pct: float,
                  sec_per_mac: float, epoch, path: Path, metrics: HourlyMetrics, fps: float = 15.0):
@@ -79,7 +103,7 @@ class LiveLife:
         with self.lock:
             old = self.org
             new = self._organism(genome, old.body.to_dict(), memory_of(old), old.fps)
-            new.state = fovea.FoveaState(cx=old.state.cx, cy=old.state.cy, n=new.state.n)  # the gaze goes on
+            _carry(old, new)
             self.org = new
             self.adoptions += 1
 
