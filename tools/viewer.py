@@ -631,8 +631,8 @@ PAGE = r"""<!doctype html>
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
-  @media (min-width: 1251px) { #look-panel { order: 1; } #brain-panel { order: 2; } #field-panel { order: 3; } }  /* desktop: gaze top right, visual field below it */
-  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #field-panel { order: 2; } #brain-panel { order: 3; } }
+  @media (min-width: 1251px) { #look-panel { order: 1; } #field-panel { order: 2; } #dream-panel { order: 3; } }  /* desktop: camera | gaze, then visual field | replay & dreams; its brain in the row below */
+  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #field-panel { order: 2; } #dream-panel { order: 3; } }
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
@@ -675,8 +675,8 @@ PAGE = r"""<!doctype html>
   <span class="chip" id="h-stale"></span>
 </header>
 
-<!-- The four views: what the camera (or stream) shows, its gaze, its brain,
-     its visual field (on desktop: picture and gaze on top). -->
+<!-- The four views: what the camera (or stream) shows, its gaze, its visual
+     field, its replay and dreams; its brain opens the row below. -->
 <div class="quad">
   <div class="panel" id="live-panel">
     <h2 id="live-title">live view</h2>
@@ -708,12 +708,12 @@ PAGE = r"""<!doctype html>
     <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
   </div>
-  <div class="panel" id="brain-panel">
-    <h2>its brain</h2>
-    <canvas id="brain" height="520"></canvas>
-    <canvas id="mb" height="150" style="margin-top:6px"></canvas>
-    <div class="cap" id="mb-cap"></div>
-    <div class="cap"><b id="brain-mb">--</b>. <b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits.</div>
+  <div class="panel" id="dream-panel">
+    <h2>replay &amp; dreams</h2>
+    <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start">
+      <div><canvas id="replay-eye" width="160" height="160" class="px"></canvas><div class="cap" id="replay-eye-cap" style="max-width:200px"></div></div>
+      <div style="flex:1 1 240px"><canvas id="dream-map" class="px"></canvas><div class="cap">Paths it replays (blue NREM, violet REM, grey awake) and dreams (gold: imagined through its own maps), on its place map.</div></div>
+    </div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
@@ -724,12 +724,12 @@ PAGE = r"""<!doctype html>
 </div>
 
 <div class="vision">
-  <div class="panel" id="dream-panel">
-    <h2>replay &amp; dreams</h2>
-    <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start">
-      <div><canvas id="replay-eye" width="160" height="160" class="px"></canvas><div class="cap" id="replay-eye-cap" style="max-width:200px"></div></div>
-      <div style="flex:1 1 240px"><canvas id="dream-map" class="px"></canvas><div class="cap">Paths it replays (blue NREM, violet REM, grey awake) and dreams (gold: imagined through its own maps), on its place map.</div></div>
-    </div>
+  <div class="panel" id="brain-panel">
+    <h2>its brain</h2>
+    <canvas id="brain" height="520"></canvas>
+    <canvas id="mb" height="150" style="margin-top:6px"></canvas>
+    <div class="cap" id="mb-cap"></div>
+    <div class="cap"><b id="brain-mb">--</b>. <b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits.</div>
   </div>
   <div class="stack">
     <div class="panel">
