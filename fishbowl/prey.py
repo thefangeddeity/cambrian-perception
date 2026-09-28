@@ -35,9 +35,11 @@ DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL")
                      or (_LOCAL_MODEL if _LOCAL_MODEL.exists() else "/srv/cambrian/models/yolov8n.onnx"))
 
 # COCO classes that are living things: prey.
-# Its food, the clade's rule (a design panel, 2026-09-27): living things --
-# "protein", like every mosquito's blood meal or every crocodile's catch.
-# Plants and COCO's food items are not food for it. Which of these it is
+# Its food, the clade's rule (design panels, 2026-09-27): things with blood
+# -- its hosts, like every mosquito's: people and pets, and every vertebrate
+# the detector has a word for (COCO names no rodents, reptiles or fish; for a
+# livecam, people and pets are the ones that matter). A catch is a bite.
+# Plants and COCO's food items have no blood and are not food for it. Which of these it is
 # drawn to evolves (genome.host_pref); people are always food and always
 # sensed, so every lineage can track people.
 PREY_CLASSES = {0: "person", 14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep",

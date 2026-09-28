@@ -302,7 +302,7 @@ LOCK_HUD_JS = r"""
   // diamond marking its centre -- its mouth: prey under it is a meal.
   //   SCAN  nothing it hunts is in its gaze
   //   TRACK prey (person/animal) somewhere in its gaze
-  //   LOCK  prey under its gaze centre (its mouth): it is eating -- in a livecam, the
+  //   LOCK  prey under its gaze centre (its mouth): a bite -- in a livecam, the
   //         moment to take a snapshot
   //   SLEEP asleep: eyes shut, the gaze sees nothing and is parked. The
   //         picture stays -- the world doesn't go dark when it sleeps, and
@@ -571,7 +571,7 @@ PAGE = r"""<!doctype html>
       <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
       <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion (size = how much); its brain gets this location</span>
       <span><b style="color:var(--red)">red frame</b> something dark approaching</span>
-      <span><b style="color:#ff5fa2">- - -</b> prey (person/animal, YOLO); <b style="color:#ff5fa2">EATING</b> = prey in its gaze center</span>
+      <span><b style="color:#ff5fa2">- - -</b> a host (anything with blood that YOLO names: people and animals); <b style="color:#ff5fa2">BITING</b> = a host under its mouth</span>
     </div>
     <div class="cap" id="replay-clock">--</div>
   </div>
@@ -757,7 +757,7 @@ PAGE = r"""<!doctype html>
     const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
     if (eat > 0.01) {
       ctx.fillStyle = 'rgba(255, 95, 162, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top';
-      ctx.fillText(`EATING ${(eat * 100).toFixed(0)}%`, 10, 10);
+      ctx.fillText(`BITING ${(eat * 100).toFixed(0)}%`, 10, 10);
     }
     ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
     let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
@@ -851,7 +851,7 @@ PAGE = r"""<!doctype html>
       ctx.strokeRect(lx + c0 * lw / N, ly + c0 * lh / N, C * lw / N, C * lh / N); ctx.setLineDash([]);
     }
     // Eating, in the other panels' prey pink: its mouth -- the centre of its
-    // gaze, where prey under it is a meal -- glows as much as it eats and
+    // gaze, where a host under it is a bite -- glows as much as it bites and
     // pulses while it chews; each new bite sends a ring out from it (the
     // target lock's snap, here). Drawn only with the replay's own frames.
     const eat = cells && !shut ? R.eat : 0;
@@ -863,7 +863,7 @@ PAGE = r"""<!doctype html>
       ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fillRect(mx, my, ms, ms);
       ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(mx, my, ms, ms);
       ctx.fillStyle = 'rgba(255, 95, 162, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-      ctx.fillText(`EATING ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(`BITING ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     }
     const biteAge = now - (LOOK.biteT ?? -1e9);
     if (biteAge < 400) {
@@ -1107,7 +1107,7 @@ PAGE = r"""<!doctype html>
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = eating: a snapshot moment / SLEEP = eyes shut); pink corners = prey found; top right: its own prey guess vs YOLO (green = agree). Client view: /live.';
+  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = a bite: a snapshot moment / SLEEP = eyes shut); pink corners = prey found; top right: its own prey guess vs YOLO (green = agree). Client view: /live.';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');
