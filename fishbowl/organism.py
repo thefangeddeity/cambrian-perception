@@ -401,6 +401,7 @@ class Organism:
         self.prev_response = 0.0
         self.last_grid = None
         self.k = 0             # frames lived
+        self.lived_s = 0.0     # seconds lived (frames at their own rate, which varies)
         self.pending = None    # the current gaze interval: its decisions and progress
         self.eating = 0.0      # prey in its gaze centre at its latest gaze
         self.rec = {name: [] for name in self.RECORDS} if record else None
@@ -437,6 +438,7 @@ class Organism:
         if gazed:
             self._gaze(frame, sig, boxes or [], colour_frame)
         self.k += 1
+        self.lived_s += 1.0 / max(1.0, self.fps)
         return {"cx": self.state.cx, "cy": self.state.cy, "extent": self.state.extent, "receptors": self.state.n,
                 "asleep": self.body.asleep >= 0.5, "eating": self.eating, "gazed": gazed}
 
@@ -708,14 +710,14 @@ class Organism:
             if asleep_settled and rng.random() < self.rem_share:
                 # REM: two experiences recombined, at their mean reward (generalize)
                 i, j = rng.integers(len(self.episodes), size=2)
-                (ci, ri, _), (cj, rj, _) = self.episodes[i], self.episodes[j]
+                (ci, ri, cell_i), (cj, rj, cell_j) = self.episodes[i], self.episodes[j]
                 half = max(1, len(ci) // 2)
                 code = np.unique(np.concatenate([ci[:half], cj[half:]]))
                 self.mb.learn(code, 0.5 * (ri + rj), self.learning_rate)
                 self.replays["rem"] += 1
                 self.seq += 1
-                self._log_replay("rem", self.episodes[i][2], self.seq)
-                self._log_replay("rem", self.episodes[j][2], self.seq)
+                self._log_replay("rem", cell_i, self.seq)
+                self._log_replay("rem", cell_j, self.seq)
             else:
                 # NREM, or awake: the biggest surprise first (prioritized replay).
                 # With a backup (genome.replay_backup, born 0), a replay goes on
@@ -745,7 +747,7 @@ class Organism:
 
     def _log_replay(self, kind: str, cell, seq: int = 0) -> None:
         if cell is not None:
-            self.replay_log.append((kind, int(cell[0]), int(cell[1]), self.k, seq))
+            self.replay_log.append((kind, int(cell[0]), int(cell[1]), self.lived_s, seq))
             del self.replay_log[:-64]
 
     def _substep(self, shift: tuple, in_world: bool) -> None:

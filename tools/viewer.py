@@ -422,6 +422,12 @@ LOCK_HUD_JS = r"""
   // pale red, then a dimmer red; a drop shadow under everything keeps it
   // legible over any picture.
   const HUD_BONE = '#fff4f0', HUD_HOT = '#ffc2b8', HUD_EMBER = '#ff8a78', HUD_ASH = '#b8584a';
+  // Each state keeps its own colour, as before the palette changed -- only the
+  // hues moved into the palette: scan, track, lock, sleep; agree / disagree;
+  // catching up; snacks and meals; a lit warning.
+  const HUD_SCANNING = '#ff8a78', HUD_TRACK = '#ffb066', HUD_LOCK = '#ff4f6f', HUD_SLEEP = '#c98aa8';
+  const HUD_AGREE = '#fff0c0', HUD_DISAGREE = '#ffb066', HUD_CATCH = '#ffb066';
+  const HUD_SNACK = '#e0909c', HUD_MEAL = '#ff6f8a', HUD_WARN = '#ff3b28', HUD_HOST = '#ff6f8a';
   const HUD_GLOW = 'rgba(255, 40, 20, 0.95)';
   const HUD_FILM = 'rgba(80, 0, 0, 0.14)', HUD_SCAN = 'rgba(0, 0, 0, 0.08)';
   function drawLock(ctx, bw, bh, fs, d, picture, imgAspect, now, st, opts) {
@@ -432,13 +438,13 @@ LOCK_HUD_JS = r"""
     const dt = Math.min(1, (now - (st.lastT || now)) / 1000); st.lastT = now;
     const L = lockState(fs), aspect = bw / bh;
     const sleeping = L.mode === 'SLEEP';
-    const col = L.mode === 'LOCK' ? HUD_BONE : L.mode === 'TRACK' ? HUD_HOT : sleeping ? HUD_ASH : HUD_EMBER;
+    const col = L.mode === 'LOCK' ? HUD_LOCK : L.mode === 'TRACK' ? HUD_TRACK : sleeping ? HUD_SLEEP : HUD_SCANNING;
     const blink = Math.floor(now / 350) % 2 === 0;
     if (picture) {
       const ia = imgAspect || aspect;
       const w = ia >= aspect ? bw : bh * ia, h = ia >= aspect ? bw / ia : bh;
       ctx.save(); ctx.translate((bw - w) / 2, (bh - h) / 2);
-      ctx.strokeStyle = HUD_EMBER; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = HUD_HOST; ctx.lineWidth = 1.5;
       (fs.boxes || []).forEach(b => lockCorners(ctx, b[2] * w, b[3] * h, b[4] * w, b[5] * h, 8));
       // glide between its gazes (the eye moves between them too); snap when the replay loops
       if (st.i != null && fs.i < st.i) st.rx = null;
@@ -461,7 +467,7 @@ LOCK_HUD_JS = r"""
         if (age < 280) {
           const k = age / 280, e = 1 - Math.pow(1 - k, 3);
           const X0 = (x - gw / 2) * e, Y0 = (y - gh / 2) * e, X1 = w + (x + gw / 2 - w) * e, Y1 = h + (y + gh / 2 - h) * e;
-          ctx.save(); ctx.strokeStyle = `rgba(242, 237, 230, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
+          ctx.save(); ctx.strokeStyle = `rgba(255, 79, 111, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
           lockCorners(ctx, X0, Y0, X1, Y1, Math.min(X1 - X0, Y1 - Y0) * 0.14);
           ctx.restore();
         }
@@ -521,17 +527,17 @@ LOCK_HUD_JS = r"""
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals, then its warning.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
-                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_HOT : HUD_EMBER, '11px monospace']];
+                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_EMBER, '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
-      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_HOT : HUD_ASH, '11px monospace']);
+      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_AGREE : HUD_DISAGREE, '11px monospace']);
     }
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
-    rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_EMBER, '11px monospace']);
-    rows.push([`meals ${boutText('meal', st.meals)}`, HUD_EMBER, '11px monospace']);
+    rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_SNACK, '11px monospace']);
+    rows.push([`meals ${boutText('meal', st.meals)}`, HUD_MEAL, '11px monospace']);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
     // it warns, a dim lamp otherwise. The client page never shows it.
-    if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', HUD_BONE, 'bold 12px monospace']
+    if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', HUD_WARN, 'bold 12px monospace']
                                                   : ['WARN', HUD_ASH, 'bold 12px monospace']);
     ctx.textAlign = 'left';
     // each line twice: its drop shadow, then its phosphor bloom on top
@@ -676,11 +682,11 @@ PAGE = r"""<!doctype html>
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
     <div class="cap" id="layers">Layers:
-      <label><input type="checkbox" data-layer="place"> <b style="color:#6f6">food places</b></label>
-      <label><input type="checkbox" data-layer="people"> <b style="color:#f7c">people expected</b></label>
+      <label><input type="checkbox" data-layer="place"> <b style="color:#ffb066">food places</b></label>
+      <label><input type="checkbox" data-layer="people"> <b style="color:#ff6f8a">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
-      <label><input type="checkbox" data-layer="dreams"> <b style="color:#b9f">replay</b> &amp; <b style="color:#fd5">dreams</b></label></div>
-    <div class="cap">What its wide-field eyes sense: movement, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff5fa2">TARGET</b> = a host; red frame = something looming.</div>
+      <label><input type="checkbox" data-layer="dreams"> <b style="color:#e0909c">replay</b> &amp; <b style="color:#fff0c0">dreams</b></label></div>
+    <div class="cap">What its wide-field eyes sense: movement, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">TARGET</b> = a host; red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
   </div>
   <div class="panel" id="brain-panel">
@@ -744,30 +750,22 @@ PAGE = r"""<!doctype html>
   <h2>what drives it</h2>
   <div class="cap">Every pressure on it, and its weight.</div>
   <table class="drives">
-    <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
-    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of hunger&sup2; (blood sugar plus half the gut, like a full stomach calming hunger before it is absorbed) + 0.3 (1-reserve)&sup2; + threat&sup2; + fatigue&sup2; + 0.3 sleep pressure&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). On a real clock: being awake costs a fixed amount plus a share that follows its tempo; asleep it burns a third as much. Also muscle force&sup2; every frame it pushes, and per gaze: thinking, gaze size, colour and any wired brain loops (x CPU scarcity). Restored only by eating (prey under the gaze centre, its mouth: the prey's worth whatever its eye's size or the prey's distance -- plus small surprise snacks), through the gut. No death: an empty body degrades (colour off, narrow eye, slower gazing) and burns less.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>colour vision</td><td>0, 1 or 2 colour-opponent channels in its gaze (red-green, then blue-yellow), inherited and evolving. Each channel costs energy every gaze (x CPU scarcity), so colour vision only spreads if seeing colour pays -- e.g. telling prey from background.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>prey sense</td><td>0 = eyes only, 1 = scent (prey somewhere in view, and how much -- "go look", not where), 2 = + a coarse direction to the strongest prey. Inherited and evolving; a new level changes nothing until its brain wires it up, and its energy price grows with that wiring, so it spreads only if it pays. It still has to centre prey with its eyes to eat.</td></tr>
-    <tr><td><span class="tag hand">teacher</span></td><td class="minus">-3.0</td><td>perception tree's error</td><td>The perception tree is graded on predicting, from its own pixels, how much prey fills its gaze -- YOLO's boxes as the teacher's soft labels, error balanced between frames with and without prey. Its prediction also goes to the brain, so a tree that sees food lets the brain steer to it. YOLO is the shortcut; the tree is to become its own detector.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>image stabilizer</td><td>A reflex gain from 0 to 1, inherited and evolving: every frame its gaze moves by that fraction of the whole frame's shift from the last frame -- camera shake -- the way an eye's optokinetic reflex holds the image still between deliberate movements. Global only (a cut or a big moving object gives no shift), so it never follows prey; that stays the brain's job. Costs energy per gaze x gain, so it only spreads where the camera shakes enough to pay for it.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>zoom lens</td><td>Zoom in only, like attention narrowing: its brain's zoom output, times an inherited gain from 0 (off, as it is born) to 1, concentrates the same receptors on a smaller patch -- each receptor smaller, down to one pixel of the frame and never below, so it never shows a blown-up pixel. It costs no receptors; what it gives up is area: zoomed in, it sees less of the world.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>metabolic strategy</td><td>From endotherm (1, as it is born: a high resting burn, any pace sustainable) to ectotherm (0.1: a tenth of the resting and sleeping burn -- a crocodile's cheap waiting, sensors still on). An ectotherm can sustain only ~10x its resting rate; beyond that a chase is an anaerobic burst whose debt it feels as fatigue and repays over hours. Sensing and thinking cost the same either way.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>physics</td><td>digestion</td><td>Digesting costs a fifth of every meal (specific dynamic action), for everyone.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>host preference</td><td>Its food is living things -- people and animals ("protein"), never plants or food items. Which of them its prey sense answers most strongly evolves, like a mosquito's odour tuning; people are never below the even weight, so every lineage can track people.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>place map and replay</td><td>It learns which spots of its field have fed it, and its brain can read where the best one is. It can replay what it lived: awake in quiet moments (a big change cuts it short), and asleep -- NREM replays the biggest surprises first and scales the place map back down; REM replays recombined experiences. Replay costs thinking energy and time against each look's deadline. All off as it is born.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>photoreceptor speed</td><td>Its gaze's receptors can evolve to be slower than the camera's frames: a slow receptor integrates light over longer, so it blurs motion and sees change later, and it costs less (a receptor's pumping cost follows the membrane conductance that sets its speed; Laughlin &amp; Weckstrom 1993). Born as fast as the camera; it can never be faster.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>world</td><td>host defense</td><td>A host it is biting can swat it: the same host, nearer than its last look, while the field looms past the line that already counts as a big change. A swat takes back that bite's blood (a blood-full mosquito flies slower and is hit more), so staying longer risks more; whether to stay is its own business. An aversive compartment of its mushroom body can learn what comes before a swat and give its brain a "danger" input -- its learning rate evolves, born off.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>feeding pump</td><td>A bite is a flow, not a gulp: while a host is at its mouth, blood flows in at its pump's rate (seconds of waking life per second on the host) times the catch's confidence, until the gut is full. Looking faster doesn't eat faster; staying on the host does. A bigger pump is more muscle to keep, so it costs a little all the time.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>vigilance and intruders</td><td>How big a change it takes to wake it evolves (its sensors stay on while it sleeps). Its intruder sense: a person where, at this time of day, people haven't been lately. Its alarm is its warning (WARN on the camera); nothing rewards warning yet -- the livecam owner's feedback is to breed that.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while blood sugar and gut are low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>motor</td><td>sleep</td><td>Its own choice (a brain output), with three physiological overrides: it collapses when sleep pressure maxes out (and can't wake by choice until it has recovered), starving wakes it (and keeps even an exhausted animal up), and a big change in the field wakes it. Asleep: eyes shut, no eating, slow sampling of the field, a third of the waking burn -- the reserve can cover sleep but not waking, so sleep is how to get through a quiet room. Sleep also pays back tiredness (at full pressure it gets only half of what it catches) and consolidates its habituation memory. It can only fall asleep once it is tired enough (sleep pressure above a threshold, lower in the dark), and wakes by itself once rested (Borbely's two thresholds), so it can't sleep through a busy room. Falling asleep takes a moment to settle; waking, it is groggy for a few seconds and can't eat. Its sense of day and night is the field's light and its trend.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>
-    <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores</td><td>luminance_change, motion_energy, directional_motion, loom (old detector), conspec_drive, alarm, optokinetic_pursuit, and seek toward CONSPEC face-template detections (CONSPEC fired on almost every frame; finding living things is now YOLO's job -- itself a stand-in until it grows its own prey detector). Retired 2026-09-26 after two independent audits: they carried 80-95% of selection while moving nothing in the body (the perception tree memorised clips to satisfy them). Still measured and logged, not scored.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Rate of reaching new gaze positions (5x5 grid). Overlaps with eating novelty now.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0</td><td>dead_field</td><td>Sustained stretches with nothing happening in the world.</td></tr>
-    <tr><td><span class="tag hand">measured</span></td><td>0 (retired)</td><td>movement_cost</td><td>How hard it pushes its eye. No longer scored: the body pays for muscle force itself, and the eye has a spring back to centre, so scoring it too charged twice for holding its gaze on someone off-centre.</td></tr>
-    <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>corner / edge penalty</td><td>The center of its gaze sitting in a corner, or against one edge. Measured on the center, over the whole frame -- the center can reach the edge (the part of the gaze past it sees black), so it can follow a cat along a wall when that pays more than this costs.</td></tr>
+    <tr><th></th><th>weight</th><th>pressure</th><th>in a line</th></tr>
+    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Hunger, stores, threat, fatigue and sleep pressure over the run; only eating refills.</td></tr>
+    <tr><td><span class="tag hand">teacher</span></td><td class="minus">-3.0</td><td>perception tree's error</td><td>Its tree guesses &ldquo;a host in my gaze?&rdquo;; YOLO grades it.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo</td><td>How often it looks: an inherited pace its brain speeds or slows.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>colour, prey sense, host preference</td><td>What it can see and smell of hosts, and which it favours; all priced.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>eye</td><td>Size, cone patch, zoom lens, stabilizer, photoreceptor speed.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>metabolism, feeding pump</td><td>Rest cost against stamina; how fast blood flows in at a bite.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>world</td><td>host defense</td><td>A host that comes at it takes back the bite's blood.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>physics</td><td>digestion</td><td>A fifth of every meal.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>memory, replay, dreams</td><td>Where food was; replayed and dreamt paths while asleep.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>motor</td><td>sleep, vigilance</td><td>Its own choice within sleep pressure; a big enough change wakes it.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity, danger</td><td>Felt, not scored.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Reacting to something looming.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Reaching new gaze positions.</td></tr>
+    <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead field, corner / edge</td><td>Long stretches of nothing; its gaze centre in a corner or on an edge.</td></tr>
+    <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores, movement cost</td><td>Measured, not scored.</td></tr>
   </table>
 </div>
 
@@ -839,7 +837,7 @@ PAGE = r"""<!doctype html>
   function boxColor(cx, cy, f) {
     const nx = (cx - 0.5) / 0.5, ny = (cy - 0.5) / 0.5;  // where its gaze's CENTER is, over the whole frame
     const corner = Math.abs(nx * ny), edge = Math.max(Math.abs(nx), Math.abs(ny));
-    return corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#ffe2d6';
+    return corner >= 0.5 ? '#ff3b28' : edge >= 0.75 ? '#ff7a45' : edge >= 0.4 ? '#ffb066' : '#fff4f0';
   }
 
   // Visual field + replay of the gaze's real path, frame by frame, no interpolation.
@@ -876,9 +874,9 @@ PAGE = r"""<!doctype html>
     const pb = (d.prey_boxes && d.prey_boxes[Math.min(cur, d.prey_boxes.length - 1)]) || [];
     ctx.font = '12px monospace'; ctx.textBaseline = 'bottom';
     pb.forEach(([cls, conf, x0, y0, x1, y1]) => {
-      ctx.strokeStyle = '#ff5fa2'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+      ctx.strokeStyle = '#ff6f8a'; ctx.lineWidth = 3; ctx.setLineDash([8, 4]);
       ctx.strokeRect(x0 * W, y0 * H, (x1 - x0) * W, (y1 - y0) * H); ctx.setLineDash([]);
-      ctx.fillStyle = '#ff5fa2'; ctx.fillText(`TARGET ${(conf * 100).toFixed(0)}%`, x0 * W + 2, y0 * H - 2);  // every host is a target (its preferences are in the traits)
+      ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#ff6f8a'; ctx.fillText(`TARGET ${(conf * 100).toFixed(0)}%`, x0 * W + 2, y0 * H - 3);  // every host is a target (its preferences are in the traits)
     });
     const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
     if (eat > 0.01) {
@@ -894,7 +892,7 @@ PAGE = r"""<!doctype html>
     ctx.stroke();
     const [cx, cy, f] = traj[i];
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
-    ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 3;
+    ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 5;
     ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
     $('replay-clock').textContent = (delay != null ? `${catching ? 'catching up: ' : ''}delayed ${delay.toFixed(1)} s behind live -- gaze ${i + 1} / ${traj.length} of its latest run` : `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)`) + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
@@ -918,13 +916,13 @@ PAGE = r"""<!doctype html>
     };
     if (LAYERS.place) {  // what has fed it there, plus what its dreams learned it leads to
       const worth = m.value ? m.place.map((v, k) => v + m.value[k]) : m.place;
-      const top = Math.max(1e-6, ...worth.map(Math.abs)); cells(worth, m.shape, v => v > 0 ? `rgba(90, 255, 110, ${0.55 * v / top})` : null);
+      const top = Math.max(1e-6, ...worth.map(Math.abs)); cells(worth, m.shape, v => v > 0 ? `rgba(255, 176, 102, ${0.6 * v / top})` : null);
     }
-    if (LAYERS.people) cells(m.people, m.shape, v => v > 0.01 ? `rgba(255, 110, 200, ${0.5 * Math.min(1, v)})` : null);
+    if (LAYERS.people) cells(m.people, m.shape, v => v > 0.01 ? `rgba(255, 111, 138, ${0.5 * Math.min(1, v)})` : null);
     if (LAYERS.familiar) cells(m.familiar, m.mem_shape, v => v < 0 ? 'rgba(40, 0, 60, 0.45)' : `rgba(255, 180, 166, ${0.45 * (1 - v)})`);
     if (LAYERS.dreams && d.dreams) {
       const [rows, cols] = m.shape, cw = W / cols, ch = H / rows;
-      const hue = { nrem: '120, 150, 255', rem: '190, 140, 255', awake: '200, 200, 200', dream: '255, 210, 90' };
+      const hue = { nrem: '255, 180, 166', rem: '224, 144, 156', awake: '154, 111, 103', dream: '255, 240, 192' };
       let prev = null;
       d.dreams.forEach(([kind, r, c, age, seq]) => {
         const a = Math.max(0, 1 - age / 3);

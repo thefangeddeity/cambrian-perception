@@ -34,7 +34,7 @@ from .field import FieldSignals
 from .metrics import HourlyMetrics
 from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENCE_MACS, RESTING_BURN, THINK_COST,
                        Organism, kc_macs)
-from .state import LEGACY_UNIT
+from .state import EMPTY_G, LEGACY_UNIT
 
 KEEP = 150            # frames shown to the viewer (~20 s of kept frames): enough for its replay delay
 WRITE_EVERY_S = 1.0   # how often the viewer's file is rewritten (it is in RAM where the host has /dev/shm)
@@ -67,7 +67,7 @@ def _carry(old: Organism, new: Organism) -> None:
             nb.layer_hidden = [h.copy() for h in ob.layer_hidden]
     if len(ob.channels) == len(nb.channels):
         nb.loop_in, nb._pred = ob.loop_in.copy(), ob._pred.copy()
-    new.k, new.aspect, new.frame_h, new.field = old.k, old.aspect, old.frame_h, old.field
+    new.k, new.lived_s, new.aspect, new.frame_h, new.field = old.k, old.lived_s, old.aspect, old.frame_h, old.field
     new.prev_frame, new.prev_response = old.prev_frame, old.prev_response
     new.prev_dx, new.prev_dy, new.last_interval = old.prev_dx, old.prev_dy, old.last_interval
     if new.state.n == old.state.n:
@@ -76,9 +76,11 @@ def _carry(old: Organism, new: Organism) -> None:
         new.slow = old.slow
 
 
-def _int8(w: np.ndarray) -> tuple[str, float]:
-    """Weights as base64 int8, scaled by their largest magnitude (compact for the viewer)."""
-    scale = float(np.max(np.abs(w))) if len(w) else 0.0
+def _int8(w: np.ndarray, live: int | None = None) -> tuple[str, float]:
+    """Weights as base64 int8, scaled by the largest magnitude among the live
+    cells (a lost cell's frozen weight must not wash out the rest)."""
+    alive = w[:live] if live is not None else w
+    scale = float(np.max(np.abs(alive))) if len(alive) else 0.0
     q = np.clip(np.round(w / scale * 127.0), -127, 127).astype(np.int8) if scale > 0 else np.zeros(len(w), dtype=np.int8)
     return base64.b64encode(q.tobytes()).decode("ascii"), round(scale, 4)
 
@@ -102,17 +104,23 @@ def _circuits(org: Organism) -> dict:
                        "mem_shape": list(mean.shape), "familiar": np.round(fam, 2).ravel().tolist()}
     mb = org.mb
     if mb.n_kc:
-        food, fs = _int8(mb.weights)
-        danger, ds = _int8(mb.danger_weights)
-        seconds = max(1e-6, org.last_interval / max(1.0, org.fps))
-        macs = kc_macs(org.live_kc) + (org.live_kc if org.aversive_rate > 0.0 else 0)
-        share = THINK_COST * macs / REFERENCE_MACS * org.scarcity * LEGACY_UNIT / seconds / RESTING_BURN
+        food, _ = _int8(mb.weights, org.live_kc)
+        danger, _ = _int8(mb.danger_weights, org.live_kc)
+        # its real price, as organism._close charges it: nothing while its eyes
+        # are shut (no Kenyon cells fire), and less on a run-down body
+        share = 0.0
+        if len(org.last_kc):
+            seconds = max(1e-6, org.last_interval / max(1.0, org.fps))
+            macs = kc_macs(org.live_kc) + (org.live_kc if org.aversive_rate > 0.0 else 0)
+            share = THINK_COST * macs / REFERENCE_MACS * org.scarcity * LEGACY_UNIT / seconds / RESTING_BURN
+            if org.body.degraded:
+                share *= 0.5 + 0.5 * org.body.energy / EMPTY_G
         out["mb"] = {"n": mb.n_kc, "live": org.live_kc, "active": [int(k) for k in org.last_kc],
-                     "food": food, "food_scale": fs, "danger": danger, "danger_scale": ds,
+                     "food": food, "danger": danger,
                      "cost_share": round(share, 4)}
     fps = max(1.0, org.fps)
-    out["dreams"] = [[kind, r, c, round((org.k - k) / fps, 1), seq] for kind, r, c, k, seq in org.replay_log
-                     if (org.k - k) / fps < 10.0]
+    out["dreams"] = [[kind, r, c, round(org.lived_s - t, 1), seq] for kind, r, c, t, seq in org.replay_log
+                     if org.lived_s - t < 10.0]  # ages in the seconds it lived (the frame rate varies)
     return out
 
 
