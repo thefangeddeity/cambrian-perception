@@ -60,6 +60,11 @@ def _carry(old: Organism, new: Organism) -> None:
     # Its episodes of this life and their replay order go on too: replay
     # draws on them, and dozens of adoptions a minute used to empty them.
     new.episodes, new.priority, new.replays = old.episodes, old.priority, old.replays
+    if new.mb.n_kc < old.mb.n_kc:
+        # fewer Kenyon cells now (a shrink): an episode's code keeps only the
+        # cells that still exist, or replay would index cells that are gone
+        n = new.mb.n_kc
+        new.episodes = [(code[code < n], reward, cell) for code, reward, cell in old.episodes]
     new.replay_log, new.value_errors, new.seq, new.dreams = old.replay_log, old.value_errors, old.seq, old.dreams
     if ob.hidden.shape == nb.hidden.shape:
         nb.hidden = ob.hidden.copy()
