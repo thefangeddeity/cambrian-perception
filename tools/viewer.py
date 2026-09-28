@@ -350,14 +350,15 @@ LOCK_HUD_JS = r"""
     });
     return { mode: fs.eat > 0.01 ? 'LOCK' : inGaze ? 'TRACK' : 'SCAN', id };
   }
-  // The readout in Arabic (the HUD's right side): its words, and Arabic-Indic digits.
-  const AR_WORDS = [['catching up:', 'يلحق:'], ['its latest run, looped', 'آخر تشغيل، مكرر'], ['delayed', 'متأخر'],
-    ['own guess', 'تخمينه'], ['teacher', 'المعلم'], ['calibrating', 'معايرة'], ['snacks', 'وجبات خفيفة'], ['meals', 'وجبات'],
-    ['SCAN', 'مسح'], ['TRACK', 'تتبع'], ['LOCK', 'قفل'], ['SLEEP', 'نوم'], ['TARGET', 'هدف'], ['WARN', 'تحذير']];
+  // The readout in Arabic (the HUD's right side), in modern Lebanese, with
+  // Western digits as Lebanese write them.
+  const AR_WORDS = [['catching up:', 'عم يلحّق:'], ['its latest run, looped', 'آخر دورة، عم تعيد'], ['delayed', 'متأخّر'],
+    ['own guess', 'تخمينو'], ['teacher', 'الأستاذ'], ['calibrating', 'عم يظبّط'], ['snacks', 'لقمات'], ['meals', 'أكلات'],
+    ['SCAN', 'عم دوّر'], ['TRACK', 'لاحقو'], ['LOCK', 'مسكتو'], ['SLEEP', 'نايم'], ['TARGET', 'هدف'], ['WARN', 'دير بالك']];
   function toArabic(text) {
     let t = String(text);
     AR_WORDS.forEach(([en, ar]) => { t = t.split(en).join(ar); });
-    return t.replace(/(\d)\.(\d)/g, '$1٫$2').replace(/ s(?= |$)/g, ' ث').replace(/%/g, '٪').replace(/\d/g, c => '٠١٢٣٤٥٦٧٨٩'[c]);
+    return t.replace(/ s(?= |$)/g, ' ث');
   }
   function lockIdText(id) { return id ? ` TARGET ${(id[1] * 100).toFixed(0)}%` : ''; }  // every host is a target
   // Draws the HUD on a bw x bh box. fs = the replay's current frame
