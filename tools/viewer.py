@@ -933,19 +933,34 @@ PAGE = r"""<!doctype html>
     cb.addEventListener('change', () => { LAYERS[cb.dataset.layer] = cb.checked; try { localStorage.setItem('layers', JSON.stringify(LAYERS)); } catch (e) { } });
   });
   function drawLayers(ctx, d, W, H) {
-    const m = d.maps; if (!m) return;
-    const cells = (vals, shape, colour) => {
+    // Each layer its own kind of mark, so they stack (a 2026-09-28 UX panel):
+    // the heat dims to a ground, food places are outlines, people expected are
+    // dots, habituation is shade (what is still surprising stays bright), and
+    // replay and dreams are strokes.
+    const m = d.maps; if (!m || !Object.values(LAYERS).some(Boolean)) return;
+    ctx.fillStyle = 'rgba(8, 4, 4, 0.5)'; ctx.fillRect(0, 0, W, H);
+    const each = (vals, shape, draw) => {
       const [rows, cols] = shape, cw = W / cols, ch = H / rows;
-      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-        const a = colour(vals[r * cols + c]); if (a) { ctx.fillStyle = a; ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5); }
-      }
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) draw(vals[r * cols + c], c * cw, r * ch, cw, ch);
     };
+    if (LAYERS.familiar) each(m.familiar, m.mem_shape, (v, x, y, w, h) => {  // habituated: shaded; never seen: darker
+      const a = v < 0 ? 0.55 : 0.45 * v; if (a > 0.02) { ctx.fillStyle = `rgba(0, 0, 0, ${a})`; ctx.fillRect(x, y, w + 0.5, h + 0.5); }
+    });
     if (LAYERS.place) {  // what has fed it there, plus what its dreams learned it leads to
       const worth = m.value ? m.place.map((v, k) => v + m.value[k]) : m.place;
-      const top = Math.max(1e-6, ...worth.map(Math.abs)); cells(worth, m.shape, v => v > 0 ? `rgba(255, 176, 102, ${0.6 * v / top})` : null);
+      const top = Math.max(1e-6, ...worth.map(Math.abs));
+      each(worth, m.shape, (v, x, y, w, h) => {
+        if (v <= 0) return;
+        const t = v / top, lw = 1 + 3 * t;
+        ctx.strokeStyle = `rgba(255, 176, 102, ${0.35 + 0.6 * t})`; ctx.lineWidth = lw;
+        ctx.strokeRect(x + lw / 2 + 1, y + lw / 2 + 1, w - lw - 2, h - lw - 2);
+      });
     }
-    if (LAYERS.people) cells(m.people, m.shape, v => v > 0.01 ? `rgba(255, 111, 138, ${0.5 * Math.min(1, v)})` : null);
-    if (LAYERS.familiar) cells(m.familiar, m.mem_shape, v => v < 0 ? 'rgba(40, 0, 60, 0.45)' : `rgba(255, 180, 166, ${0.45 * (1 - v)})`);
+    if (LAYERS.people) each(m.people, m.shape, (v, x, y, w, h) => {
+      if (v <= 0.01) return;
+      ctx.fillStyle = 'rgba(255, 111, 138, 0.9)'; ctx.beginPath();
+      ctx.arc(x + w / 2, y + h / 2, 1.5 + Math.min(1, v) * Math.min(w, h) * 0.22, 0, 7); ctx.fill();
+    });
     if (LAYERS.dreams && d.dreams) {
       const [rows, cols] = m.shape, cw = W / cols, ch = H / rows;
       const hue = { nrem: '255, 180, 166', rem: '224, 144, 156', awake: '154, 111, 103', dream: '255, 240, 192' };
@@ -953,8 +968,10 @@ PAGE = r"""<!doctype html>
       d.dreams.forEach(([kind, r, c, age, seq]) => {
         const a = Math.max(0, 1 - age / 3);
         if (a) {
-          ctx.strokeStyle = `rgba(${hue[kind] || '200, 200, 200'}, ${0.9 * a})`; ctx.lineWidth = 2;
-          ctx.strokeRect(c * cw + 1, r * ch + 1, cw - 2, ch - 2);
+          // a replayed or dreamt place: a small square at the cell's centre (outlines are food's)
+          const q = Math.min(cw, ch) * 0.28;
+          ctx.fillStyle = ctx.strokeStyle = `rgba(${hue[kind] || '200, 200, 200'}, ${0.9 * a})`; ctx.lineWidth = 2;
+          ctx.fillRect((c + 0.5) * cw - q / 2, (r + 0.5) * ch - q / 2, q, q);
           // a replayed path (sequence replay): consecutive steps of one sequence joined
           if (prev && seq && prev[4] === seq && (prev[1] !== r || prev[2] !== c)) {
             ctx.beginPath(); ctx.moveTo((prev[2] + 0.5) * cw, (prev[1] + 0.5) * ch); ctx.lineTo((c + 0.5) * cw, (r + 0.5) * ch); ctx.stroke();
