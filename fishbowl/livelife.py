@@ -66,6 +66,7 @@ def _carry(old: Organism, new: Organism) -> None:
         n = new.mb.n_kc
         new.episodes = [(code[code < n], reward, cell) for code, reward, cell in old.episodes]
     new.replay_log, new.value_errors, new.seq, new.dreams = old.replay_log, old.value_errors, old.seq, old.dreams
+    new.last_replay = old.last_replay
     if ob.hidden.shape == nb.hidden.shape:
         nb.hidden = ob.hidden.copy()
         if len(ob.layer_hidden) == len(nb.layer_hidden):
@@ -123,6 +124,19 @@ def _circuits(org: Organism) -> dict:
         out["mb"] = {"n": mb.n_kc, "live": org.live_kc, "active": [int(k) for k in org.last_kc],
                      "food": food, "danger": danger,
                      "cost_share": round(share, 4)}
+    # its latest replayed memory on its eye: each reactivated Kenyon cell's 7
+    # receptor positions, back-projected onto its n x n gaze (not a picture it
+    # makes: which parts of its eye the memory is built from)
+    lr = org.last_replay
+    if lr is not None and org.lived_s - lr[2] < 10.0 and mb.n_kc and len(lr[1]):
+        kind, code, t = lr
+        n = org.state.n
+        pos = mb.pos[np.asarray(code)[np.asarray(code) < mb.n_kc]].reshape(-1, 2)
+        idx = np.clip(np.floor((pos + 0.5) * n).astype(int), 0, n - 1)
+        grid = np.zeros((n, n))
+        np.add.at(grid, (idx[:, 1], idx[:, 0]), 1.0)
+        out["replay_eye"] = {"kind": kind, "age": round(org.lived_s - t, 1), "n": n,
+                             "grid": np.round(grid / max(1.0, grid.max()), 3).ravel().tolist()}
     fps = max(1.0, org.fps)
     out["dreams"] = [[kind, r, c, round(org.lived_s - t, 1), seq] for kind, r, c, t, seq in org.replay_log
                      if org.lived_s - t < 10.0]  # ages in the seconds it lived (the frame rate varies)

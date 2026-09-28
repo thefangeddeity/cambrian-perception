@@ -388,6 +388,7 @@ class Organism:
         self.replays = {"awake": 0, "nrem": 0, "rem": 0}
         self.last_kc = np.zeros(0, dtype=int)  # the Kenyon cells firing at its latest look (for the viewer)
         self.replay_log: list = []             # recent replays: (kind, field row, col, frame), for the viewer's dreams
+        self.last_replay = None                # (kind, Kenyon-cell code, seconds lived): its latest replayed memory, for the viewer
         self.intruder = 0.0
         self.last_alarm = 0.0
         # Tissue still alive (a wasting body loses its costliest structure:
@@ -713,6 +714,7 @@ class Organism:
                 (ci, ri, cell_i), (cj, rj, cell_j) = self.episodes[i], self.episodes[j]
                 half = max(1, len(ci) // 2)
                 code = np.unique(np.concatenate([ci[:half], cj[half:]]))
+                self.last_replay = ("rem", code, self.lived_s)
                 self.mb.learn(code, 0.5 * (ri + rj), self.learning_rate)
                 self.replays["rem"] += 1
                 self.seq += 1
@@ -733,6 +735,7 @@ class Organism:
                     self.seq += 1
                     seq = self.seq
                 code, reward, cell = self.episodes[i]
+                self.last_replay = ("nrem" if asleep_settled else "awake", code, self.lived_s)
                 target = reward
                 if self.replay_backup > 0.0 and i + 1 < len(self.episodes):
                     target = reward + self.replay_backup * self.mb.value(self.episodes[i + 1][0])

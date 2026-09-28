@@ -720,6 +720,10 @@ PAGE = r"""<!doctype html>
     <canvas id="look" class="px"></canvas>
     <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
+    <div id="replay-eye-box" style="display:none; margin-top:10px">
+      <canvas id="replay-eye" width="120" height="120" class="px"></canvas>
+      <div class="cap" id="replay-eye-cap"></div>
+    </div>
   </div>
 </div>
 
@@ -985,6 +989,25 @@ PAGE = r"""<!doctype html>
   // Its mushroom body: every Kenyon cell a dot; lit = firing for its latest
   // look (~5%); green = what it has learned means food, red = danger; dark =
   // lost to wasting. Learned values, not thoughts.
+  // Its latest replayed memory on its eye (NREM, REM or awake): the receptors
+  // the reactivated Kenyon cells sample, back-projected onto its gaze. Not a
+  // picture it makes -- which parts of its eye the memory is built from.
+  function drawReplayEye(d) {
+    const box = $('replay-eye-box'); if (!box) return;
+    const r = d.replay_eye;
+    if (!r) { box.style.display = 'none'; return; }
+    box.style.display = '';
+    const c = $('replay-eye'), n = r.n, W = 120, s = W / n, ctx = c.getContext('2d');
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, W);
+    const fade = Math.max(0.25, 1 - r.age / 10);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const v = r.grid[i * n + j]; if (!v) continue;
+      ctx.globalAlpha = fade; ctx.fillStyle = heatColour(v); ctx.fillRect(Math.floor(j * s), Math.floor(i * s), Math.ceil(s), Math.ceil(s));
+    }
+    ctx.globalAlpha = 1;
+    const name = { nrem: 'NREM replay', rem: 'REM (recombined)', awake: 'awake replay' }[r.kind] || r.kind;
+    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago: the receptors its replayed memory is built from (a back-projection, not a picture it makes).`;
+  }
   function int8s(b64) { if (!b64) return null; const s = atob(b64); return Int8Array.from(s, ch => ch.charCodeAt(0)); }
   function drawMB(d) {
     const c = $('mb'), cap = $('mb-cap'); if (!c) return;
@@ -1181,6 +1204,7 @@ PAGE = r"""<!doctype html>
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
     drawMB(d);
+    drawReplayEye(d);
     if ($('brain-mb')) $('brain-mb').textContent = d.kc ? `Mushroom body: ${d.kc} Kenyon cells, learning rate ${(d.learning_rate || 0).toFixed(3)}, food value now ${(d.food_value ?? 0).toFixed(2)}` : 'No mushroom body yet (lifetime learning evolves)';
     if ($('brain-layers')) { const ls = br.layers || [], on = ls.filter(l => l.gate && l.gate[0] !== 0); $('brain-layers').textContent = `${on.length} layer${on.length === 1 ? '' : 's'}` + (ls.length > on.length ? ` (+${ls.length - on.length} silent)` : '') + (on.length ? ` -- gates ${on.map(l => l.gate[0].toFixed(2)).join(', ')}` : ''); }
     const c = $('brain'), W = Math.max(200, fitWidth($('brain').closest('.panel'), quadAspect()));
