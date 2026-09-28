@@ -471,8 +471,14 @@ LOCK_HUD_JS = r"""
     rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
     ctx.textAlign = 'left';
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
-    ctx.save(); ctx.direction = 'rtl'; ctx.textAlign = 'right';
-    rows.forEach(([text, colour, font], k) => { if (!text) return; ctx.font = font; ctx.fillStyle = colour; ctx.fillText(toArabic(text), bw - 16, 18 + 16 * k); });
+    // Arabic, right-justified: each line measured and placed so its right edge
+    // sits exactly 16 px from the right, mirroring the left column's margin.
+    ctx.save(); ctx.direction = 'rtl'; ctx.textAlign = 'left';
+    rows.forEach(([text, colour, font], k) => {
+      if (!text) return;
+      const ar = toArabic(text); ctx.font = font; ctx.fillStyle = colour;
+      ctx.fillText(ar, bw - 16 - ctx.measureText(ar).width, 18 + 16 * k);
+    });
     ctx.restore();
     lockShadow(ctx, false);
     ctx.textAlign = 'left';
