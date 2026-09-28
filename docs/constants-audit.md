@@ -62,7 +62,8 @@ yardsticks are found.
 | `LIGHT_FAST_S`, `LIGHT_SLOW_S` | 60 s, 1200 s | P | its day/night sense |
 | `TIRED_EFFICIENCY` | 0.5 | **G** | the invented cost of skipping sleep; the proposed sleep redefinition would retire it (awaiting a go) |
 | `ACCLIMATIZE_HALF_LIFE_S` | 80 s | **G** | |
-| `EFFORT_COST`, `FOOD_PER_LOOK`, `PREY_FOOD_PER_LOOK` | 1e-4, 2e-4, 1.2e-3 | P | prices and food values of its world |
+| `EFFORT_COST`, `FOOD_PER_LOOK`, `PREY_FOOD_PER_LOOK` | 1e-4, 2e-4, 1.2e-3 | P | prices and food values of its world. A meal is now one bite times the chance the catch is real (the detector's confidence), whatever the eye's size or the prey's distance (2026-09-27; it used to be the share of the gaze centre prey covered, which made the eye a mouth). Still per look, not per handling time (Holling): flagged |
+| `MOUTH_DIAMETER` (fishbowl/prey.py) | 0.172 of frame height | P | a round mouth at the gaze centre, fixed: a given, like "mouths are roundish and have teeth" (not evolved). As wide as a newborn eye's old eating zone, so default eyes eat as before |
 | `S_RISE_S`, `S_FALL_S` | 18.2 h, 4.2 h | S | Daan, Beersma & Borbely 1984 |
 | `SLEEP_SETTLE_S`, `SLEEP_INERTIA_S` | 10 s, 7 s | **G** | |
 | `COLLAPSE_S`, `COLLAPSE_RELEASE_S` | 0.95, 0.8 | **G** | safety net |

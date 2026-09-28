@@ -450,7 +450,7 @@ class Organism:
         self.last_grid = v
         self.prev_v = v
 
-        # Eating happens at the gaze: prey held in the gaze center is a meal;
+        # Eating happens at the gaze: prey under its centre (its mouth) is a meal;
         # genuinely new structure there is a small snack.
         if asleep:
             # Asleep: no eating, no gazing, slow coarse sampling of the field.
@@ -458,7 +458,7 @@ class Organism:
             prey_now = snack = 0.0
             interval = MAX_INTERVAL
         else:
-            prey_now = prey_lib.prey_in_gaze(boxes, state.cx, state.cy, *state.half_extents(self.aspect))
+            prey_now = prey_lib.prey_at_mouth(boxes, state.cx, state.cy, self.aspect)  # its mouth: the gaze centre
             snack = feed_on_novelty(self.memory, v, state, self.variance, self.aspect)
             # Lifetime learning: what it ate this look (in meals: a full look at
             # prey = 1) teaches its mushroom body what the look showed.

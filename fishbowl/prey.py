@@ -121,12 +121,39 @@ def _coverage(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: flo
     return float(min(1.0, total))
 
 
-def prey_in_gaze(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: float) -> float:
+# Its mouth: a round one at the centre of its gaze, of a FIXED size --
+# physics, a given like "mouths are roundish and have teeth" (a hagfish's
+# and a human's are much alike; not worth evolving). As wide as the eating
+# zone a newborn's eye had (the central half of a 22-receptor gaze), now the
+# same for every eye. A mouth, not a point: a point made a catch rarer than
+# any real mouth does (measured on tina: 0% of looks).
+MOUTH_DIAMETER = 22 / 64 / 2  # of the frame's height (fovea: DEFAULT_RECEPTORS x RECEPTOR_PITCH / 2)
+
+
+def prey_at_mouth(boxes: list[list[float]], cx: float, cy: float, aspect: float) -> float:
     """
-    How much prey is in the CENTER of the gaze (its central half), 0..1:
-    for each prey box, the share of the gaze center it covers, times the
-    detector's confidence. Glancing at prey from the edge of the gaze
-    doesn't feed it; holding it centered does -- so following a moving
-    person is literally how it eats.
+    The meal a look catches, 0..1: prey under its mouth (a disc MOUTH_DIAMETER
+    wide at the gaze centre) -- the detector's confidence for it (the surest,
+    if several), i.e. the chance the catch is real, times one bite.
+    The meal is the prey item's, whatever the eye's size and however big the
+    prey looks: in no living animal does eye size set how much a bite yields
+    (after a design panel -- Land & Nilsson: eyes set finding, not eating;
+    Holling 1959: a catch yields the prey's worth; where meal size is limited,
+    it is by the mouth: gape limitation). Small or distant prey is harder to
+    hit, not less filling. Glancing at prey from the edge of the gaze doesn't
+    feed it; holding it centred does -- so following a moving person is
+    literally how it eats. aspect: the frame's width / height.
+
+    (It used to be the share of the gaze's central half the prey covered,
+    which made the eye a mouth: a bigger eye diluted every meal, and prey
+    far away fed less than the same prey nearby.)
     """
-    return _coverage(boxes, cx, cy, hx / 2.0, hy / 2.0)  # central half of the gaze, each way
+    r = MOUTH_DIAMETER / 2.0  # in frame heights; x is scaled by aspect so it is round in pixels
+    best = 0.0
+    for _, conf, x0, y0, x1, y1 in boxes or ():
+        # the box's nearest point to the mouth's centre, in frame-height units
+        dx = (min(max(cx, x0), x1) - cx) * aspect
+        dy = min(max(cy, y0), y1) - cy
+        if dx * dx + dy * dy <= r * r:
+            best = max(best, float(conf))
+    return best

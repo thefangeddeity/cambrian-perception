@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 The organism's target lock, burned into a host's picture (the viewer's
 client HUD, in Python): corner brackets on its gaze -- cyan SCAN, yellow
-TRACK (prey in its gaze), red LOCK (eating: prey held in its gaze centre,
+TRACK (prey in its gaze), red LOCK (eating: prey under its gaze centre, its mouth;
 the snapshot moment), dim violet SLEEP (eyes shut: the gaze sees nothing,
 parked; the picture stays, since the world doesn't go dark when it
 sleeps) -- that glide between its looks; pink corners on the

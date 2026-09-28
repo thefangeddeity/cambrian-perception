@@ -299,10 +299,10 @@ LOCK_HUD_JS = r"""
 
   // ---- Target lock: its gaze on the picture ----
   // The reticle is its gaze -- the box it sees detail through, with the
-  // diamond marking its center, where it eats.
+  // diamond marking its centre -- its mouth: prey under it is a meal.
   //   SCAN  nothing it hunts is in its gaze
   //   TRACK prey (person/animal) somewhere in its gaze
-  //   LOCK  prey held in its gaze center: it is eating -- in a livecam, the
+  //   LOCK  prey under its gaze centre (its mouth): it is eating -- in a livecam, the
   //         moment to take a snapshot
   //   SLEEP asleep: eyes shut, the gaze sees nothing and is parked. The
   //         picture stays -- the world doesn't go dark when it sleeps, and
@@ -370,7 +370,7 @@ LOCK_HUD_JS = r"""
           ctx.restore();
         }
       }
-      // its center (the central half of the gaze, where it eats): a diamond that spins on LOCK
+      // its mouth (the gaze's centre: prey under it is a meal): a diamond that spins on LOCK
       const r = Math.min(gw, gh) / 4;
       if (!sleeping) {
         ctx.save(); ctx.translate(x, y); ctx.rotate(L.mode === 'LOCK' ? now / 300 : Math.PI / 4);
@@ -611,7 +611,7 @@ PAGE = r"""<!doctype html>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Food: <b style="color:#ff5fa2">prey</b> (a person or animal, found by YOLO) held in its gaze centre; <b style="color:#c8f">snacks</b> from surprise, too little to live on.</div>
+      <div class="cap">Food: <b style="color:#ff5fa2">prey</b> (a person or animal, found by YOLO) under its gaze centre -- its mouth; <b style="color:#c8f">snacks</b> from surprise, too little to live on.</div>
       <div id="prey-gauge"></div>
       <canvas id="prey-trace" height="60"></canvas>
       <div id="food-gauge"></div>
@@ -631,7 +631,7 @@ PAGE = r"""<!doctype html>
   <div class="cap">Every fitness pressure and its weight. <span class="tag body">body</span> = from staying alive; <span class="tag hand">hand-written</span> = scaffolding, to be retired.</div>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
-    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of hunger&sup2; (blood sugar plus half the gut, like a full stomach calming hunger before it is absorbed) + 0.3 (1-reserve)&sup2; + threat&sup2; + fatigue&sup2; + 0.3 sleep pressure&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). On a real clock: being awake costs a fixed amount plus a share that follows its tempo; asleep it burns a third as much. Also muscle force&sup2; every frame it pushes, and per gaze: thinking, gaze size, colour and any wired brain loops (x CPU scarcity). Restored only by eating (prey held in the gaze center, plus small surprise snacks), through the gut. No death: an empty body degrades (colour off, narrow eye, slower gazing) and burns less.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of hunger&sup2; (blood sugar plus half the gut, like a full stomach calming hunger before it is absorbed) + 0.3 (1-reserve)&sup2; + threat&sup2; + fatigue&sup2; + 0.3 sleep pressure&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). On a real clock: being awake costs a fixed amount plus a share that follows its tempo; asleep it burns a third as much. Also muscle force&sup2; every frame it pushes, and per gaze: thinking, gaze size, colour and any wired brain loops (x CPU scarcity). Restored only by eating (prey under the gaze centre, its mouth: the prey's worth whatever its eye's size or the prey's distance -- plus small surprise snacks), through the gut. No death: an empty body degrades (colour off, narrow eye, slower gazing) and burns less.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo / pace of life</td><td>How often it gazes. Inherited resting pace (every 1st-6th frame) plus a brain output that speeds up or slows down 3x either way, any time -- a continuum, not a fixed type. Its metabolic rate acclimatizes to its tempo over ~2 minutes (slowing down pays only once it has been slow a while, like a bear's winter). Time runs the same for all; each gaze costs compute plus the gaze-size cost. Slow = cheaper, fewer meals, slower reactions.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>colour vision</td><td>0, 1 or 2 colour-opponent channels in its gaze (red-green, then blue-yellow), inherited and evolving. Each channel costs energy every gaze (x CPU scarcity), so colour vision only spreads if seeing colour pays -- e.g. telling prey from background.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>prey sense</td><td>0 = eyes only, 1 = scent (prey somewhere in view, and how much -- "go look", not where), 2 = + a coarse direction to the strongest prey. Inherited and evolving; a new level changes nothing until its brain wires it up, and its energy price grows with that wiring, so it spreads only if it pays. It still has to centre prey with its eyes to eat.</td></tr>
@@ -769,6 +769,7 @@ PAGE = r"""<!doctype html>
   // reconstruction -- from the replay JPEG, not its exact frames; without
   // frames (a file source) it falls back to its retina at the end of its run.
   const LOOK = { key: null, cells: null };
+  const MOUTH_DIAMETER = 22 / 64 / 2;  // of the frame's height -- prey.MOUTH_DIAMETER
   const lookSrc = document.createElement('canvas');
   function rebuildRetina(img, cx, cy, f, N) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
@@ -840,26 +841,27 @@ PAGE = r"""<!doctype html>
       ctx.strokeStyle = 'rgba(255, 190, 90, 0.8)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
       ctx.strokeRect(lx + c0 * lw / N, ly + c0 * lh / N, C * lw / N, C * lh / N); ctx.setLineDash([]);
     }
-    // Eating, in the other panels' prey pink: its eating zone -- the central
-    // half of the gaze, where prey is a meal -- glows as much as it eats and
+    // Eating, in the other panels' prey pink: its mouth -- the centre of its
+    // gaze, where prey under it is a meal -- glows as much as it eats and
     // pulses while it chews; each new bite sends a ring out from it (the
     // target lock's snap, here). Drawn only with the replay's own frames.
     const eat = cells && !shut ? R.eat : 0;
     if (eat > 0.01 && !LOOK.eating) LOOK.biteT = now;
     LOOK.eating = eat > 0.01;
     if (LOOK.eating) {
-      const zw = lw / 2, zh = lh / 2, zx = cx - zw / 2, zy = cy - zh / 2;
+      const mr = MOUTH_DIAMETER * H / 2;  // its mouth, at its real size: a disc at the gaze centre (prey.py)
       const pulse = 0.5 + 0.5 * Math.sin(now / 110);
-      ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fillRect(zx, zy, zw, zh);
-      ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(zx, zy, zw, zh);
+      ctx.beginPath(); ctx.arc(cx, cy, mr, 0, 7);
+      ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fill();
+      ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.stroke();
       ctx.fillStyle = 'rgba(255, 95, 162, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
       ctx.fillText(`EATING ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     }
     const biteAge = now - (LOOK.biteT ?? -1e9);
     if (biteAge < 400) {
-      const k = biteAge / 400, e = 1 - Math.pow(1 - k, 3), grow = 0.5 + 0.9 * e;
+      const k = biteAge / 400, e = 1 - Math.pow(1 - k, 3), rr = MOUTH_DIAMETER * H / 2 + e * Math.max(lw, lh) * 0.6;
       ctx.strokeStyle = `rgba(255, 95, 162, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
-      ctx.strokeRect(cx - lw * grow / 2, cy - lh * grow / 2, lw * grow, lh * grow);
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, 7); ctx.stroke();
     }
     ctx.strokeStyle = shut ? '#a8c' : LOOK.eating ? '#ff5fa2' : '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
