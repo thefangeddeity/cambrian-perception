@@ -235,27 +235,33 @@ LOCK_HUD_JS = r"""
     const traj = d.trajectory && d.trajectory.length ? d.trajectory : [[d.fovea_cx ?? 0.5, d.fovea_cy ?? 0.5, d.fovea_fraction || 0.35, 0]];
     const fps = d.frames_per_second || defaultFps || 15;
     const lastIdx = traj[traj.length - 1][3] ?? (traj.length - 1);
-    let cur, delay = null;
+    let cur, delay = null, catching = false;
     if (d.world_first_index != null && d.world_age_s != null) {
       const key = d.world_epoch + ':' + d.world_first_index + ':' + d.world_age_s + ':' + d.generation;
       // A new run (the organism restarted, e.g. switching source) starts the
       // clock afresh: the minute it took to report in is not staleness.
-      if (clk.epoch !== d.world_epoch) { clk.epoch = d.world_epoch; clk.first = null; clk.need = null; clk.lastT = null; }
+      if (clk.epoch !== d.world_epoch) { clk.epoch = d.world_epoch; clk.first = null; clk.need = null; clk.lastT = null; clk.stale = []; }
       if (clk.key !== key) {
         // A new snapshot: how stale its newest gazed-at frame got before it
         // came is the delay that never stalls.
         if (clk.first != null && d.world_first_index !== clk.first) {
-          clk.target = Math.max(clk.target || 0, clk.age + (now - clk.recvT) / 1000 + 0.5);
+          (clk.stale = clk.stale || []).push([now, clk.age + (now - clk.recvT) / 1000 + 0.5]);
         }
         clk.key = key; clk.recvT = now; clk.age = d.world_age_s; clk.first = d.world_first_index;
       }
       const age = clk.age + (now - clk.recvT) / 1000;  // of the newest frame it has gazed at
       const dt = clk.lastT != null ? Math.min(1, Math.max(0, (now - clk.lastT) / 1000)) : 0; clk.lastT = now;
-      if (clk.need == null) { clk.need = age + 3.0; clk.target = clk.need; }
-      // Grow toward the target at most 0.5 s per second (playback slows, never
-      // jumps back); ease the target down slowly, to the shortest delay that works.
-      clk.target = Math.max(1.0, clk.target - dt * 0.05);
-      clk.need = clk.need < clk.target ? Math.min(clk.target, clk.need + dt * 0.5) : clk.target;
+      if (clk.need == null) clk.need = age + 3.0;
+      // The floor: the stalest a snapshot got in the last 30 s -- the shortest
+      // delay at which every frame shown has been gazed at. One slow
+      // generation raises it only for as long as it is remembered.
+      clk.stale = (clk.stale || []).filter(([t]) => now - t < 30000);
+      clk.target = Math.max(1.0, ...clk.stale.map(([, s]) => s), clk.stale.length ? 0 : age + 0.5);
+      // Below the floor: slow to half speed (never jump back). Above it: catch
+      // up, playing at up to 1.25x, until it reaches the floor.
+      if (clk.need < clk.target) clk.need = Math.min(clk.target, clk.need + dt * 0.5);
+      else clk.need = Math.max(clk.target, clk.need - dt * 0.25);
+      catching = clk.need > clk.target + 0.2;
       delay = clk.need;
       const newest = d.world_first_index + lastIdx;
       const g = Math.floor(newest + (age - delay) * fps);
@@ -273,7 +279,7 @@ LOCK_HUD_JS = r"""
       guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null, snack: at(d.snacks) || 0,
       asleep: !!at(d.asleep_frames), warn: !!at(d.alarm_frames),
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
-      delay,
+      delay, catching,
     };
   }
   // Keeps an <img> on the wanted frame of the replay. Each frame is loaded
@@ -420,11 +426,12 @@ LOCK_HUD_JS = r"""
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
-                  // Its warning: lit when it warns; for the owner, a dim lamp otherwise -- untrained
-                  // (only the owner's feedback is meant to select it). Clients see it only when lit.
-                  ...(fs.warn ? [[blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']]
-                      : (opts && opts.internals ? [['WARN', 'rgba(255, 68, 68, 0.28)', 'bold 12px monospace']] : [])),
-                  [fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped', '#9fb6c6', '11px monospace']];
+                  // Its warning, for the owner only until the owner's feedback has trained it
+                  // (untrained, it drifts: one lineage warned in every waking frame): lit when
+                  // it warns, a dim lamp otherwise. The client page never shows it.
+                  ...(opts && opts.internals ? [fs.warn ? [blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']
+                                                        : ['WARN', 'rgba(255, 68, 68, 0.28)', 'bold 12px monospace']] : []),
+                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? '#fd4' : '#9fb6c6', '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
     }
@@ -740,7 +747,7 @@ PAGE = r"""<!doctype html>
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
     // time and show whichever gaze is current at that moment -- the same
     // clock as the replayed picture beside it (replayAt, LOCK_HUD_JS).
-    const { traj, fps, lastIdx, cur, i, delay } = replayAt(d, now, CLK, REPLAY_FPS);
+    const { traj, fps, lastIdx, cur, i, delay, catching } = replayAt(d, now, CLK, REPLAY_FPS);
     const ev = d.field_events && d.field_events[i];
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
@@ -774,7 +781,7 @@ PAGE = r"""<!doctype html>
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
     ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 3;
     ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
-    $('replay-clock').textContent = (delay != null ? `delayed ${delay.toFixed(1)} s behind live -- gaze ${i + 1} / ${traj.length} of its latest run` : `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)`) + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
+    $('replay-clock').textContent = (delay != null ? `${catching ? 'catching up: ' : ''}delayed ${delay.toFixed(1)} s behind live -- gaze ${i + 1} / ${traj.length} of its latest run` : `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)`) + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
   requestAnimationFrame(drawField);
 
