@@ -438,6 +438,8 @@ class Organism:
         self.prey_level = int(getattr(g, "prey_sense", 0)) if prey else 0
         # Metabolic strategy, host preference, replay and vigilance (genome).
         self.body.metabolism = float(getattr(g, "metabolism", 1.0))
+        self.body.mobilize = float(getattr(g, "mobilize", self.body.mobilize))  # its inherited fuel set points
+        self.body.store = float(getattr(g, "store", self.body.store))
         self.host_pref = dict(getattr(g, "host_pref", {}) or {})
         self.awake_replay = int(getattr(g, "awake_replay", 0))
         self.sleep_replay = int(getattr(g, "sleep_replay", 0))

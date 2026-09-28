@@ -97,7 +97,10 @@ makes it pay. Surprise in the gaze pays a little. That keeps it
 | Phosphagen | ~10 s of a burst | refills from spare aerobic capacity, half-time ~30 s | first to pay a burst | phosphocreatine (insects: arginine phosphate); Harris et al. 1976 |
 | Lactate | from bursts | a burst parks 15 of every 16 parts of its fuel here | returned as the debt clears, 93% kept | Brooks' lactate shuttle; the Cori cycle |
 
-**The hormonal switches:**
+**The hormonal switches** (their two lines are inherited -- `genome.mobilize`,
+born at a half, and `genome.store`, born at 80% -- stepped together by one
+mutation; insulin sensitivity and how readily a body stores fat vary between
+species and individuals):
 - **Fed (insulin):** blood sugar above half. Glycogen fills; fat stays put.
   Above 80%, the surplus becomes fat.
 - **Fasted (glucagon):** blood sugar below half. Glycogen tops blood sugar
@@ -146,8 +149,13 @@ Fat can't fuel a burst or a brain.
 
 ## Metabolic strategy (inherited)
 
-From endotherm (1, as born) to ectotherm (0.1: a tenth of the resting and
-sleeping burn). Cheap waiting, sensors still on, like a crocodile at the
+What this models is Bennett & Ruben's aerobic-capacity trade: a higher resting
+burn buys a higher aerobic ceiling (stamina); warmth came along in real
+endotherms, but here every organism thinks at its host's speed whatever its
+metabolism, so "-thermy" means rest cost vs stamina, nothing more. Born at 1;
+it can fall to an ectotherm's 0.1 (a tenth of the resting and sleeping burn)
+or rise above 1, hotter than a newborn (hummingbirds, shrews), with only a
+numerical guard on top. Cheap waiting, sensors still on, like a crocodile at the
 waterhole. The aerobic ceiling scales with it, so a low-burn body sustains
 less and bursts sooner. Sensing and thinking cost the same either way.
 (Bennett & Ruben 1979; Secor; Huey & Pianka.)
