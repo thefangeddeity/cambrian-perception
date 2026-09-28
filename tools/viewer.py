@@ -362,6 +362,50 @@ LOCK_HUD_JS = r"""
     return t.replace(/ s(?= |$)/g, ' ثانية').replace(/(\d)\.(\d)/g, '$1٫$2').replace(/%/g, '٪')
             .replace(/[0-9]/g, c => '٠١٢٣٤٥٦٧٨٩'[c]);
   }
+  // The readout in Ukrainian (bottom left) and in Traditional Chinese as
+  // written in Taiwan (bottom right): the same rows, each language's own
+  // decimal mark and unit.
+  const UK_WORDS = [['catching up:', 'наздоганяю:'], ['its latest run, looped', 'останній прогін, по колу'], ['delayed', 'затримка'],
+    ['own guess', 'власна оцінка'], ['teacher', 'вчитель'], ['calibrating', 'калібрування'], ['snacks', 'перекуси'], ['meals', 'трапези'],
+    ['SCAN', 'ПОШУК'], ['TRACK', 'СТЕЖУ'], ['LOCK', 'ЗАХОПЛЕНО'], ['SLEEP', 'СПЛЮ'], ['TARGET', 'ЦІЛЬ'], ['WARN', 'УВАГА']];
+  const TW_WORDS = [['catching up:', '追趕中：'], ['its latest run, looped', '最近一輪，循環播放'], ['delayed', '延遲'],
+    ['own guess', '自己的猜測'], ['teacher', '老師'], ['calibrating', '校準中'], ['snacks', '點心'], ['meals', '正餐'],
+    ['SCAN', '搜尋'], ['TRACK', '追蹤'], ['LOCK', '鎖定'], ['SLEEP', '睡眠'], ['TARGET', '目標'], ['WARN', '警告']];
+  const TW_FONT = '"Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
+  function translate(text, words) { let t = String(text); words.forEach(([en, x]) => { t = t.split(en).join(x); }); return t; }
+  function toUkrainian(text) { return translate(text, UK_WORDS).replace(/([0-9])\.([0-9])/g, '$1,$2').replace(/ s(?= |$)/g, ' с'); }
+  function toTaiwanese(text) { return translate(text, TW_WORDS).replace(/ s(?= |$)/g, ' 秒'); }
+  // The translated readouts are page text laid over the HUD, not canvas text:
+  // browsers' canvases disagree on right-to-left alignment and mis-measure
+  // shaped Arabic (one clipped the first words, another fell short of the
+  // margin), while the page's own text engine lays out bidirectional text and
+  // justifies it the same everywhere. Arabic top right (right-to-left,
+  // right-justified), Ukrainian bottom left, Taiwanese bottom right.
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function hudOverlay(canvas, rows) {
+    const host = canvas && canvas.parentElement; if (!host) return;
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    host._hudT = performance.now();
+    const spots = { ar: ['rtl', 'top:10px;right:16px;text-align:right', AR_FONT, toArabic],
+                    uk: ['ltr', 'bottom:8px;left:16px;text-align:left', 'monospace', toUkrainian],
+                    tw: ['ltr', 'bottom:8px;right:16px;text-align:right', TW_FONT, toTaiwanese] };
+    Object.entries(spots).forEach(([key, [dir, where, family, conv]]) => {
+      let el = host.querySelector(':scope > .hud-' + key);
+      if (!el) {
+        el = document.createElement('div'); el.className = 'hud-' + key + ' hud-lang'; el.dir = dir;
+        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;text-shadow:0 0 3px #000,0 0 2px #000;' + where;
+        host.appendChild(el);
+      }
+      el.style.display = '';
+      const html = rows.filter(r => r[0]).map(([t, colour, font]) =>
+        `<div style="color:${colour};font:${font.replace('monospace', family)};line-height:16px">${esc(conv(t))}</div>`).join('');
+      if (el._html !== html) { el._html = html; el.innerHTML = html; }
+    });
+  }
+  // A HUD switched off (or not drawn) takes its page text with it.
+  setInterval(() => document.querySelectorAll('.hud-lang').forEach(el => {
+    if (!el.parentElement._hudT || performance.now() - el.parentElement._hudT > 500) el.style.display = 'none';
+  }), 250);
   function lockIdText(id) { return id ? ` TARGET ${(id[1] * 100).toFixed(0)}%` : ''; }  // every host is a target
   // Draws the HUD on a bw x bh box. fs = the replay's current frame
   // (replayAt), d = status, picture = a frame is shown (the reticle is drawn
@@ -474,20 +518,7 @@ LOCK_HUD_JS = r"""
     rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
     ctx.textAlign = 'left';
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
-    // Arabic, right-justified at the right margin (mirroring the left column).
-    // The canvas stays left-to-right, where "right" means the right edge in
-    // every browser (under a right-to-left canvas some browsers swap
-    // left/right for start/end, which left the lines short of the margin in
-    // one and past it in another); each line is marked right-to-left inside
-    // the text itself (a Unicode right-to-left isolate), which orders its
-    // words, digits and signs. An Arabic font is named: monospace has none.
-    ctx.save(); ctx.direction = 'ltr'; ctx.textAlign = 'right';
-    rows.forEach(([text, colour, font], k) => {
-      if (!text) return;
-      ctx.font = font.replace('monospace', AR_FONT); ctx.fillStyle = colour;
-      ctx.fillText('\u2067' + toArabic(text) + '\u2069', bw - 16, 18 + 16 * k);
-    });
-    ctx.restore();
+    hudOverlay(ctx.canvas, rows);  // Arabic, Ukrainian, Taiwanese: page text over the HUD
     lockShadow(ctx, false);
     ctx.textAlign = 'left';
   }
