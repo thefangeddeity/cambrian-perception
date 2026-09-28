@@ -860,6 +860,12 @@ PAGE = r"""<!doctype html>
       drawGrid(ctx, d.field_motion.map(v => v / top), d.world_grid_shape, 0, 0, W, H, true);
     } else drawGrid(ctx, d.world_grid.map(v => 0.35 * v), d.world_grid_shape, 0, 0, W, H);
     drawLayers(ctx, d, W, H);
+    // Its marks are as coarse as its receptors: everything snaps to cell edges.
+    const [gR, gC] = d.world_grid_shape || [9, 16], cellW = W / gC, cellH = H / gR;
+    const snapL = x => Math.floor(x * gC) * cellW, snapR = x => Math.ceil(x * gC) * cellW;
+    const snapT = y => Math.floor(y * gR) * cellH, snapB = y => Math.ceil(y * gR) * cellH;
+    const cellX = x => (Math.min(gC - 1, Math.max(0, Math.floor(x * gC))) + 0.5) * cellW;
+    const cellY = y => (Math.min(gR - 1, Math.max(0, Math.floor(y * gR))) + 0.5) * cellH;
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
     // time and show whichever gaze is current at that moment -- the same
     // clock as the replayed picture beside it (replayAt, LOCK_HUD_JS).
@@ -868,8 +874,9 @@ PAGE = r"""<!doctype html>
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
       if (act > 0.05) {
-        ctx.fillStyle = 'rgba(255, 240, 192, 0.85)';
-        ctx.beginPath(); ctx.arc(mx * W, my * H, 3 + act * 14, 0, 7); ctx.fill();
+        // where it senses motion: that one cell, lit
+        ctx.fillStyle = `rgba(255, 244, 240, ${0.55 + 0.45 * act})`;
+        ctx.fillRect(snapL(Math.min(0.9999, mx)), snapT(Math.min(0.9999, my)), cellW, cellH);
       }
       if (loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
     }
@@ -878,7 +885,7 @@ PAGE = r"""<!doctype html>
     ctx.font = '12px monospace'; ctx.textBaseline = 'bottom';
     pb.forEach(([cls, conf, x0, y0, x1, y1]) => {
       ctx.strokeStyle = '#ff6f8a'; ctx.lineWidth = 3; ctx.setLineDash([8, 4]);
-      ctx.strokeRect(x0 * W, y0 * H, (x1 - x0) * W, (y1 - y0) * H); ctx.setLineDash([]);
+      ctx.strokeRect(snapL(x0), snapT(y0), snapR(x1) - snapL(x0), snapB(y1) - snapT(y0)); ctx.setLineDash([]);
       ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#ff6f8a'; ctx.fillText(`TARGET ${(conf * 100).toFixed(0)}%`, x0 * W + 2, y0 * H - 3);  // every host is a target (its preferences are in the traits)
     });
     const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
@@ -891,12 +898,14 @@ PAGE = r"""<!doctype html>
     }
     ctx.strokeStyle = 'rgba(255, 180, 166, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
     let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
-    for (let k = k0; k <= i; k++) { const px = traj[k][0] * W, py = traj[k][1] * H; k === k0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
+    for (let k = k0; k <= i; k++) { const px = cellX(traj[k][0]), py = cellY(traj[k][1]); k === k0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
     ctx.stroke();
     const [cx, cy, f] = traj[i];
     const [cw, ch] = crop(d, f), s = W / d.frame_w;
     ctx.strokeStyle = boxColor(cx, cy, f); ctx.lineWidth = 5;
-    ctx.strokeRect(cx * W - cw * s / 2, cy * H - ch * s / 2, cw * s, ch * s);
+    const gx0 = snapL(Math.max(0, cx - cw / d.frame_w / 2)), gx1 = snapR(Math.min(1, cx + cw / d.frame_w / 2));
+    const gy0 = snapT(Math.max(0, cy - ch / d.frame_h / 2)), gy1 = snapB(Math.min(1, cy + ch / d.frame_h / 2));
+    ctx.strokeRect(gx0, gy0, Math.max(cellW, gx1 - gx0), Math.max(cellH, gy1 - gy0));
     $('replay-clock').textContent = (delay != null ? `${catching ? 'catching up: ' : ''}delayed ${delay.toFixed(1)} s behind live -- gaze ${i + 1} / ${traj.length} of its latest run` : `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)`) + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
   }
   requestAnimationFrame(drawField);
