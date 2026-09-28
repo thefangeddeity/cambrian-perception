@@ -57,13 +57,31 @@ BASAL_PER_SECOND = 1.0 / 1200.0   # kept for callers that price in legacy units
 LEGACY_UNIT = 1200.0
 G_CAP = 600.0          # blood sugar: ~10 min of waking basal burn
 GUT_CAP = 1200.0       # gut: ~20 min
-R_CAP = 21600.0        # reserve: ~6 h
 DIGEST_TAU_S = 240.0   # gut -> blood sugar time constant
-STORE_ABOVE = 0.8      # blood sugar above this is stored...
-STORE_RATE = 1.0       # ...at up to this many B per second
-STORE_EFFICIENCY = 0.75
-MOBILIZE_BELOW = 0.5   # reserve tops blood sugar up below this level...
-MOBILIZE_RATE = 0.5    # ...at up to 0.5 B/s: enough for sleep, not for waking
+# ---- fuel stores and their hormonal controls (docs/physiology.md) ----
+# Insulin (fed): blood sugar above STORE_ABOVE is stored -- glycogen first,
+# then fat. Glucagon (fasted): below MOBILIZE_BELOW, glycogen tops blood sugar
+# up and fat is burned directly. Fat can't become glucose (only its glycerol,
+# ~5%), so it fuels aerobic work, never a burst or the brain -- the brain's
+# backup is ketones, made from fat after glycogen runs out.
+STORE_ABOVE = 0.8      # blood sugar above this is stored (insulin)...
+STORE_RATE = 1.0       # ...into fat at up to this many B per second
+STORE_EFFICIENCY = 0.75  # making fat from sugar (~75-80%)
+MOBILIZE_BELOW = 0.5   # below this, glycogen is released and fat burned (glucagon)
+GLYCOGEN_CAP = 6 * 3600.0     # ~6 h of waking basal (human liver glycogen ~100 g, ~1/4 of a day's basal burn)
+GLYCOGEN_FILL_S = 4 * 3600.0  # empty -> full after meals in ~4 h (liver refills within hours; Jentjens & Jeukendrup 2003)
+GLYCOGEN_EFFICIENCY = 0.97    # glycogen synthesis costs ~1 of ~32 ATP per glucose
+FAT_CAP = 72 * 3600.0         # ~3 days of waking basal: between a mouse (~1/3 of its fat gone in a 14 h fast) and Aedes
+                              # aegypti on water alone (median 3-4 days, carbohydrate first, then fat; Briegel et al.)
+FAT_MAX_SHARE = 0.5           # fat burns at most ~half the aerobic ceiling ("Fatmax", Achten & Jeukendrup 2003)
+KETONE_TAU_S = 12 * 3600.0    # ketosis ramps over ~12 h after glycogen runs out (mice: 12-24 h of fasting)
+KETONE_MAX_SHARE = 2.0 / 3.0  # ketones cover at most ~2/3 of a brain's energy (Owen et al. 1967)
+# The rest of a brain's need, with no sugar left, is protein: tissue broken
+# down, felt as wasting -- the costly structure (Kenyon cells, hidden units,
+# receptors) goes first (organism.py). Rebuilt when fed again.
+PROTEIN_CAP = 24 * 3600.0     # assumption: a day of waking basal's worth of tissue before it is fully wasted
+WASTING_REBUILD_S = 72 * 3600.0  # assumption: lost tissue regrows over ~3 days of being fed
+OLD_R_CAP = 21600.0           # the old single "reserve" (6 h), for migrating saved bodies into fat
 SLEEP_METABOLISM = 0.3  # B/s while asleep
 # Awake: a fixed cost of being awake at all, plus a share that follows its
 # tempo (a fast gaze is expensive, a slow one cheap). The floor sits above
@@ -76,8 +94,16 @@ TEMPO_SHARE = 0.4
 # multiplier, 0.1 = ectotherm .. 1 = endotherm):
 MIN_METABOLISM = 0.1   # an ectotherm rests at ~1/10 of an endotherm's rate (Bennett & Ruben 1979: 5-10x; the upper end)
 AEROBIC_SCOPE = 10.0   # sustained activity up to ~10x resting (vertebrate factorial aerobic scope)
-BURST_S = 120.0        # anaerobic capacity: at twice its ceiling, exhausted in ~2 min (lizards, Bennett 1978; assumption)
-DEBT_TAU_S = 7200.0    # the debt fades over hours (crocodiles recover from a struggle in hours; assumption: 2 h)
+# The three energy systems for activity above the aerobic ceiling: the
+# phosphagen first (seconds), then glycolysis (minutes, running a debt).
+PHOSPHAGEN_S = 10.0    # ~10 s of maximal effort (twice the ceiling) from the phosphagen (PCr; insects: arginine phosphate)
+PHOSPHAGEN_HALF_S = 30.0  # it refills with a ~30 s half-time (Harris et al. 1976), paid aerobically
+BURST_S = 120.0        # glycolytic capacity: exhausted in ~2 min (Gastin 2001: crossover ~75 s; lizards, Bennett 1978)
+DEBT_TAU_S = 7200.0    # the debt and its lactate clear over hours (crocodiles recover from a struggle in hours; assumption: 2 h)
+ANAEROBIC_FUEL_RATIO = 16.0  # glycolysis yields 2 of glucose's ~32 ATP: a burst draws 16x the fuel...
+LACTATE_RETURN = 0.93  # ...but the lactate keeps the rest, returned as the debt clears: in recovery ~half burned directly
+                       # (~all its energy kept) and ~half rebuilt to glucose via the Cori cycle (6 of ~32 ATP spent, ~87% kept)
+                       # (Brooks' lactate shuttle: ~50% oxidized at rest, 75-80% in exercise). Net: a burst costs ~2x aerobic fuel.
 SDA_FRACTION = 0.2     # share of each meal spent digesting it (specific dynamic action, in Secor's range; assumption)
 # Its sense of day and night: the whole field's light, averaged over about a
 # minute and about 20 minutes; their difference says dawn (rising) or dusk.
@@ -98,7 +124,7 @@ SLEEP_SETTLE_S = 10.0   # falling asleep: no clearing yet
 SLEEP_INERTIA_S = 7.0   # waking up: groggy, can't eat yet
 COLLAPSE_S = 0.95       # sleep pressure that forces sleep...
 COLLAPSE_RELEASE_S = 0.8  # ...and holds it until pressure is back below this
-HUNGER_WAKE_R = 0.05    # a reserve below this counts as empty (with blood sugar under EMPTY_G: degraded)
+HUNGER_WAKE_R = 0.05    # of the old 6 h reserve: fat below this (~18 min) counts as empty (with blood sugar under EMPTY_G and no glycogen: degraded)
 # What wakes it from sleep: a big change in the field, at these levels x its
 # inherited vigilance's inverse (genome.vigilance: 1 = today's thresholds).
 WAKE_LOOM, WAKE_MOTION = 0.18, 0.6
@@ -121,7 +147,12 @@ def _clamp(v: float, low: float = 0.0, high: float = 1.0) -> float:
 class MosquitoState:
     energy: float = 1.0        # blood sugar [0, 1] (was: the single energy store)
     gut: float = 0.0           # undigested food [0, 1]
-    reserve: float = 0.5       # slow reserve [0, 1]
+    reserve: float = 0.04      # fat [0, 1] of FAT_CAP (triglycerides: dense, slow, aerobic only)
+    glycogen: float = 0.0      # glycogen [0, 1] of GLYCOGEN_CAP (fast in, fast out)
+    phosphagen: float = 1.0    # the phosphagen store [0, 1] (seconds of burst)
+    lactate: float = 0.0       # B-s of lactate from bursts, returned as the debt clears
+    ketone: float = 0.0        # ketosis [0, 1]: how much of the brain's need fat can cover (x KETONE_MAX_SHARE)
+    wasting: float = 0.0       # tissue broken down for a brain with no sugar [0, 1]
     sleep_pressure: float = 0.0
     asleep: float = 0.0        # 1.0 while asleep
     sleep_clock: float = 0.0   # seconds since falling asleep / waking (settle, inertia)
@@ -144,20 +175,28 @@ class MosquitoState:
         """Muscle fatigue plus anaerobic debt, as it feels them."""
         return _clamp(self.fatigue + self.debt)
 
+    @property
+    def stores(self) -> float:
+        """Glycogen and fat together, on the old reserve's 6 h scale (so the
+        drive and the brain's "reserve" sense keep their meaning)."""
+        return _clamp((self.glycogen * GLYCOGEN_CAP + self.reserve * FAT_CAP) / OLD_R_CAP)
+
     def drive(self) -> float:
         """Distance from a viable state. Hunger counts the gut (a full
         stomach cuts hunger before absorption, like ghrelin) and a small
-        reserve term, so building reserves shows up within a window."""
+        stores term, so building stores shows up within a window; wasting
+        (tissue burned for a brain with no sugar) is felt like fatigue."""
         fed = min(1.0, self.energy + 0.5 * self.gut)
-        return ((1.0 - fed) ** 2 + 0.3 * (1.0 - self.reserve) ** 2
-                + self.threat ** 2 + self.tiredness ** 2 + 0.3 * self.sleep_pressure ** 2)
+        return ((1.0 - fed) ** 2 + 0.3 * (1.0 - self.stores) ** 2
+                + self.threat ** 2 + self.tiredness ** 2 + 0.3 * self.sleep_pressure ** 2 + self.wasting ** 2)
 
     @property
     def degraded(self) -> bool:
-        # Truly empty: blood sugar AND reserve. A hungry body with food in
-        # reserve forages at full strength (degrading it made hunger a trap:
+        # Truly empty: blood sugar, glycogen AND fat. A hungry body with food
+        # in store forages at full strength (degrading it made hunger a trap:
         # a narrow, slow eye catches less).
-        return self.energy < EMPTY_G and self.reserve < HUNGER_WAKE_R
+        return (self.energy < EMPTY_G and self.glycogen < 0.01
+                and self.reserve * FAT_CAP < HUNGER_WAKE_R * OLD_R_CAP)
 
     @property
     def light_trend(self) -> float:
@@ -241,49 +280,100 @@ class MosquitoState:
         k = 0.5 ** (seconds / ACCLIMATIZE_HALF_LIFE_S)
         self.metabolic_rate = k * self.metabolic_rate + (1.0 - k) * (1.0 / max(1, pace))
 
-        # --- spending (B-seconds) ---
+        # --- spending (B-seconds): the three energy systems -------------------
         # Resting and sleeping burn follow its metabolic strategy; activity
-        # (tempo, muscle) costs the same per unit for all (equal cost of
-        # moving, assumption) -- what differs is how much it can SUSTAIN:
-        # above AEROBIC_SCOPE x its resting rate the excess is an anaerobic
-        # burst that runs up a debt, felt as fatigue and repaid over hours.
-        # Sensing and thinking (aperture_cost) are priced as before.
+        # (tempo, muscle) costs the same per unit for all (assumption: equal
+        # cost of moving) -- what differs is how much it can SUSTAIN. Up to
+        # AEROBIC_SCOPE x its resting rate it is aerobic; beyond that the
+        # phosphagen pays first (seconds), then glycolysis: 16x the fuel,
+        # most of it parked as lactate and returned as the debt clears, and
+        # a debt felt as fatigue. Sensing and thinking (aperture_cost) are
+        # the brain's: sugar or, after glycogen runs out, ketones -- never fat.
         m = min(1.0, max(MIN_METABOLISM, self.metabolism))
+        ceiling = AEROBIC_SCOPE * WAKE_FLOOR * m  # B/s it can sustain aerobically
         muscle = EFFORT_COST * motor_effort * LEGACY_UNIT  # B-seconds this gaze
-        self.debt *= math.exp(-seconds / DEBT_TAU_S)
+        fade = 1.0 - math.exp(-seconds / DEBT_TAU_S)
+        self.debt *= 1.0 - fade
+        back = self.lactate * fade
+        self.lactate -= back
         if asleep:
-            burn = SLEEP_METABOLISM * m * seconds + muscle
+            rest, activity = SLEEP_METABOLISM * m * seconds, muscle
         else:
+            rest = WAKE_FLOOR * m * seconds
             activity = TEMPO_SHARE * (1.0 + self.arousal) * self.metabolic_rate * seconds + muscle
-            ceiling = AEROBIC_SCOPE * WAKE_FLOOR * m  # B/s it can sustain aerobically
-            excess = max(0.0, activity - ceiling * seconds)
-            self.debt = _clamp(self.debt + excess / (ceiling * BURST_S))
-            burn = WAKE_FLOOR * m * seconds + activity
-        burn += aperture_cost * LEGACY_UNIT
+        aerobic_act = min(activity, ceiling * seconds)
+        excess = activity - aerobic_act
+        phos_cap = PHOSPHAGEN_S * ceiling
+        phos = self.phosphagen * phos_cap
+        from_phos = min(excess, phos)
+        phos -= from_phos
+        excess -= from_phos
+        # the phosphagen refills from spare aerobic capacity (~30 s half-time)
+        refill = min((phos_cap - phos) * (1.0 - 0.5 ** (seconds / PHOSPHAGEN_HALF_S)),
+                     max(0.0, ceiling * seconds - aerobic_act))
+        phos += refill
+        glyco_fuel = excess * ANAEROBIC_FUEL_RATIO
+        self.lactate += excess * (ANAEROBIC_FUEL_RATIO - 1.0)
+        self.debt = _clamp(self.debt + excess / (ceiling * BURST_S))
+        aerobic_need = rest + aerobic_act + refill
+        brain = aperture_cost * LEGACY_UNIT
         if self.degraded:  # soft floor: an empty body runs on less
-            burn *= 0.5 + 0.5 * self.energy / EMPTY_G
-        g_bs = self.energy * G_CAP - burn
+            f = 0.5 + 0.5 * self.energy / EMPTY_G
+            aerobic_need, brain, glyco_fuel = aerobic_need * f, brain * f, glyco_fuel * f
 
-        # --- digestion: gut -> blood sugar ---
+        # --- digestion: gut -> blood sugar (costs part of the meal: SDA) ---
         gut_bs = self.gut * GUT_CAP
         moved = gut_bs * (1.0 - math.exp(-seconds / DIGEST_TAU_S))
         gut_bs -= moved
-        g_bs += moved * (1.0 - SDA_FRACTION)  # digesting costs part of the meal (specific dynamic action)
+        g_bs = self.energy * G_CAP + moved * (1.0 - SDA_FRACTION) + back * LACTATE_RETURN
+        gly_bs, fat_bs = self.glycogen * GLYCOGEN_CAP, self.reserve * FAT_CAP
 
-        # --- storage and mobilization ---
-        r_bs = self.reserve * R_CAP
+        # --- fasted (glucagon): fat pays aerobic work directly, up to its limit.
+        # At the line counts as fasted: glycogen holds blood sugar there, and
+        # fat must do the work meanwhile (strictly below, fat never burned while
+        # any glycogen was left -- glycogen paid the whole body) ---
+        if g_bs <= MOBILIZE_BELOW * G_CAP + 1e-9:
+            from_fat = min(fat_bs, FAT_MAX_SHARE * ceiling * seconds, aerobic_need)
+            fat_bs -= from_fat
+            aerobic_need -= from_fat
+        # ketones (made from fat once glycogen is gone) cover part of the brain
+        from_ket = min(fat_bs, brain * self.ketone * KETONE_MAX_SHARE)
+        fat_bs -= from_ket
+        brain -= from_ket
+        g_bs -= aerobic_need + brain + glyco_fuel
+        # glucagon / adrenaline: glycogen tops blood sugar back up -- fast
+        # enough for waking at the aerobic ceiling, plus a burst's fuel
+        if g_bs < MOBILIZE_BELOW * G_CAP:
+            release = min(gly_bs, MOBILIZE_BELOW * G_CAP - g_bs, ceiling * seconds + glyco_fuel)
+            gly_bs -= release
+            g_bs += release
+        # what sugar still can't pay is paid by the body's own tissue
+        if g_bs < 0.0:
+            self.wasting = _clamp(self.wasting - g_bs / PROTEIN_CAP)
+            g_bs = 0.0
+        elif g_bs > MOBILIZE_BELOW * G_CAP:
+            self.wasting *= math.exp(-seconds / WASTING_REBUILD_S)  # fed: tissue regrows
+        # --- fed (insulin): glycogen fills as soon as it is fed (above the
+        # fasted line), so a body climbing out of a deficit banks its first
+        # meals there; fat is made from sugar only from a real surplus ---
+        if g_bs > MOBILIZE_BELOW * G_CAP:
+            to_gly = min(g_bs - MOBILIZE_BELOW * G_CAP, GLYCOGEN_CAP / GLYCOGEN_FILL_S * seconds,
+                         (GLYCOGEN_CAP - gly_bs) / GLYCOGEN_EFFICIENCY)
+            g_bs -= to_gly
+            gly_bs += to_gly * GLYCOGEN_EFFICIENCY
         if g_bs > STORE_ABOVE * G_CAP:
-            store = min(g_bs - STORE_ABOVE * G_CAP, STORE_RATE * seconds)
-            g_bs -= store
-            r_bs += STORE_EFFICIENCY * store
-        elif g_bs < MOBILIZE_BELOW * G_CAP:
-            draw = min(MOBILIZE_BELOW * G_CAP - g_bs, MOBILIZE_RATE * seconds, r_bs)
-            r_bs -= draw
-            g_bs += draw
+            to_fat = min(g_bs - STORE_ABOVE * G_CAP, STORE_RATE * seconds)
+            g_bs -= to_fat
+            fat_bs += to_fat * STORE_EFFICIENCY
+        # ketosis ramps while glycogen is empty, fades once it is back
+        target = 1.0 if gly_bs < 0.01 * GLYCOGEN_CAP else 0.0
+        self.ketone += (1.0 - math.exp(-seconds / KETONE_TAU_S)) * (target - self.ketone)
 
         self.energy = _clamp(g_bs / G_CAP)
         self.gut = _clamp(gut_bs / GUT_CAP)
-        self.reserve = _clamp(r_bs / R_CAP)
+        self.glycogen = _clamp(gly_bs / GLYCOGEN_CAP)
+        self.reserve = _clamp(fat_bs / FAT_CAP)
+        self.phosphagen = _clamp(phos / phos_cap) if phos_cap > 0 else 1.0
 
         # --- sleep pressure (Process S) ---
         if asleep:
@@ -336,11 +426,17 @@ class MosquitoState:
 
     # ---- persistence --------------------------------------------------
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
-              "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt")
+              "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt",
+              "glycogen", "phosphagen", "lactate", "ketone", "wasting")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
-        return cls(**{k: float(data[k]) for k in cls.FIELDS if k in data})
+        s = cls(**{k: float(data[k]) for k in cls.FIELDS if k in data})
+        if "glycogen" not in data and "reserve" in data:
+            # A body saved before the fuel stores (2026-09-28): its single 6 h
+            # "reserve" becomes fat, keeping its energy; glycogen starts empty.
+            s.reserve = _clamp(float(data["reserve"]) * OLD_R_CAP / FAT_CAP)
+        return s
 
     def to_dict(self) -> dict[str, float]:
-        return {k: round(float(getattr(self, k)), 4) for k in self.FIELDS}
+        return {k: round(float(getattr(self, k)), 6) for k in self.FIELDS}

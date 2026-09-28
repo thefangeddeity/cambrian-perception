@@ -61,15 +61,19 @@ class MushroomBody:
         self.weights = resize(weights, self.n_kc)
         self.k = max(1, int(round(KC_ACTIVE * self.n_kc))) if self.n_kc else 0
 
-    def active(self, look: np.ndarray, n: int) -> np.ndarray:
-        """Indices of the Kenyon cells firing for this look (an n x n grid, flat)."""
-        if not self.n_kc:
+    def active(self, look: np.ndarray, n: int, live: int | None = None) -> np.ndarray:
+        """Indices of the Kenyon cells firing for this look (an n x n grid,
+        flat). live: how many cells are still alive (a wasting body loses the
+        newest first -- fishbowl/organism.py); None = all."""
+        n_live = self.n_kc if live is None else max(0, min(self.n_kc, int(live)))
+        if not n_live:
             return np.zeros(0, dtype=int)
+        k = max(1, int(round(KC_ACTIVE * n_live)))
         grid = look.reshape(n, n)
         grid = grid - grid.mean()
-        idx = np.clip(np.floor((self.pos + 0.5) * n).astype(int), 0, n - 1)
+        idx = np.clip(np.floor((self.pos[:n_live] + 0.5) * n).astype(int), 0, n - 1)
         drive = grid[idx[..., 1], idx[..., 0]].sum(axis=1)
-        return np.argpartition(-drive, self.k - 1)[:self.k]
+        return np.argpartition(-drive, k - 1)[:k]
 
     def value(self, active: np.ndarray) -> float:
         return float(self.weights[active].mean()) if len(active) else 0.0

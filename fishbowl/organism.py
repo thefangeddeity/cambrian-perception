@@ -313,6 +313,7 @@ class Organism:
         self.drive_start = self.body.drive()
         self.brain = g.brain
         self.brain.reset_hidden()
+        self.brain.live_units = None  # all alive until wasting says otherwise (set every look)
         # What the gaze has seen per world location, and how much each spot
         # usually varies -- carried across generations (a fresh memory every
         # window meant a fan was only "boring" for ~40 s).
@@ -363,6 +364,9 @@ class Organism:
         self.replays = {"awake": 0, "nrem": 0, "rem": 0}
         self.intruder = 0.0
         self.last_alarm = 0.0
+        # Tissue still alive (a wasting body loses its costliest structure:
+        # Kenyon cells, hidden units, receptors -- in proportion; see _gaze).
+        self.live_kc, self.live_n = self.mb.n_kc, self.state.n
         self.stab_dx = self.stab_dy = 0.0  # how far the stabilizer moved the gaze since the last gaze
         self.prev_v = np.zeros(self.n_cells)
         # Response tree's motor-efference input: the brain's real applied movement.
@@ -421,7 +425,15 @@ class Organism:
         # big enough change can wake it.
         was_asleep = body.asleep >= 0.5
         n = state.n
-        v = np.zeros(self.n_cells) if was_asleep else fovea.extract(frame, state)
+        # Wasting (tissue burned for a brain with no sugar, state.py) takes the
+        # costly structure with it, in proportion: Kenyon cells (the newest
+        # first), hidden units (silenced), and the eye's outer rings (blind).
+        # What is lost stops costing too (_close).
+        w = body.wasting
+        self.live_kc = int(self.mb.n_kc * (1.0 - w)) if w > 0.0 else self.mb.n_kc
+        brain.live_units = max(1, int(round(brain.n_hidden * (1.0 - w)))) if w > 0.0 else None
+        self.live_n = max(2, 2 * int(n * (1.0 - w) / 2)) if w > 0.0 else n
+        v = np.zeros(self.n_cells) if was_asleep else self._blind(fovea.extract(frame, state), n)
         if rec is not None:
             rec["positions"].append((state.cx, state.cy))
             rec["fracs"].append(state.extent)
@@ -433,6 +445,7 @@ class Organism:
         # as stillness.
         h1 = (fovea.extract(self.prev_frame, fovea.FoveaState(cx=state.cx - self.stab_dx, cy=state.cy - self.stab_dy, n=n, mag=state.mag))
               if self.prev_frame is not None and not was_asleep else v)
+        h1 = self._blind(h1, n)
         hist = np.array([h1, v])
         lum = float(v.mean())
         # Only real history counts: on the first frame there's no older sample.
@@ -452,7 +465,7 @@ class Organism:
         field_light = float(sig["field_light"])
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
-        kc_active = self.mb.active(v, n) if not was_asleep else np.zeros(0, dtype=int)
+        kc_active = self.mb.active(v, n, self.live_kc) if not was_asleep else np.zeros(0, dtype=int)
         self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
         cell = self._cell(state.cx, state.cy)
         place_dx, place_dy, place_value = self._place_sense(state.cx, state.cy)
@@ -547,6 +560,15 @@ class Organism:
                         "field_light": field_light, "prey_now": prey_now, "snack": snack}
         self.prev_frame = frame
 
+    def _blind(self, look: np.ndarray, n: int) -> np.ndarray:
+        """A wasting eye's outer rings, lost: they read black."""
+        if self.live_n >= n:
+            return look
+        m = (n - self.live_n) // 2
+        grid = look.reshape(n, n).copy()
+        grid[:m, :] = grid[-m:, :] = grid[:, :m] = grid[:, -m:] = 0.0
+        return grid.reshape(-1)
+
     def _cell(self, x: float, y: float):
         """The whole field's grid cell (row, col) at a point of the frame."""
         if self.place is None:
@@ -607,7 +629,7 @@ class Organism:
                 if cell is not None:
                     self.place[cell] += self.learning_rate * (reward - self.place[cell])
                 self.replays["nrem" if asleep_settled else "awake"] += 1
-        return count * kc_macs(self.mb.n_kc)
+        return count * kc_macs(self.live_kc)
 
     def _substep(self, shift: tuple, in_world: bool) -> None:
         """The eye moves one frame on (muscle energy = force squared, per frame pushed)."""
@@ -633,12 +655,12 @@ class Organism:
             rec["movement_costs"].append(math.hypot(*p["force"]))
             rec["periph_active"].append(p["periph_motion"])
         asleep = p["asleep"]
-        gaze_cost = 0.0 if asleep else _receptor_cost(self.state.n, self.quota_pct)
+        gaze_cost = 0.0 if asleep else _receptor_cost(self.live_n, self.quota_pct)  # only living receptors cost
         body.update(p["periph_motion"], p["loom"], p["effort"],
                     gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"]
                                  + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
-                                 + (THINK_COST * kc_macs(self.mb.n_kc) / REFERENCE_MACS if p["kc_on"] else 0.0)
+                                 + (THINK_COST * kc_macs(self.live_kc) / REFERENCE_MACS if p["kc_on"] else 0.0)
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT,))
                                  + THINK_COST * p["replay_macs"] / REFERENCE_MACS) * self.scarcity,

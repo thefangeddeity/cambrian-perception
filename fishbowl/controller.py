@@ -137,6 +137,8 @@ class MosquitoBrain:
         self.layers = [{"W": np.array(l["W"], dtype=float), "U": np.array(l["U"], dtype=float),
                         "b": np.array(l["b"], dtype=float), "gate": np.array(l["gate"], dtype=float).reshape(1)}
                        for l in (layers or [])]
+        # Hidden units still alive in a wasting body (fishbowl/organism.py); None = all.
+        self.live_units: int | None = None
         self.reset_hidden()
 
     @classmethod
@@ -201,7 +203,7 @@ class MosquitoBrain:
             periph_dx, periph_dy,
             eye_vx * 2.5, eye_vy * 2.5,  # terminal eye speed 0.4 -> ~1
             state.hunger, state.curiosity, tree_out,
-            state.gut, state.reserve, state.sleep_pressure, state.asleep,
+            state.gut, state.stores, state.sleep_pressure, state.asleep,  # "reserve": glycogen + fat, on the old 6 h scale
             field_light, state.light_trend,
             prey_scent, prey_dx, prey_dy,
             food_value,  # its mushroom body's learned value of what it sees (fishbowl/mushroom.py)
@@ -215,11 +217,16 @@ class MosquitoBrain:
         x = np.concatenate([base, self.loop_in]) if self.channels else base
         # Recurrent hidden update h = tanh(W_ih x + W_hh h_prev + b_h); motor readout o = tanh(W_ho h + b_o).
         self.hidden = np.tanh(self.bias_h + self.weights_ih @ x + self.weights_hh @ self.hidden)
+        live = self.live_units
+        if live is not None and live < self.n_hidden:  # units lost to wasting are silent
+            self.hidden[live:] = 0.0
         top = self.hidden
         for k, layer in enumerate(self.layers):
             g = float(layer["gate"][0])
             if g != 0.0:  # a silent layer is not computed (and costs nothing)
                 self.layer_hidden[k] = np.tanh(layer["b"] + layer["W"] @ top + layer["U"] @ self.layer_hidden[k])
+                if live is not None and live < self.n_hidden:
+                    self.layer_hidden[k][live:] = 0.0
                 top = top + g * self.layer_hidden[k]
         outputs = np.tanh(self.bias_o + self.weights_ho @ top)
         for k, ch in enumerate(self.channels):
@@ -233,8 +240,9 @@ class MosquitoBrain:
     # ---- what it costs to think -------------------------------------------------
     def think_factor(self) -> float:
         """This brain's arithmetic per step relative to the original 16-unit
-        brain (a stacked layer counts only while its gate is open)."""
-        h = self.n_hidden
+        brain (a stacked layer counts only while its gate is open; units lost
+        to wasting cost nothing)."""
+        h = self.n_hidden if self.live_units is None else max(0, min(self.n_hidden, self.live_units))
         stacked = sum(2 * h * h + h for l in self.layers if float(l["gate"][0]) != 0.0)
         return (_macs(h, self.weights_ih.shape[1], self.weights_ho.shape[0]) + stacked) / REFERENCE_MACS
 

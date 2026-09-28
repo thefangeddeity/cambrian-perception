@@ -54,14 +54,20 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| `G_CAP`, `GUT_CAP`, `R_CAP` | 10 min, 20 min, 6 h of burn | P | the body's stores |
+| `G_CAP`, `GUT_CAP` | 10 min, 20 min of burn | P | blood sugar and gut. `R_CAP` (6 h) retired 2026-09-28: the old reserve became fat (docs/physiology.md) |
+| `GLYCOGEN_CAP`, `GLYCOGEN_FILL_S`, `GLYCOGEN_EFFICIENCY` | 6 h, 4 h, 0.97 | S | human liver glycogen ~1/4 of a day's basal; refills within hours (Jentjens & Jeukendrup 2003); synthesis ~1 of ~32 ATP |
+| `FAT_CAP`, `FAT_MAX_SHARE` | 72 h, 0.5 of the aerobic ceiling | S (range) | mouse: 1/3 of its fat in a 14 h fast; Aedes aegypti on water: median 3-4 days (Briegel); Fatmax (Achten & Jeukendrup 2003) |
+| `KETONE_TAU_S`, `KETONE_MAX_SHARE` | 12 h, 2/3 | S | mice reach ketosis in 12-24 h; ketones cover ~2/3 of a fasting brain (Owen et al. 1967) |
+| `PROTEIN_CAP`, `WASTING_REBUILD_S` | 24 h, 72 h | **G** | how much tissue is there to burn, and how fast it regrows: assumptions |
+| `PHOSPHAGEN_S`, `PHOSPHAGEN_HALF_S` | 10 s, 30 s | S | phosphocreatine: ~10 s of maximal effort; resynthesis half-time ~30 s (Harris et al. 1976) |
+| `ANAEROBIC_FUEL_RATIO`, `LACTATE_RETURN` | 16, 0.93 | S | 2 vs ~32 ATP per glucose; lactate ~half oxidized, ~half rebuilt (Cori, ~87% kept) in recovery (Brooks): net ~2x aerobic |
 | `DIGEST_TAU_S` | 240 s | P | |
-| `STORE_ABOVE`, `STORE_RATE`, `MOBILIZE_BELOW`, `MOBILIZE_RATE` | 0.8, 1.0, 0.5, 0.5 | P | chosen so the reserve can carry sleep but not waking |
-| `STORE_EFFICIENCY` | 0.75 | P | order of real fat-storage efficiency |
+| `STORE_ABOVE`, `STORE_RATE`, `MOBILIZE_BELOW` | 0.8, 1.0, 0.5 | P | the hormonal switches: fed (insulin) above 0.5 fills glycogen, above 0.8 makes fat; fasted (glucagon) below 0.5 releases glycogen and burns fat. `MOBILIZE_RATE` (fat -> sugar) retired: fat can't become glucose |
+| `STORE_EFFICIENCY` | 0.75 | S | making fat from sugar (de novo lipogenesis ~75-80%) |
 | `SLEEP_METABOLISM`, `WAKE_FLOOR`, `TEMPO_SHARE` | 0.3, 0.6, 0.4 B/s | P | the endotherm end; resting and sleeping burn scale with the inherited metabolic strategy (2026-09-27) |
 | `MIN_METABOLISM` | 0.1 | S | an ectotherm rests at ~1/10 of an endotherm (Bennett & Ruben 1979: 5-10x, the upper end) |
 | `AEROBIC_SCOPE` | 10 x resting | S | vertebrate factorial aerobic scope (Bennett & Ruben); insects' is far higher -- not modelled |
-| `BURST_S`, `DEBT_TAU_S` | 120 s, 2 h | **G** | anaerobic capacity (lizards exhaust within minutes, Bennett 1978) and recovery (crocodiles take hours): orders of magnitude |
+| `BURST_S`, `DEBT_TAU_S` | 120 s, 2 h | S / **G** | glycolytic capacity (Gastin 2001: crossover ~75 s; lizards exhaust within minutes, Bennett 1978); recovery over hours (crocodiles) -- 2 h assumed |
 | `SDA_FRACTION` | 0.2 | S / **G** | digestion's cost (specific dynamic action; within Secor's range for ectotherms, the exact value chosen) |
 | activity's per-unit cost | same for every strategy | **G** | assumption: equal cost of moving; only what is sustainable differs |
 | `LIGHT_FAST_S`, `LIGHT_SLOW_S` | 60 s, 1200 s | P | its day/night sense |

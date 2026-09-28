@@ -908,7 +908,11 @@ PAGE = r"""<!doctype html>
       `<div class="cap" style="margin:0 0 4px">${(b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b> -- eyes shut, not eating, sampling the field slowly' : '<b style="color:var(--green)">awake</b>'}</div>` +
       gauge('blood sugar', b.energy, '#4fa', 'pays for everything; ~10 min of waking burn') +
       gauge('gut', b.gut, '#e8c170', 'what it ate, digesting into blood sugar over minutes; full = cannot eat more') +
-      gauge('reserve', b.reserve, '#2c9', '~6 h; surplus is stored, and it can refill blood sugar only fast enough for sleep') +
+      gauge('glycogen', b.glycogen, '#6d9', '~6 h; fills first when fed, released fast for waking and bursts') +
+      gauge('fat', b.reserve, '#2c9', '~3 days; made from a real surplus, burned slowly and only aerobically -- never for a burst or the brain') +
+      gauge('phosphagen', b.phosphagen, '#fd6', 'the first ~10 s of a burst; refills in ~30 s') +
+      gauge('ketosis', b.ketone, '#c9f', 'once glycogen is gone, fat feeds up to 2/3 of the brain as ketones') +
+      gauge('wasting', b.wasting, '#f55', 'tissue burned for a brain with no sugar: Kenyon cells, hidden units and the outer rings of its eye go with it') +
       gauge('sleep pressure', b.sleep_pressure, '#c8f', 'builds while awake, clears asleep; tiredness costs it half of what it catches at full pressure') +
       gauge('hunger', b.hunger, '#f6a', 'blood sugar and gut together') +
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
