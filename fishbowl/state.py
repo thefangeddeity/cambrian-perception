@@ -116,6 +116,13 @@ ACCLIMATIZE_HALF_LIFE_S = 80.0  # metabolic rate follows tempo over ~2 min
 EFFORT_COST = 1e-4               # legacy units per push, x force^2
 FOOD_PER_LOOK = 2e-4             # SNACK (legacy units) x surprise (0..1)
 PREY_FOOD_PER_LOOK = 1.2e-3      # MEAL (legacy units) x prey under the gaze centre, its mouth (0..1: the catch's confidence)
+# Feeding is a flow, not a per-look event (Holling's handling time; a
+# 2026-09-28 panel): while a host is under its mouth, blood flows into the
+# gut at its pump's rate (genome.pump, inherited) x the catch's confidence,
+# until the gut is full -- so gazing faster doesn't eat faster, and staying
+# on a host pays. A faster pump is more muscle to keep (Sterling & Laughlin):
+PUMP_REF = PREY_FOOD_PER_LOOK * LEGACY_UNIT * 15.0  # B/s: the old per-look meal at a look every frame (15/s) -- a newborn's
+PUMP_UPKEEP_SHARE = 0.05  # assumption: a pump at PUMP_REF costs 5% of the resting burn (the brain's measured share, Mink 1981)
 # Sleep pressure (Process S): the two-process model's fitted time constants
 # (Daan, Beersma & Borbely 1984) -- rising with time awake, x brain load here.
 S_RISE_S = 18.2 * 3600.0
@@ -168,6 +175,7 @@ class MosquitoState:
     cleared: float = 0.0       # sleep pressure cleared since last asked (for memory consolidation)
     debt: float = 0.0          # anaerobic debt (0..1 = exhausted), felt as fatigue, repaid over hours
     metabolism: float = 1.0    # its inherited metabolic strategy (genome.metabolism; set by the organism, not saved)
+    pump: float = PUMP_REF     # its feeding pump's rate, B/s (genome.pump; set by the organism, not saved)
 
     # ---- what the organism "feels" ------------------------------------
     @property
@@ -315,7 +323,8 @@ class MosquitoState:
         glyco_fuel = excess * ANAEROBIC_FUEL_RATIO
         self.lactate += excess * (ANAEROBIC_FUEL_RATIO - 1.0)
         self.debt = _clamp(self.debt + excess / (ceiling * BURST_S))
-        aerobic_need = rest + aerobic_act + refill
+        # its feeding pump's upkeep (muscle: scales with its metabolic strategy)
+        aerobic_need = rest + aerobic_act + refill + PUMP_UPKEEP_SHARE * WAKE_FLOOR * m * (self.pump / PUMP_REF) * seconds
         brain = aperture_cost * LEGACY_UNIT
         if self.degraded:  # soft floor: an empty body runs on less
             f = 0.5 + 0.5 * self.energy / EMPTY_G
@@ -402,6 +411,12 @@ class MosquitoState:
             self._swallow(FOOD_PER_LOOK * _clamp(tracking_quality) * self.efficiency)
         # Curiosity rises with real time, falls with what it took in.
         self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.25 * _clamp(tracking_quality))
+
+    def feed_host(self, confidence: float, seconds: float) -> None:
+        """A bite as a flow: a host under its mouth for `seconds`, blood at
+        its pump's rate x the catch's confidence (awake, past grogginess)."""
+        if self.can_eat:
+            self._swallow(self.pump * _clamp(confidence) * max(0.0, seconds) * self.efficiency / LEGACY_UNIT)
 
     def feed_prey(self, amount: float) -> None:
         """A real meal: prey (a person or animal, per YOLO) held in the

@@ -1457,6 +1457,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "host_pref": {prey_lib.PREY_CLASSES[c]: round(w, 2) for c, w in genome.host_pref.items()},
             "replay_traits": {"awake": genome.awake_replay, "sleep": genome.sleep_replay, "rem_share": round(genome.rem_share, 2)},
             "vigilance": genome.vigilance,
+            "pump": genome.pump,
             "prey_sense": genome.prey_sense,
             # Its lasting body right now (persists across generations and
             # restarts), vs "body" = the candidate's at the end of its window.

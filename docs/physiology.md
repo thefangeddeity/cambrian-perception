@@ -32,6 +32,15 @@ backup fuel.
   whatever the eye's size or the host's distance (Land & Nilsson; Holling
   1959; gape limitation). One bite = one blood meal's worth, times the chance
   the catch is real (the detector's confidence).
+- **A bite is a flow, not a gulp** (handling time; Holling 1959). While a host
+  is under its mouth, blood flows into the gut at its **pump rate** times the
+  detector's confidence, until the gut is full. Looking faster doesn't eat
+  faster; staying on the host does. The pump rate is inherited and evolves.
+  Each lineage is born at what the old per-look meal fed it at its own resting
+  pace (a newborn: 21.6 s of waking life per second on a host). A bigger pump
+  is more muscle to keep. At the reference rate its upkeep is 5% of the resting
+  burn, scaled with pump size and metabolic strategy. **This 5% is a guess**,
+  borrowed from the brain's measured share (Mink 1981); see the audit.
 - **Snacks are nectar.** Surprise in the gaze pays a little. That keeps it
   going but can't sustain it.
 - **Digestion costs a fifth of every meal** (specific dynamic action, Secor).

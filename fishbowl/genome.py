@@ -28,7 +28,7 @@ from . import blocks, fovea
 from .controller import MosquitoBrain
 from .mushroom import MAX_KC
 from .prey import PREY_CLASSES
-from .state import MIN_METABOLISM
+from .state import MIN_METABOLISM, PUMP_REF
 
 # mutate_fovea grows or shrinks its eye by one ring of receptors
 # (genome.receptors, fovea.py) instead of touching a tree -- same fitness
@@ -55,7 +55,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
-            "mutate_replay", "mutate_vigilance")
+            "mutate_replay", "mutate_vigilance", "mutate_pump")
 STABILIZER_SIGMA = 0.1
 ZOOM_SIGMA = STABILIZER_SIGMA  # a reflex gain, 0..1, mutates as the stabilizer's does
 # The traits from the 2026-09-27 panels mutate at the same scale (assumption):
@@ -189,6 +189,7 @@ class Genome:
         sleep_replay: int = 0,
         rem_share: float = 0.0,
         vigilance: float = 1.0,
+        pump: float | None = None,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -221,6 +222,11 @@ class Genome:
         self.rem_share = float(np.clip(rem_share, 0.0, 1.0))
         # Vigilance: how easily a change in the field wakes it (state.big_change).
         self.vigilance = float(np.clip(vigilance, MIN_VIGILANCE, MAX_VIGILANCE))
+        # Its feeding pump (state.py): how fast blood flows in while a host is
+        # at its mouth. Born where the old per-look meal fed it at its own
+        # resting tempo, so no lineage jumps.
+        self.pump = float(np.clip(pump if pump is not None else PUMP_REF / max(1, int(pace)),
+                                  0.1 * PUMP_REF, 10.0 * PUMP_REF))
         self.prey_sense = int(np.clip(prey_sense, 0, MAX_PREY_SENSE))
         # Per-operator EMA of how often ITS attempts get accepted --
         # the real evidence update_mutation_weights() nudges
@@ -262,6 +268,7 @@ class Genome:
             self.sleep_replay,
             self.rem_share,
             self.vigilance,
+            self.pump,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -472,6 +479,10 @@ class Genome:
                 self.rem_share = float(np.clip(self.rem_share + rng.gauss(0.0, TRAIT_SIGMA), 0.0, 1.0))
             new = (self.awake_replay, self.sleep_replay, self.rem_share)
             return "replay", (choice if new != old else "noop_inapplicable")
+        if choice == "mutate_pump":
+            old = self.pump
+            self.pump = float(np.clip(old * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), 0.1 * PUMP_REF, 10.0 * PUMP_REF))
+            return "pump", (choice if self.pump != old else "noop_inapplicable")
         if choice == "mutate_vigilance":
             old = self.vigilance
             self.vigilance = float(np.clip(old * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), MIN_VIGILANCE, MAX_VIGILANCE))
@@ -601,6 +612,7 @@ class Genome:
             "sleep_replay": self.sleep_replay,
             "rem_share": self.rem_share,
             "vigilance": self.vigilance,
+            "pump": self.pump,
         }
 
     @staticmethod
@@ -659,6 +671,7 @@ class Genome:
             sleep_replay=int(data.get("sleep_replay", 0)),
             rem_share=float(data.get("rem_share", 0.0)),
             vigilance=float(data.get("vigilance", 1.0)),
+            pump=data.get("pump"),
         )
 
 

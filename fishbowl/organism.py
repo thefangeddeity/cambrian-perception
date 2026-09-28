@@ -355,6 +355,7 @@ class Organism:
         self.sleep_replay = int(getattr(g, "sleep_replay", 0))
         self.rem_share = float(getattr(g, "rem_share", 0.0))
         self.vigilance = float(getattr(g, "vigilance", 1.0))
+        self.body.pump = float(getattr(g, "pump", self.body.pump))
         # Place map and the people-expectation maps (day, night): memory,
         # carried like the rest (items 4-6 of memory); sized on the first frame.
         extra = list(memory[3:6]) if memory is not None and len(memory) > 5 else [None, None, None]
@@ -673,7 +674,7 @@ class Organism:
             if self.place is not None:  # NREM: the place map scaled back down (synaptic homeostasis)
                 self.place *= math.exp(-CONSOLIDATE_RATE * cleared)
         body.feed_visual_sustenance(p["snack"])
-        body.feed_prey(p["prey_now"])
+        body.feed_host(p["prey_now"], p["interval"] / max(1.0, self.fps))  # a flow over the look's interval
         if rec is not None:
             rec["prey_eaten"].append(p["prey_now"])
             rec["foods"].append(p["snack"])
