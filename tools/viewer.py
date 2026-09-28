@@ -350,6 +350,15 @@ LOCK_HUD_JS = r"""
     });
     return { mode: fs.eat > 0.01 ? 'LOCK' : inGaze ? 'TRACK' : 'SCAN', id };
   }
+  // The readout in Arabic (the HUD's right side): its words, and Arabic-Indic digits.
+  const AR_WORDS = [['catching up:', 'يلحق:'], ['its latest run, looped', 'آخر تشغيل، مكرر'], ['delayed', 'متأخر'],
+    ['own guess', 'تخمينه'], ['teacher', 'المعلم'], ['calibrating', 'معايرة'], ['snacks', 'وجبات خفيفة'], ['meals', 'وجبات'],
+    ['SCAN', 'مسح'], ['TRACK', 'تتبع'], ['LOCK', 'قفل'], ['SLEEP', 'نوم'], ['TARGET', 'هدف'], ['WARN', 'تحذير']];
+  function toArabic(text) {
+    let t = String(text);
+    AR_WORDS.forEach(([en, ar]) => { t = t.split(en).join(ar); });
+    return t.replace(/(\d)\.(\d)/g, '$1٫$2').replace(/ s(?= |$)/g, ' ث').replace(/%/g, '٪').replace(/\d/g, c => '٠١٢٣٤٥٦٧٨٩'[c]);
+  }
   function lockIdText(id) { return id ? ` TARGET ${(id[1] * 100).toFixed(0)}%` : ''; }  // every host is a target
   // Draws the HUD on a bw x bh box. fs = the replay's current frame
   // (replayAt), d = status, picture = a frame is shown (the reticle is drawn
@@ -435,11 +444,16 @@ LOCK_HUD_JS = r"""
       });
     }
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
-    const tag = (fs.delay != null ? (d.live_actor ? 'LIVE' : 'DELAYED') : 'REPLAY')  // LIVE: the organism acting live (fishbowl/livelife.py) + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
+    // LIVE: the organism acting live (fishbowl/livelife.py)
+    const tag = (fs.delay != null ? (d.live_actor ? 'LIVE' : 'DELAYED') : 'REPLAY') + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
     lockShadow(ctx, true);
-    ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(18, 18, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = '#cfe6f5'; ctx.fillText(tag, 27, 18);
-    // Right-hand readout, top to bottom: mode + ID, delay, (operators only)
+    // The live indicator top centre; the readout top left, left-justified (so
+    // changing numbers move away from the edge), mirrored in Arabic top right,
+    // right-justified as Arabic reads.
+    const tw = ctx.measureText(tag).width, tx = bw / 2 - (tw + 9) / 2;
+    ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(tx + 4, 18, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#cfe6f5'; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
+    // Left-hand readout, top to bottom: mode + ID, delay, (operators only)
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
@@ -455,8 +469,11 @@ LOCK_HUD_JS = r"""
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
     rows.push([`snacks ${boutText('snack', st.snacks)}`, '#d8b4ff', '11px monospace']);
     rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
-    ctx.textAlign = 'right';
-    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, bw - 16, 18 + 16 * k); });
+    ctx.textAlign = 'left';
+    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
+    ctx.save(); ctx.direction = 'rtl'; ctx.textAlign = 'right';
+    rows.forEach(([text, colour, font], k) => { if (!text) return; ctx.font = font; ctx.fillStyle = colour; ctx.fillText(toArabic(text), bw - 16, 18 + 16 * k); });
+    ctx.restore();
     lockShadow(ctx, false);
     ctx.textAlign = 'left';
   }
