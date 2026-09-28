@@ -233,6 +233,7 @@ class LiveLife:
                         else 0.7 * self.field_motion + 0.3 * change
                 swats0 = org.swats
                 out = org.frame(grey, sig, boxes or [], colour, shift)
+                hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 snack = org.pending["snack"] if out["gazed"] and org.pending else 0.0
                 if out["gazed"]:
                     looks += 1
@@ -243,7 +244,6 @@ class LiveLife:
                     if snack > 0:
                         self.acts["snack"].append(index)
                 prev = self.shown[-1] if self.shown else None
-                hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 rec = {"i": index, "cx": round(out["cx"], 4), "cy": round(out["cy"], 4), "f": round(out["extent"], 4),
                        "eat": round(float(out["eating"]), 3),
                        "snack": round(float(snack), 3) if out["gazed"] else (prev["snack"] if prev else 0.0),
