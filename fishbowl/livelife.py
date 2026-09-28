@@ -129,6 +129,7 @@ class LiveLife:
         self.shown = collections.deque(maxlen=KEEP)
         self.acts = {"meal": [], "snack": []}
         self.adoptions = 0
+        self.field_motion = None  # per-cell change its motion sense is fed, smoothed over a few frames (the viewer's heat)
         self._pursuit = None  # (gaze, pursued box, last step) of the host it is following, for the metrics
         self.error = None
         self._stop = False
@@ -196,7 +197,12 @@ class LiveLife:
             missed0 = org.missed
             replays0, seq0, dreams0 = dict(org.replays), org.seq, org.dreams
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
+                prev_v = self.field.last_vector
                 sig, shift = self.field.step(grey)
+                if prev_v is not None and self.field.last_vector is not None and prev_v.shape == self.field.last_vector.shape:
+                    change = np.abs(self.field.last_vector - prev_v)
+                    self.field_motion = change if self.field_motion is None or self.field_motion.shape != change.shape \
+                        else 0.7 * self.field_motion + 0.3 * change
                 swats0 = org.swats
                 out = org.frame(grey, sig, boxes or [], colour, shift)
                 snack = org.pending["snack"] if out["gazed"] and org.pending else 0.0
@@ -285,6 +291,7 @@ class LiveLife:
             pace = self.org.last_interval
             fps = self.org.fps
             circuits = _circuits(self.org)
+            fm = None if self.field_motion is None else np.round(self.field_motion, 4).tolist()
         if not shown:
             return
         first = shown[0]["i"]
@@ -300,6 +307,9 @@ class LiveLife:
             "fovea_cx": shown[-1]["cx"], "fovea_cy": shown[-1]["cy"],
             "pace": pace, "frames_per_second": round(fps, 2), "body_now": body,
             **circuits,
+            # what its wide-field motion sense is fed, per cell (not a picture: it
+            # never senses per-cell brightness, only where and how much things change)
+            "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
         }
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:

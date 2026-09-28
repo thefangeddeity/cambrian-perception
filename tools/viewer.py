@@ -556,7 +556,7 @@ LIVE_PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Live view</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #05080c; color: #cfe6f5; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #05080c; color: #f0d6cf; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
   #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
   #box { position: relative; background: #000; }
   #box img, #box canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
@@ -597,7 +597,7 @@ PAGE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cambrian-perception</title>
 <style>
-  :root { --bg:#0a0e14; --panel:#0d141c; --line:#1c2a36; --text:#cfe3f0; --dim:#6f8798; --cyan:#7fd4ff; --green:#4fa; --orange:#f90; --red:#f44; --yellow:#fd4; --violet:#c8f; --pink:#f6a; --magenta:#f4f; }
+  :root { --bg:#0b0706; --panel:#130b0a; --line:#2b1714; --text:#f0d6cf; --dim:#9a6f67; --cyan:#ffb4a6; --green:#ffe2d6; --orange:#ff7a45; --red:#ff3b28; --yellow:#ffb066; --violet:#e0909c; --pink:#ff6f8a; --magenta:#ff4f6f; }
   * { box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 16px 20px 40px; }
   header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 22px; margin-bottom: 14px; }
@@ -678,9 +678,9 @@ PAGE = r"""<!doctype html>
     <div class="cap" id="layers">Layers:
       <label><input type="checkbox" data-layer="place"> <b style="color:#6f6">food places</b></label>
       <label><input type="checkbox" data-layer="people"> <b style="color:#f7c">people expected</b></label>
-      <label><input type="checkbox" data-layer="familiar"> <b style="color:#7fd4ff">still surprising</b></label>
+      <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
       <label><input type="checkbox" data-layer="dreams"> <b style="color:#b9f">replay</b> &amp; <b style="color:#fd5">dreams</b></label></div>
-    <div class="cap">Its wide-field eyes as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff5fa2">TARGET</b> = a host; red frame = something looming.</div>
+    <div class="cap">What its wide-field eyes sense: movement, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff5fa2">TARGET</b> = a host; red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
   </div>
   <div class="panel" id="brain-panel">
@@ -798,11 +798,11 @@ PAGE = r"""<!doctype html>
     return isMax(panel) ? Math.min(w, Math.floor((window.innerHeight - 140) / aspect)) : w;
   }
 
-  // Inferno (black, purple, red, orange, yellow, white): the visual field as heat.
-  const INFERNO = [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 193, 39], [252, 255, 164]];
-  function inferno(v) {
-    const t = Math.max(0, Math.min(1, v)) * (INFERNO.length - 1), i = Math.min(INFERNO.length - 2, Math.floor(t)), f = t - i;
-    const [a, b] = [INFERNO[i], INFERNO[i + 1]];
+  // Phosphor heat (black, deep red, red, amber, bone): the page's own ramp.
+  const HEAT = [[4, 2, 2], [60, 6, 4], [150, 18, 10], [230, 50, 24], [255, 120, 50], [255, 190, 120], [255, 240, 225]];
+  function heatColour(v) {
+    const t = Math.max(0, Math.min(1, v)) * (HEAT.length - 1), i = Math.min(HEAT.length - 2, Math.floor(t)), f = t - i;
+    const [a, b] = [HEAT[i], HEAT[i + 1]];
     return `rgb(${Math.round(a[0] + f * (b[0] - a[0]))},${Math.round(a[1] + f * (b[1] - a[1]))},${Math.round(a[2] + f * (b[2] - a[2]))})`;
   }
   function drawGrid(ctx, values, shape, x, y, w, h, heat) {
@@ -812,7 +812,7 @@ PAGE = r"""<!doctype html>
       for (let j = 0; j < cols; j++) {
         const x0 = Math.round(x + j * w / cols), x1 = Math.round(x + (j + 1) * w / cols);
         const v = Math.max(0, Math.min(1, values[i * cols + j])), g = Math.round(v * 255);
-        ctx.fillStyle = heat ? inferno(v) : `rgb(${g},${g},${g})`;
+        ctx.fillStyle = heat ? heatColour(v) : `rgb(${g},${g},${g})`;
         ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
       }
     }
@@ -839,7 +839,7 @@ PAGE = r"""<!doctype html>
   function boxColor(cx, cy, f) {
     const nx = (cx - 0.5) / 0.5, ny = (cy - 0.5) / 0.5;  // where its gaze's CENTER is, over the whole frame
     const corner = Math.abs(nx * ny), edge = Math.max(Math.abs(nx), Math.abs(ny));
-    return corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#4fa';
+    return corner >= 0.5 ? '#f44' : edge >= 0.75 ? '#f90' : edge >= 0.4 ? '#fd4' : '#ffe2d6';
   }
 
   // Visual field + replay of the gaze's real path, frame by frame, no interpolation.
@@ -851,7 +851,13 @@ PAGE = r"""<!doctype html>
     const H = Math.round(W * d.frame_h / d.frame_w);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
-    drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H, true);  // as heat
+    // What its wide-field eyes sense: where and how much things change, per
+    // cell, scaled by its own motion gain -- as heat. (It never senses a
+    // picture; without a live actor, the dim brightness grid stands in.)
+    if (d.field_motion && d.world_grid_shape) {
+      const gain = d.field_motion_gain || 300;
+      drawGrid(ctx, d.field_motion.map(v => Math.sqrt(Math.min(1, v * gain))), d.world_grid_shape, 0, 0, W, H, true);
+    } else drawGrid(ctx, d.world_grid.map(v => 0.35 * v), d.world_grid_shape, 0, 0, W, H);
     drawLayers(ctx, d, W, H);
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
     // time and show whichever gaze is current at that moment -- the same
@@ -861,7 +867,7 @@ PAGE = r"""<!doctype html>
     if (ev) {
       const [mx, my, act, loom, reflex] = ev;
       if (act > 0.05) {
-        ctx.fillStyle = 'rgba(140, 255, 90, 0.85)';
+        ctx.fillStyle = 'rgba(255, 240, 192, 0.85)';
         ctx.beginPath(); ctx.arc(mx * W, my * H, 3 + act * 14, 0, 7); ctx.fill();
       }
       if (loom > 0.18) { ctx.strokeStyle = '#f44'; ctx.lineWidth = 6; ctx.strokeRect(3, 3, W - 6, H - 6); }
@@ -882,7 +888,7 @@ PAGE = r"""<!doctype html>
       const sip = (d.snacks && d.snacks[Math.min(cur, d.snacks.length - 1)]) || 0;  // nectar: a surprise snack
       if (sip > 0.01) { ctx.fillStyle = 'rgba(200, 136, 255, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top'; ctx.fillText('SIPPING', 10, 10); }
     }
-    ctx.strokeStyle = 'rgba(127, 212, 255, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255, 180, 166, 0.45)'; ctx.lineWidth = 1.5; ctx.beginPath();
     let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
     for (let k = k0; k <= i; k++) { const px = traj[k][0] * W, py = traj[k][1] * H; k === k0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
     ctx.stroke();
@@ -915,7 +921,7 @@ PAGE = r"""<!doctype html>
       const top = Math.max(1e-6, ...worth.map(Math.abs)); cells(worth, m.shape, v => v > 0 ? `rgba(90, 255, 110, ${0.55 * v / top})` : null);
     }
     if (LAYERS.people) cells(m.people, m.shape, v => v > 0.01 ? `rgba(255, 110, 200, ${0.5 * Math.min(1, v)})` : null);
-    if (LAYERS.familiar) cells(m.familiar, m.mem_shape, v => v < 0 ? 'rgba(40, 0, 60, 0.45)' : `rgba(127, 212, 255, ${0.45 * (1 - v)})`);
+    if (LAYERS.familiar) cells(m.familiar, m.mem_shape, v => v < 0 ? 'rgba(40, 0, 60, 0.45)' : `rgba(255, 180, 166, ${0.45 * (1 - v)})`);
     if (LAYERS.dreams && d.dreams) {
       const [rows, cols] = m.shape, cw = W / cols, ch = H / rows;
       const hue = { nrem: '120, 150, 255', rem: '190, 140, 255', awake: '200, 200, 200', dream: '255, 210, 90' };
@@ -1065,8 +1071,8 @@ PAGE = r"""<!doctype html>
       ctx.strokeStyle = `rgba(255, 95, 162, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
       ctx.strokeRect(cx - rs / 2, cy - rs / 2, rs, rs);
     }
-    ctx.strokeStyle = shut ? '#a8c' : LOOK.eating ? '#ff5fa2' : '#7fd4ff'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
-    ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace';
+    ctx.strokeStyle = shut ? '#a8c' : LOOK.eating ? '#ff5fa2' : '#ffb4a6'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
+    ctx.fillStyle = '#9a6f67'; ctx.font = '11px monospace';
     ctx.fillText(shut ? 'asleep -- the gaze sees nothing' : cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
     $('look-px').textContent = `${N}x${N} receptors (the central ${C}x${C} cones, the rest rods), ${cw}x${ch} real pixels`;
     $('field-px').textContent = `${(d.world_grid_shape || [12, 12])[1]}x${(d.world_grid_shape || [12, 12])[0]} square receptors over ${d.frame_w}x${d.frame_h} real pixels`;
@@ -1094,13 +1100,13 @@ PAGE = r"""<!doctype html>
       series.forEach((v, k) => { const x = k / (series.length - 1) * W, y = (1 - Math.max(0, Math.min(1, v))) * (H - 16) + 2; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
       ctx.stroke();
     }
-    ctx.fillStyle = '#6f8798'; ctx.font = '10px monospace'; ctx.fillText(label + ' over its latest run (0..1, start -> end)', 2, H - 3);
+    ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.fillText(label + ' over its latest run (0..1, start -> end)', 2, H - 3);
   }
   function drawBody(d) {
     const b = d.body_now || d.body || {};
     $('gauges').innerHTML =
       `<div class="cap" style="margin:0 0 4px">${(b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b> -- eyes shut, not eating, sampling the field slowly' : '<b style="color:var(--green)">awake</b>'}</div>` +
-      gauge('blood sugar', b.energy, '#4fa', 'pays for everything; ~10 min of waking burn') +
+      gauge('blood sugar', b.energy, '#ffe2d6', 'pays for everything; ~10 min of waking burn') +
       gauge('gut', b.gut, '#e8c170', 'what it ate, digesting into blood sugar over minutes; full = cannot eat more') +
       gauge('glycogen', b.glycogen, '#6d9', '~6 h; fills first when fed, released fast for waking and bursts') +
       gauge('fat', b.reserve, '#2c9', '~3 days; made from a real surplus, burned slowly and only aerobically -- never for a burst or the brain') +
@@ -1110,13 +1116,13 @@ PAGE = r"""<!doctype html>
       gauge('sleep pressure', b.sleep_pressure, '#c8f', 'builds while awake, clears asleep; tiredness costs it half of what it catches at full pressure') +
       gauge('hunger', b.hunger, '#f6a', 'blood sugar and gut together') +
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
-      gauge('arousal', b.arousal, '#7fd4ff', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
+      gauge('arousal', b.arousal, '#ffb4a6', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
       gauge('anaerobic debt', b.debt, '#f60', 'from bursts beyond what it can sustain; felt as fatigue, repaid over hours') +
       `<div class="cap" style="margin-top:4px">tempo: <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes/s on average in its latest run (resting: ${d.pace_accepted ? ((d.frames_per_second || 15) / d.pace_accepted).toFixed(1) : '--'}). It can speed up or slow down 3x either way, any time -- a continuum, like a bear sluggish in winter and hyper in spring.</div>` +
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
-    spark('energy-trace', d.energy_series, '#4fa', 'blood sugar (purple band: asleep)', d.sleep_series);
+    spark('energy-trace', d.energy_series, '#ffe2d6', 'blood sugar (purple band: asleep)', d.sleep_series);
     const boutNote = kind => { const bt = d.bouts && d.bouts[kind]; if (!bt) return ''; return bt.fit ? `; 1 ${kind} = looks < ${bt.fit.criterion_s.toFixed(1)} s apart` : `; ${kind} size: calibrating`; };
     $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'prey in its gaze centre' + boutNote('meal'));
     spark('prey-trace', d.prey_series, '#ff5fa2', 'prey eaten');
@@ -1124,8 +1130,8 @@ PAGE = r"""<!doctype html>
     spark('food-trace', d.food_series, '#c8f', 'surprise');
     const m = d.movement || {};
     $('movement').innerHTML =
-      gauge('fixating', m.fixate, '#6f8798', 'share of frames still') + gauge('gliding', m.glide, '#4fa', 'slow, smooth') +
-      gauge('saccades', m.saccade, '#f90', 'fast jumps') + gauge('scanning', m.scan_while_still, '#7fd4ff', 'gliding while the world is still') +
+      gauge('fixating', m.fixate, '#9a6f67', 'share of frames still') + gauge('gliding', m.glide, '#ffe2d6', 'slow, smooth') +
+      gauge('saccades', m.saccade, '#f90', 'fast jumps') + gauge('scanning', m.scan_while_still, '#ffb4a6', 'gliding while the world is still') +
       `<div class="gauge"><span>tracking</span><span class="cap" style="margin:0">${m.tracking === null || m.tracking === undefined ? 'not enough movement in the room this run' : 'correlation ' + m.tracking.toFixed(2) + ' with where motion was'}</span><span></span></div>`;
   }
 
@@ -1152,14 +1158,14 @@ PAGE = r"""<!doctype html>
     for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edge(xin, yAt(i, nIn), xh, yAt(h, nH), br.weights_ih[h][i]);
     for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edge(xh, yAt(h, nH), xout, yAt(o, nOut) , br.weights_ho[o][h]);
     ctx.font = (nIn > 26 ? '10px' : '11px') + ' monospace'; ctx.textBaseline = 'middle';
-    for (let i = 0; i < nIn; i++) { ctx.fillStyle = '#1a2a38'; ctx.beginPath(); ctx.arc(xin, yAt(i, nIn), 6, 0, 7); ctx.fill(); ctx.fillStyle = '#9fb6c6'; ctx.textAlign = 'right'; ctx.fillText(i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in'), xin - 10, yAt(i, nIn)); }
+    for (let i = 0; i < nIn; i++) { ctx.fillStyle = '#2a1512'; ctx.beginPath(); ctx.arc(xin, yAt(i, nIn), 6, 0, 7); ctx.fill(); ctx.fillStyle = '#b88a80'; ctx.textAlign = 'right'; ctx.fillText(i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in'), xin - 10, yAt(i, nIn)); }
     const hid = d.brain_hidden || [];
     for (let h = 0; h < nH; h++) { const a = hid[h] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.arc(xh, yAt(h, nH), 9, 0, 7); ctx.fill(); ctx.stroke(); }
-    for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#4fa'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#4fa'; ctx.textAlign = 'left'; ctx.fillText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out'), xout + 16, yAt(o, nOut)); }
+    for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#ffe2d6'; ctx.textAlign = 'left'; ctx.fillText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out'), xout + 16, yAt(o, nOut)); }
     const hx = W - hm - 10, hy = 30, cell = hm / nH;
     let mh = 1e-9; br.weights_hh.forEach(r => r.forEach(v => mh = Math.max(mh, Math.abs(v))));
     for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) { const v = br.weights_hh[r][q], a = Math.abs(v) / mh; ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${a})` : `rgba(255,153,0,${a})`; ctx.fillRect(hx + q * cell, hy + r * cell, cell - 1, cell - 1); }
-    ctx.fillStyle = '#6f8798'; ctx.textAlign = 'left'; ctx.fillText('recurrent weights', hx, hy - 12);
+    ctx.fillStyle = '#9a6f67'; ctx.textAlign = 'left'; ctx.fillText('recurrent weights', hx, hy - 12);
     ctx.fillText('from unit ->  (rows: to unit)', hx, hy + hm + 14);
   }
 
@@ -1184,25 +1190,25 @@ PAGE = r"""<!doctype html>
       const ctx = c.getContext('2d'); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, c.width, c.height);
       const xs = c.width / (leaves + 1), ys = c.height / (md + 2), pos = l => [(l.x + 1) * xs, (l.depth + 1) * ys];
       (function edges(l) { const [px, py] = pos(l); for (const k of l.children) { const [qx, qy] = pos(k); ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(qx, qy); ctx.stroke(); edges(k); } })(laid);
-      (function nodes(l) { const [x, y] = pos(l); const op = l.node.kind === 'op'; ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#4fa' : '#7fd4ff'; ctx.beginPath(); ctx.arc(x, y, 18, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#cfe3f0'; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(nodeLabel(l.node), x, y); l.children.forEach(nodes); })(laid);
+      (function nodes(l) { const [x, y] = pos(l); const op = l.node.kind === 'op'; ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#ffe2d6' : '#ffb4a6'; ctx.beginPath(); ctx.arc(x, y, 18, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#cfe3f0'; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(nodeLabel(l.node), x, y); l.children.forEach(nodes); })(laid);
     }
   }
 
   // History charts.
   const CHARTS = [
-    { id: 'c-fit', title: 'fitness', cap: 'current genome, re-scored each generation / peak ever', series: [['fitness', '#4fa', r => r.best_fitness], ['peak ever', '#6f8798', r => r.peak_fitness_seen]] },
-    { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#4fa', r => r.mean_energy], ['prey', '#ff5fa2', r => r.mean_prey], ['surprise', '#c8f', r => r.mean_food]] },
+    { id: 'c-fit', title: 'fitness', cap: 'current genome, re-scored each generation / peak ever', series: [['fitness', '#ffe2d6', r => r.best_fitness], ['peak ever', '#9a6f67', r => r.peak_fitness_seen]] },
+    { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#ffe2d6', r => r.mean_energy], ['prey', '#ff5fa2', r => r.mean_prey], ['surprise', '#c8f', r => r.mean_food]] },
     { id: 'c-drive', title: 'homeostatic drive', cap: 'mean drive per run -- lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
-    { id: 'c-look', title: 'gaze size', cap: 'the side of its eye as a fraction of the frame height (receptors x 1/64; before the eye became a fixed mosaic: the zoom gaze at birth and its mean over each run)', fixed: [0, 0.65], series: [['at birth', '#7fd4ff', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
-    { id: 'c-pace', title: 'resting pace', cap: 'inherited resting gaze interval, every Nth frame (its temperament; the brain moves 3x either way around it)', series: [['every Nth frame', '#7fd4ff', r => r.pace]] },
+    { id: 'c-look', title: 'gaze size', cap: 'the side of its eye as a fraction of the frame height (receptors x 1/64; before the eye became a fixed mosaic: the zoom gaze at birth and its mean over each run)', fixed: [0, 0.65], series: [['at birth', '#ffb4a6', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
+    { id: 'c-pace', title: 'resting pace', cap: 'inherited resting gaze interval, every Nth frame (its temperament; the brain moves 3x either way around it)', series: [['every Nth frame', '#ffb4a6', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: 'resource_handler: grows with real improvement, shrinks under system strain (%)', series: [['quota %', '#fd4', r => r.quota_pct]] },
-    { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#6f8798', r => r.mv && r.mv.fixate], ['glide', '#4fa', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
-    { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#7fd4ff', r => r.tree_depth]] },
-    { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#4fa', r => r.accepted_delta]] },
+    { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#9a6f67', r => r.mv && r.mv.fixate], ['glide', '#ffe2d6', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
+    { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#ffb4a6', r => r.tree_depth]] },
+    { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#ffe2d6', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
   const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#4fa', mutate_op: '#0af', grow: '#7fd4ff', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
       (ch.series ? `<div class="legend cap">${ch.series.map(s => `<span><b style="color:${s[1]}">&#9644;</b> ${s[0]}</span>`).join('')}</div>` : '') +
@@ -1216,11 +1222,11 @@ PAGE = r"""<!doctype html>
     let lo = Infinity, hi = -Infinity;
     ch.series.forEach(s => recs.forEach(r => { const v = s[2](r); if (v !== null && v !== undefined && isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }));
     if (ch.fixed) { lo = ch.fixed[0]; hi = ch.fixed[1]; }
-    if (!isFinite(lo)) { ctx.fillStyle = '#6f8798'; ctx.font = '11px monospace'; ctx.fillText('no data yet (recorded from this build on)', pad.l, H / 2); return; }
+    if (!isFinite(lo)) { ctx.fillStyle = '#9a6f67'; ctx.font = '11px monospace'; ctx.fillText('no data yet (recorded from this build on)', pad.l, H / 2); return; }
     if (lo === hi) { lo -= 1; hi += 1; }
     const n = recs.length, px = i => pad.l + (n <= 1 ? 0 : i / (n - 1)) * pw, py = v => pad.t + (1 - (v - lo) / (hi - lo)) * ph;
     ctx.strokeStyle = '#1c2a36'; ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + ph); ctx.lineTo(pad.l + pw, pad.t + ph); ctx.stroke();
-    ctx.fillStyle = '#6f8798'; ctx.font = '10px monospace'; ctx.textAlign = 'right'; ctx.fillText(hi.toFixed(2), pad.l - 4, pad.t + 8); ctx.fillText(lo.toFixed(2), pad.l - 4, pad.t + ph);
+    ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'right'; ctx.fillText(hi.toFixed(2), pad.l - 4, pad.t + 8); ctx.fillText(lo.toFixed(2), pad.l - 4, pad.t + ph);
     ctx.textAlign = 'left'; ctx.fillText(recs.label_left || 'older', pad.l, H - 4); ctx.textAlign = 'right'; ctx.fillText('now', pad.l + pw, H - 4);
     ch.series.forEach(s => { ctx.strokeStyle = s[1]; ctx.lineWidth = 1.5; ctx.beginPath(); let on = false;
       recs.forEach((r, i) => { const v = s[2](r); if (v === null || v === undefined || !isFinite(v)) { on = false; return; } on ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v)); on = true; }); ctx.stroke(); });
