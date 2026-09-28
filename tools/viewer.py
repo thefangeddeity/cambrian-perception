@@ -393,7 +393,8 @@ LOCK_HUD_JS = r"""
       let el = host.querySelector(':scope > .hud-' + key);
       if (!el) {
         el = document.createElement('div'); el.className = 'hud-' + key + ' hud-lang'; el.dir = dir;
-        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;text-shadow:0 0 4px #000,0 0 2px #000,0 0 1px #000;' + where;
+        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;'
+          + `text-shadow:1px 1px 3px #000,1px 1px 1px #000,0 0 6px ${HUD_GLOW};` + where;
         host.appendChild(el);
       }
       el.style.display = '';
@@ -416,8 +417,13 @@ LOCK_HUD_JS = r"""
   // The HUD's palette, "red phosphor" (a 2026-09-28 UX panel, 8-2): one red
   // ramp, meaning carried by brightness and weight (it survives without
   // colour), bone-white only for what matters now -- a lock, a bite, a warning.
-  const HUD_HOT = '#ff3b28', HUD_EMBER = '#e5321f', HUD_ASH = '#9a2014', HUD_BONE = '#f2ede6';  // brightened a step: legible over bright scenes
-  const HUD_FILM = 'rgba(90, 0, 0, 0.22)', HUD_SCAN = 'rgba(0, 0, 0, 0.14)';
+  // Phosphor, as a CRT's: each glyph a pale core blooming red (its glow is the
+  // red); brightness is the hierarchy -- white-hot for what matters now, then
+  // pale red, then a dimmer red; a drop shadow under everything keeps it
+  // legible over any picture.
+  const HUD_BONE = '#fff4f0', HUD_HOT = '#ffc2b8', HUD_EMBER = '#ff8a78', HUD_ASH = '#b8584a';
+  const HUD_GLOW = 'rgba(255, 40, 20, 0.95)';
+  const HUD_FILM = 'rgba(80, 0, 0, 0.14)', HUD_SCAN = 'rgba(0, 0, 0, 0.08)';
   function drawLock(ctx, bw, bh, fs, d, picture, imgAspect, now, st, opts) {
     // Red phosphor (a 2026-09-28 UX panel): the picture under a thin red film
     // and faint scanlines, so it reads as seen by a machine.
@@ -528,13 +534,17 @@ LOCK_HUD_JS = r"""
     if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', HUD_BONE, 'bold 12px monospace']
                                                   : ['WARN', HUD_ASH, 'bold 12px monospace']);
     ctx.textAlign = 'left';
+    // each line twice: its drop shadow, then its phosphor bloom on top
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
+    ctx.save(); ctx.shadowColor = HUD_GLOW; ctx.shadowBlur = 6; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
+    ctx.restore();
     hudOverlay(ctx.canvas, rows);  // Arabic, Ukrainian, Taiwanese: page text over the HUD
     lockShadow(ctx, false);
     ctx.textAlign = 'left';
   }
   // Text stands out by a soft drop shadow, not a dark box over the picture.
-  function lockShadow(ctx, on) {
+  function lockShadow(ctx, on) {  // a drop shadow, always, under every glyph and line
     ctx.shadowColor = on ? 'rgba(0, 0, 0, 0.95)' : 'transparent';
     ctx.shadowBlur = on ? 3 : 0; ctx.shadowOffsetX = on ? 1 : 0; ctx.shadowOffsetY = on ? 1 : 0;
   }
@@ -665,21 +675,12 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
-    <div class="cap" id="layers">Layers (what it has learned; owner only):
+    <div class="cap" id="layers">Layers:
       <label><input type="checkbox" data-layer="place"> <b style="color:#6f6">food places</b></label>
       <label><input type="checkbox" data-layer="people"> <b style="color:#f7c">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#7fd4ff">still surprising</b></label>
-      <label><input type="checkbox" data-layer="dreams"> <b style="color:#b9f">replay</b> (blue NREM, violet REM, grey awake; lines = replayed paths) <b style="color:#fd5">and dreams</b> (gold: imagined paths through its own maps)</label></div>
-    <div class="cap">Its wide-field eyes: <span id="field-px">--</span>. Threat, arousal and where things move; no detail. Box = its <b style="color:var(--cyan)">gaze</b>, a few seconds behind live; trail = last 3 s.</div>
-    <div class="legend cap" style="margin-top:8px">
-      <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
-      <span><b style="color:var(--yellow)">&#9633;</b> near an edge</span>
-      <span><b style="color:var(--orange)">&#9633;</b> on an edge</span>
-      <span><b style="color:var(--red)">&#9633;</b> in a corner</span>
-      <span><b style="color:#8cff5a">&#9679;</b> where its wide-field eyes saw motion (size = how much); its brain gets this location</span>
-      <span><b style="color:var(--red)">red frame</b> something dark approaching</span>
-      <span><b style="color:#ff5fa2">- - - TARGET</b> a host (anything with blood that YOLO names: people and animals); <b style="color:#ff5fa2">BITING</b> = blood from a host under its mouth; <b style="color:#c88fff">SIPPING</b> = nectar (a surprise snack); <b style="color:rgba(255,68,68,0.5)">WARN</b> dim = its warning, untrained (only the owner's feedback is meant to select it), lit = warning</span>
-    </div>
+      <label><input type="checkbox" data-layer="dreams"> <b style="color:#b9f">replay</b> &amp; <b style="color:#fd5">dreams</b></label></div>
+    <div class="cap">Its wide-field eyes as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff5fa2">TARGET</b> = a host; red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
   </div>
   <div class="panel" id="brain-panel">
@@ -687,12 +688,12 @@ PAGE = r"""<!doctype html>
     <canvas id="brain" height="520"></canvas>
     <canvas id="mb" height="150" style="margin-top:6px"></canvas>
     <div class="cap" id="mb-cap"></div>
-    <div class="cap"><b id="brain-mb">--</b>. 34 inputs &rarr; <b id="brain-units">--</b> recurrent units, <b id="brain-layers">--</b> stacked &rarr; pan / tilt / alarm / tempo / sleep, plus grown loops. Only what exists is drawn: new units are born by duplicating one (up to 256, a safety bound; the price limits it), and grown loops appear as they grow. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits; fill = activity. Right: unit &rarr; unit memory.</div>
+    <div class="cap"><b id="brain-mb">--</b>. <b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits.</div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
-    <div class="cap">Its eye: <span id="look-px">--</span>, at true size and place. Colour only in the cone patch (dotted orange); dashed = the biggest eye possible; black = off the frame. Rebuilt in your browser from the frame on screen.</div>
+    <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
 </div>
@@ -701,7 +702,7 @@ PAGE = r"""<!doctype html>
   <div class="stack">
     <div class="panel" id="dessert-card">
       <h2>dessert</h2>
-      <div class="cap">Watch a YouTube video (live or recorded) instead of the camera, until it ends, you switch back, or a set time. Frames are never saved.</div>
+      <div class="cap">A YouTube video instead of the camera. Frames are never saved.</div>
       <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px">
         <input type="text" id="custom-url" placeholder="paste a YouTube URL (live or recorded)..." style="flex:1 1 260px">
@@ -713,25 +714,25 @@ PAGE = r"""<!doctype html>
     </div>
     <div class="panel">
       <h2>its perception tree</h2>
-      <div class="cap">Reads receptors by position (<code>now</code>, <code>prev</code>, <code>rg</code>/<code>by</code> at x,y from centre), its last movement (x0-x1) and brain memory (x2-x17). Feeds the brain; graded against YOLO.</div>
+      <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
       <div id="trees"></div>
     </div>
   </div>
 
   <div class="panel">
     <h2>body</h2>
-    <div class="cap">Now: gut &rarr; blood sugar &rarr; reserve; sleep carries it through quiet hours. Traces: latest run.</div>
+    <div class="cap">Gut &rarr; blood sugar &rarr; stores.</div>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Food: <b style="color:#ff5fa2">prey</b> (a person or animal, found by YOLO) under its gaze centre -- its mouth; <b style="color:#c8f">snacks</b> from surprise, too little to live on.</div>
+      <div class="cap">Blood from hosts at its mouth; nectar from surprise.</div>
       <div id="prey-gauge"></div>
       <canvas id="prey-trace" height="60"></canvas>
       <div id="food-gauge"></div>
       <canvas id="food-trace" height="60"></canvas>
     </div>
     <div class="section"><h2>how it moves</h2>
-      <div class="cap">Measured, not rewarded. Yardstick: Land 1969, jumping-spider retinae (fixate / glide / saccade, scanning still things, tracking moving ones).</div>
+      <div class="cap">Measured, not rewarded (Land 1969).</div>
       <div id="movement"></div>
     </div>
   </div>
@@ -741,7 +742,7 @@ PAGE = r"""<!doctype html>
 
 <div class="panel" style="margin-top:16px">
   <h2>what drives it</h2>
-  <div class="cap">Every fitness pressure and its weight. <span class="tag body">body</span> = from staying alive; <span class="tag hand">hand-written</span> = scaffolding, to be retired.</div>
+  <div class="cap">Every pressure on it, and its weight.</div>
   <table class="drives">
     <tr><th></th><th>weight</th><th>pressure</th><th>what it means</th></tr>
     <tr><td><span class="tag body">body</span></td><td class="minus">-3.0</td><td>homeostatic drive</td><td>Mean over the run of hunger&sup2; (blood sugar plus half the gut, like a full stomach calming hunger before it is absorbed) + 0.3 (1-reserve)&sup2; + threat&sup2; + fatigue&sup2; + 0.3 sleep pressure&sup2;, plus drive reduction (Keramati &amp; Gutkin: did this window leave its body better or worse off?). On a real clock: being awake costs a fixed amount plus a share that follows its tempo; asleep it burns a third as much. Also muscle force&sup2; every frame it pushes, and per gaze: thinking, gaze size, colour and any wired brain loops (x CPU scarcity). Restored only by eating (prey under the gaze centre, its mouth: the prey's worth whatever its eye's size or the prey's distance -- plus small surprise snacks), through the gut. No death: an empty body degrades (colour off, narrow eye, slower gazing) and burns less.</td></tr>
@@ -797,14 +798,21 @@ PAGE = r"""<!doctype html>
     return isMax(panel) ? Math.min(w, Math.floor((window.innerHeight - 140) / aspect)) : w;
   }
 
-  function drawGrid(ctx, values, shape, x, y, w, h) {
+  // Inferno (black, purple, red, orange, yellow, white): the visual field as heat.
+  const INFERNO = [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 193, 39], [252, 255, 164]];
+  function inferno(v) {
+    const t = Math.max(0, Math.min(1, v)) * (INFERNO.length - 1), i = Math.min(INFERNO.length - 2, Math.floor(t)), f = t - i;
+    const [a, b] = [INFERNO[i], INFERNO[i + 1]];
+    return `rgb(${Math.round(a[0] + f * (b[0] - a[0]))},${Math.round(a[1] + f * (b[1] - a[1]))},${Math.round(a[2] + f * (b[2] - a[2]))})`;
+  }
+  function drawGrid(ctx, values, shape, x, y, w, h, heat) {
     const [rows, cols] = shape;
     for (let i = 0; i < rows; i++) {
       const y0 = Math.round(y + i * h / rows), y1 = Math.round(y + (i + 1) * h / rows);
       for (let j = 0; j < cols; j++) {
         const x0 = Math.round(x + j * w / cols), x1 = Math.round(x + (j + 1) * w / cols);
-        const g = Math.round(Math.max(0, Math.min(1, values[i * cols + j])) * 255);
-        ctx.fillStyle = `rgb(${g},${g},${g})`;
+        const v = Math.max(0, Math.min(1, values[i * cols + j])), g = Math.round(v * 255);
+        ctx.fillStyle = heat ? inferno(v) : `rgb(${g},${g},${g})`;
         ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
       }
     }
@@ -843,7 +851,7 @@ PAGE = r"""<!doctype html>
     const H = Math.round(W * d.frame_h / d.frame_w);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
-    drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H);
+    drawGrid(ctx, d.world_grid, d.world_grid_shape, 0, 0, W, H, true);  // as heat
     drawLayers(ctx, d, W, H);
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
     // time and show whichever gaze is current at that moment -- the same
@@ -949,8 +957,7 @@ PAGE = r"""<!doctype html>
       ctx.fillStyle = `rgb(${Math.round(base + 200 * g)}, ${Math.round(base + 200 * f)}, ${base})`;
       ctx.fillRect(x, y, sz - 1, sz - 1);
     }
-    cap.textContent = `Its mushroom body: ${n} Kenyon cells (${mb.live} alive), ${(mb.active || []).length} firing for its latest look. `
-      + `Green = learned food, red = learned danger, bright = firing. Costs about ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Learned values, not thoughts.`;
+    cap.textContent = `Mushroom body: ${n} cells, ${(mb.active || []).length} firing. Green = food, red = danger. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn.`;
   }
 
   // The retina panel runs on the same replay clock as the picture and the
@@ -1299,7 +1306,7 @@ PAGE = r"""<!doctype html>
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('hud-legend-text').textContent = 'reticle = its gaze (SCAN / TRACK / LOCK = a bite: a snapshot moment / SLEEP = eyes shut); red corners = hosts found; its own prey guess vs YOLO (bright = agree). Red phosphor: brightness says how much it matters, white = a lock, a bite or a warning. English top left, Arabic top right, Ukrainian and Taiwanese below. Client view: /live.';
+  $('hud-legend-text').textContent = 'reticle = its gaze; red corners = hosts. Client view: /live.';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');
