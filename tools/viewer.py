@@ -704,7 +704,7 @@ PAGE = r"""<!doctype html>
       <label><input type="checkbox" data-layer="place"> <b style="color:#ffb066">food places</b></label>
       <label><input type="checkbox" data-layer="people"> <b style="color:#ff6f8a">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
-      <label><input type="checkbox" data-layer="dreams"> <b style="color:#e0909c">replay</b> &amp; <b style="color:#fff0c0">dreams</b></label></div>
+</div>
     <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
   </div>
@@ -720,14 +720,17 @@ PAGE = r"""<!doctype html>
     <canvas id="look" class="px"></canvas>
     <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
-    <div id="replay-eye-box" style="display:none; margin-top:10px">
-      <canvas id="replay-eye" width="120" height="120" class="px"></canvas>
-      <div class="cap" id="replay-eye-cap"></div>
-    </div>
   </div>
 </div>
 
 <div class="vision">
+  <div class="panel" id="dream-panel">
+    <h2>replay &amp; dreams</h2>
+    <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start">
+      <div><canvas id="replay-eye" width="160" height="160" class="px"></canvas><div class="cap" id="replay-eye-cap" style="max-width:200px"></div></div>
+      <div style="flex:1 1 240px"><canvas id="dream-map" class="px"></canvas><div class="cap">Paths it replays (blue NREM, violet REM, grey awake) and dreams (gold: imagined through its own maps), on its place map.</div></div>
+    </div>
+  </div>
   <div class="stack">
     <div class="panel">
       <h2>its perception tree</h2>
@@ -965,25 +968,6 @@ PAGE = r"""<!doctype html>
       ctx.fillStyle = 'rgba(255, 111, 138, 0.9)'; ctx.beginPath();
       ctx.arc(x + w / 2, y + h / 2, 1.5 + Math.min(1, v) * Math.min(w, h) * 0.22, 0, 7); ctx.fill();
     });
-    if (LAYERS.dreams && d.dreams) {
-      const [rows, cols] = m.shape, cw = W / cols, ch = H / rows;
-      const hue = { nrem: '255, 180, 166', rem: '224, 144, 156', awake: '154, 111, 103', dream: '255, 240, 192' };
-      let prev = null;
-      d.dreams.forEach(([kind, r, c, age, seq]) => {
-        const a = Math.max(0, 1 - age / 3);
-        if (a) {
-          // a replayed or dreamt place: a small square at the cell's centre (outlines are food's)
-          const q = Math.min(cw, ch) * 0.28;
-          ctx.fillStyle = ctx.strokeStyle = `rgba(${hue[kind] || '200, 200, 200'}, ${0.9 * a})`; ctx.lineWidth = 2;
-          ctx.fillRect((c + 0.5) * cw - q / 2, (r + 0.5) * ch - q / 2, q, q);
-          // a replayed path (sequence replay): consecutive steps of one sequence joined
-          if (prev && seq && prev[4] === seq && (prev[1] !== r || prev[2] !== c)) {
-            ctx.beginPath(); ctx.moveTo((prev[2] + 0.5) * cw, (prev[1] + 0.5) * ch); ctx.lineTo((c + 0.5) * cw, (r + 0.5) * ch); ctx.stroke();
-          }
-        }
-        prev = [kind, r, c, age, seq];
-      });
-    }
   }
 
   // Its mushroom body: every Kenyon cell a dot; lit = firing for its latest
@@ -993,12 +977,11 @@ PAGE = r"""<!doctype html>
   // the reactivated Kenyon cells sample, back-projected onto its gaze. Not a
   // picture it makes -- which parts of its eye the memory is built from.
   function drawReplayEye(d) {
-    const box = $('replay-eye-box'); if (!box) return;
-    const r = d.replay_eye;
-    if (!r) { box.style.display = 'none'; return; }
-    box.style.display = '';
-    const c = $('replay-eye'), n = r.n, W = 120, s = W / n, ctx = c.getContext('2d');
+    const c = $('replay-eye'); if (!c) return;
+    const r = d.replay_eye, W = c.width, ctx = c.getContext('2d');
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, W);
+    if (!r) { $('replay-eye-cap').textContent = 'Nothing replayed lately (it replays asleep, or awake in quiet moments).'; drawDreamMap(d); return; }
+    const n = r.n, s = W / n;
     const fade = Math.max(0.25, 1 - r.age / 10);
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       const v = r.grid[i * n + j]; if (!v) continue;
@@ -1006,7 +989,36 @@ PAGE = r"""<!doctype html>
     }
     ctx.globalAlpha = 1;
     const name = { nrem: 'NREM replay', rem: 'REM (recombined)', awake: 'awake replay' }[r.kind] || r.kind;
-    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago: the receptors its replayed memory is built from (a back-projection, not a picture it makes).`;
+    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago, on its eye: the receptors the replayed memory is built from (a back-projection, not a picture it makes).`;
+    drawDreamMap(d);
+  }
+  // Replayed and dreamt paths on its place map (its field's grid): a small
+  // square per place, joined in order; each kind its own colour; fading over 3 s.
+  function drawDreamMap(d) {
+    const c = $('dream-map'); if (!c) return;
+    const m = d.maps, shape = (m && m.shape) || d.world_grid_shape || [9, 16], [rows, cols] = shape;
+    const W = Math.max(200, c.parentElement.clientWidth), H = Math.round(W * rows / cols);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    const ctx = c.getContext('2d'), cw = W / cols, ch = H / rows;
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
+    if (m && m.place) {  // the place map itself, faint: where food has been
+      const top = Math.max(1e-6, ...m.place.map(Math.abs));
+      m.place.forEach((v, k) => { if (v > 0) { ctx.fillStyle = `rgba(255, 176, 102, ${0.25 * v / top})`; ctx.fillRect((k % cols) * cw, Math.floor(k / cols) * ch, cw, ch); } });
+    }
+    const hue = { nrem: '120, 160, 255', rem: '224, 144, 196', awake: '160, 150, 150', dream: '255, 214, 120' };
+    let prev = null;
+    (d.dreams || []).forEach(([kind, r, c2, age, seq]) => {
+      const a = Math.max(0, 1 - age / 3);
+      if (a) {
+        const q = Math.min(cw, ch) * 0.3;
+        ctx.fillStyle = ctx.strokeStyle = `rgba(${hue[kind] || '200, 200, 200'}, ${0.9 * a})`; ctx.lineWidth = 2;
+        ctx.fillRect((c2 + 0.5) * cw - q / 2, (r + 0.5) * ch - q / 2, q, q);
+        if (prev && seq && prev[4] === seq && (prev[1] !== r || prev[2] !== c2)) {
+          ctx.beginPath(); ctx.moveTo((prev[2] + 0.5) * cw, (prev[1] + 0.5) * ch); ctx.lineTo((c2 + 0.5) * cw, (r + 0.5) * ch); ctx.stroke();
+        }
+      }
+      prev = [kind, r, c2, age, seq];
+    });
   }
   function int8s(b64) { if (!b64) return null; const s = atob(b64); return Int8Array.from(s, ch => ch.charCodeAt(0)); }
   function drawMB(d) {
