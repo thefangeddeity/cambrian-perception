@@ -631,6 +631,7 @@ PAGE = r"""<!doctype html>
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
+  .vision > .charts { margin-top: 0; align-content: start; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }  /* beside its body */
   @media (min-width: 1251px) { #look-panel { order: 1; } #field-panel { order: 2; } #dream-panel { order: 3; } }  /* desktop: camera | gaze, then visual field | replay & dreams; its brain in the row below */
   @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #field-panel { order: 2; } #dream-panel { order: 3; } }
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
@@ -756,9 +757,8 @@ PAGE = r"""<!doctype html>
       <div id="movement"></div>
     </div>
   </div>
+  <div class="charts" id="charts"></div>
 </div>
-
-<div class="charts" id="charts"></div>
 
 <div class="panel" style="margin-top:16px">
   <h2>what drives it</h2>
