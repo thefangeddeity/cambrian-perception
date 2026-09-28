@@ -328,6 +328,13 @@ class Organism:
         self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger)
         self.learning_rate = float(getattr(g, "learning_rate", 0.0))
         self.aversive_rate = float(getattr(g, "aversive_rate", 0.0))
+        # Photoreceptor speed (after a 2026-09-28 panel; Laughlin & Weckstrom
+        # 1993): a slow receptor integrates light over longer -- it blurs motion
+        # and sees change later -- and costs less, as a receptor's pumping cost
+        # follows the membrane conductance that sets its speed. Only slower than
+        # the camera is possible: the camera's frames are the fastest light there is.
+        self.slowness = float(getattr(g, "receptor_slowness", 0.0))
+        self.slow = None  # what its slow receptors hold (the gaze's image, low-passed)
         self.danger_value = 0.0
         # Host defense: the host at its mouth last look (a swat is that host
         # coming at it), and the frames of the looks it was swatted on.
@@ -405,6 +412,11 @@ class Organism:
                 a = getattr(self, name)
                 if a is None or a.shape != self.field:
                     setattr(self, name, np.zeros(self.field))
+        if self.slowness > 0.0:  # slow photoreceptors: its gaze sees the frames low-passed
+            a = 1.0 - math.exp(-REFERENCE_GAZES_PER_S / (max(1.0, self.fps) * self.slowness))
+            f = frame.astype(np.float32)
+            self.slow = f if self.slow is None or self.slow.shape != f.shape else self.slow + a * (f - self.slow)
+            frame = self.slow
         if self.pending is not None:
             self._substep(shift, in_world=True)
             if self.pending["done"] == self.pending["interval"]:
@@ -685,7 +697,8 @@ class Organism:
             rec["movement_costs"].append(math.hypot(*p["force"]))
             rec["periph_active"].append(p["periph_motion"])
         asleep = p["asleep"]
-        gaze_cost = 0.0 if asleep else _receptor_cost(self.live_n, self.quota_pct)  # only living receptors cost
+        # only living receptors cost; a slow receptor costs less (1 / (1 + slowness))
+        gaze_cost = 0.0 if asleep else _receptor_cost(self.live_n, self.quota_pct) / (1.0 + self.slowness)
         body.update(p["periph_motion"], p["loom"], p["effort"],
                     gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"]
                                  + CHANNEL_COST * brain.loop_synapses()

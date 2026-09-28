@@ -55,12 +55,13 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
-            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive")
+            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed")
 STABILIZER_SIGMA = 0.1
 # The feeding pump has no biological bounds: its upkeep and its intake set
 # its limits, and log-normal steps can shrink it toward a nip without ever
 # reaching zero. These only keep the float sane (numerical guards).
 PUMP_GUARD = (1e-6, 1e6)
+SLOWNESS_GUARD = 1e6  # photoreceptor slowness: a numerical guard only (its cost and its blur set its limits)
 ZOOM_SIGMA = STABILIZER_SIGMA  # a reflex gain, 0..1, mutates as the stabilizer's does
 # The traits from the 2026-09-27 panels mutate at the same scale (assumption):
 # metabolism (0.1 ectotherm .. 1 endotherm, born 1: today's body), host
@@ -195,6 +196,7 @@ class Genome:
         vigilance: float = 1.0,
         pump: float | None = None,
         aversive_rate: float = 0.0,
+        receptor_slowness: float = 0.0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -211,6 +213,9 @@ class Genome:
         self.learning_rate = float(np.clip(learning_rate, 0.0, LEARNING_MAX))
         # Its aversive compartment's learning rate (fishbowl/mushroom.py): born 0, off.
         self.aversive_rate = float(np.clip(aversive_rate, 0.0, LEARNING_MAX))
+        # Its photoreceptors' speed (organism.py): extra integration time, in
+        # reference frames (1/15 s). Born 0: as fast as the camera's frames.
+        self.receptor_slowness = float(np.clip(receptor_slowness, 0.0, SLOWNESS_GUARD))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -277,6 +282,7 @@ class Genome:
             self.vigilance,
             self.pump,
             self.aversive_rate,
+            self.receptor_slowness,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -445,6 +451,11 @@ class Genome:
             else:
                 self.learning_rate = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), LEARNING_MIN, LEARNING_MAX))
             return "brain", (choice if self.learning_rate != old else "noop_inapplicable")
+        if choice == "mutate_receptor_speed":
+            # Steps scale with its size, so it can creep off 0 and still move once slow.
+            old = self.receptor_slowness
+            self.receptor_slowness = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA * (1.0 + old)), 0.0, SLOWNESS_GUARD))
+            return "fovea", (choice if self.receptor_slowness != old else "noop_inapplicable")
         if choice == "mutate_aversive":  # drawn and stepped as the reward learning rate is
             old = self.aversive_rate
             if old <= 0.0:
@@ -629,6 +640,7 @@ class Genome:
             "vigilance": self.vigilance,
             "pump": self.pump,
             "aversive_rate": self.aversive_rate,
+            "receptor_slowness": self.receptor_slowness,
         }
 
     @staticmethod
@@ -689,6 +701,7 @@ class Genome:
             vigilance=float(data.get("vigilance", 1.0)),
             pump=data.get("pump"),
             aversive_rate=float(data.get("aversive_rate", 0.0)),
+            receptor_slowness=float(data.get("receptor_slowness", 0.0)),
         )
 
 

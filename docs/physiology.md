@@ -124,6 +124,18 @@ waterhole. The aerobic ceiling scales with it, so a low-burn body sustains
 less and bursts sooner. Sensing and thinking cost the same either way.
 (Bennett & Ruben 1979; Secor; Huey & Pianka.)
 
+## Photoreceptor speed (inherited)
+
+Its gaze's receptors can evolve to be slower than the camera's frames
+(`genome.receptor_slowness`, in reference frames of 1/15 s, born 0). A slow
+receptor integrates light over longer: it blurs motion and sees change
+later, and it costs less, 1 / (1 + slowness) of a fast one's price. A
+receptor's pumping cost follows the membrane conductance that sets its
+speed (Laughlin & Weckström 1993: fast-flying flies have fast, costly
+photoreceptors, slow flies slow, cheap ones). It can never be faster than
+the camera: the camera's frames are the fastest light its world has. The
+whole field's sentinel eyes are unaffected.
+
 ## Its world's climate
 
 - **Spare computing time on its host is its temperature.** It sets how fast it

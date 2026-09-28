@@ -574,6 +574,8 @@ def evaluate_genome(
         # Host defense: the frames of the looks it was swatted on, its learned danger now.
         "swat_acts": [int(k) for k in org.swat_frames],
         "danger_value": round(org.danger_value, 3),
+        # How often a look was missed because its brain hadn't finished (its real reaction time).
+        "missed_share": round(org.missed / max(1, len(idxs)), 3),
         "movement": movement,
         "field_events": [[round(float(world_signals["motion_cx"][k]), 3), round(float(world_signals["motion_cy"][k]), 3),
                           round(float(min(1.0, world_signals["motion_energy"][k] * PERIPH_MOTION_GAIN)), 3),
@@ -1488,6 +1490,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "swats": len(live_info.get("swat_acts") or []),
             "danger_value": live_info.get("danger_value"),
             "aversive_rate": genome.aversive_rate,
+            "receptor_slowness": genome.receptor_slowness,
             "mean_prey": live_info.get("mean_prey"),
             "prey_series": live_info.get("prey_series"),
             "max_fraction": fovea.extent(fovea.MAX_RECEPTORS),

@@ -32,6 +32,7 @@ class HourlyMetrics:
     def _reset(self, now: float) -> None:
         self.started = now
         self.frames = self.awake = self.asleep = self.warn = self.biting = self.swats = 0
+        self.look_sum = self.missed_sum = 0.0  # look interval (frames) and missed share, weighted by new frames
         self.bites: list[float] = []
         self.turning = 0.0
         self.path = 0.0
@@ -68,6 +69,9 @@ class HourlyMetrics:
                 self._end_bite(fps)
             if k < len(traj):
                 self._move(traj[k][0], traj[k][1])
+        new = max(0, n - start)
+        self.look_sum += float(live.get("pace") or 0.0) * new
+        self.missed_sum += float(live.get("missed_share") or 0.0) * new
         if n:
             self.last_index = first_index + n - 1
 
@@ -111,6 +115,10 @@ class HourlyMetrics:
             "path_per_awake_min": round(self.path / waking_min, 3) if waking_min else None,
             "warn_share_awake": round(self.warn / max(1, self.awake), 4),
             "swats": self.swats,
+            # Its latency (Gelman's condition for photoreceptor speed): seconds between
+            # looks, and the share of looks missed because its brain was still thinking.
+            "look_s": round(self.look_sum / self.frames / max(1.0, fps), 3),
+            "missed_share": round(self.missed_sum / self.frames, 3),
             **extra,
         }
         self._reset(now)
