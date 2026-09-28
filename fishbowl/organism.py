@@ -325,6 +325,9 @@ class Organism:
         # memory, carried like the surprise memory (the third item of memory).
         learned = memory[2] if memory is not None and len(memory) > 2 else None
         danger = memory[6] if memory is not None and len(memory) > 6 else None  # its aversive memory (item 7)
+        # Its dreamed value map (item 8): what each place leads to, learned in
+        # dreams (_dream); sized with the place map on the first frame.
+        self.value_map = None if memory is None or len(memory) <= 7 or memory[7] is None else np.array(memory[7], dtype=float)
         self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger)
         self.learning_rate = float(getattr(g, "learning_rate", 0.0))
         self.aversive_rate = float(getattr(g, "aversive_rate", 0.0))
@@ -369,6 +372,11 @@ class Organism:
         self.awake_replay = int(getattr(g, "awake_replay", 0))
         self.sleep_replay = int(getattr(g, "sleep_replay", 0))
         self.rem_share = float(getattr(g, "rem_share", 0.0))
+        self.replay_backup = float(getattr(g, "replay_backup", 0.0))
+        self.dream_steps = int(getattr(g, "dream_steps", 0))
+        self.dreams = 0  # dream paths dreamt in this life
+        self.chain = None  # the replayed path it is walking back along: (next episode index, sequence id)
+        self.seq = 0
         self.vigilance = float(getattr(g, "vigilance", 1.0))
         self.body.pump = float(getattr(g, "pump", self.body.pump))
         # Place map and the people-expectation maps (day, night): memory,
@@ -410,7 +418,7 @@ class Organism:
             self.aspect = frame.shape[1] / max(1, frame.shape[0])
             self.frame_h = frame.shape[0]
             self.field = field_shape(frame.shape[0], frame.shape[1])
-            for name in ("place", "people_day", "people_night"):
+            for name in ("place", "people_day", "people_night", "value_map"):
                 a = getattr(self, name)
                 if a is None or a.shape != self.field:
                     setattr(self, name, np.zeros(self.field))
@@ -499,6 +507,8 @@ class Organism:
         # time from this look's deadline and costs thinking energy.
         replay_macs = self._replay(was_asleep and body.sleep_clock > SLEEP_SETTLE_S,
                                    not was_asleep and not boxes and not body.big_change(loom, periph_motion, self.vigilance))
+        if was_asleep and body.sleep_clock > SLEEP_SETTLE_S:
+            replay_macs += self._dream()
         if (self.sec_per_mac and self.last_out is not None
                 and self.sec_per_mac * (brain.macs() + replay_macs) > self.last_interval / max(1.0, self.fps)):
             out = self.last_out  # still thinking: this look is missed
@@ -622,12 +632,50 @@ class Organism:
         return (min(rows - 1, max(0, int(y * rows))), min(cols - 1, max(0, int(x * cols))))
 
     def _place_sense(self, cx: float, cy: float) -> tuple[float, float, float]:
-        """Direction from its gaze to the spot that has fed it best, and how good it was."""
-        if self.place is None or not np.any(self.place > 0.0):
+        """Direction from its gaze to the spot worth most, and how much: what
+        has fed it there plus what its dreams learned it leads to (the value
+        map; all zero until it dreams, so the sense is unchanged until then)."""
+        if self.place is None:
             return 0.0, 0.0, 0.0
-        rows, cols = self.place.shape
-        r, c = np.unravel_index(int(np.argmax(self.place)), self.place.shape)
-        return (c + 0.5) / cols - cx, (r + 0.5) / rows - cy, float(np.clip(self.place[r, c], -1.0, 1.0))
+        worth = self.place + self.value_map if self.value_map is not None else self.place
+        if not np.any(worth > 0.0):
+            return 0.0, 0.0, 0.0
+        rows, cols = worth.shape
+        r, c = np.unravel_index(int(np.argmax(worth)), worth.shape)
+        return (c + 0.5) / cols - cx, (r + 0.5) / rows - cy, float(np.clip(worth[r, c], -1.0, 1.0))
+
+    def _dream(self) -> int:
+        """Closed-loop dreaming (a 2026-09-28 panel; Hobson & Friston 2012;
+        Pfeiffer & Foster 2013's preplay; Sutton's Dyna): eyes shut, its brain
+        steers an imagined gaze through the real eye physics, its senses fed
+        by its own maps -- its internal representation standing in for the
+        world. Along the imagined path it learns a value map by the same
+        backup as sequence replay: a place is worth its food plus backup x
+        what the path reached next. Brain steps cost as thinking does and
+        count against the look's deadline. Returns the multiply-adds spent."""
+        steps = self.dream_steps
+        if not steps or self.place is None or self.value_map is None or self.replay_backup <= 0.0 or self.learning_rate <= 0.0:
+            return 0
+        brain, body = self.brain, self.body
+        st = fovea.FoveaState(cx=self.state.cx, cy=self.state.cy, n=self.state.n)
+        cell = self._cell(st.cx, st.cy)
+        self.seq += 1
+        self.dreams += 1
+        self._log_replay("dream", cell, self.seq)
+        for _ in range(steps):
+            pdx, pdy, pval = self._place_sense(st.cx, st.cy)
+            here = float(self.place[cell] + self.value_map[cell]) if cell is not None else 0.0
+            out = brain.step(0.0, 0.0, 0.0, 0.0, 0.0, st.cx, st.cy, st.extent, body, 0.0, 0.0, st.vx, st.vy,
+                             self.prev_response, 0.0, 0.0, 0.0, 0.0, here, pdx, pdy, pval, 0.0, 0.0)
+            for _ in range(max(1, self.pace)):
+                st, _, _ = fovea.step(st, out.pan, out.tilt)
+            nxt = self._cell(st.cx, st.cy)
+            if cell is not None and nxt is not None:
+                target = self.place[cell] + self.replay_backup * (self.place[nxt] + self.value_map[nxt])
+                self.value_map[cell] += self.learning_rate * (target - self.place[cell] - self.value_map[cell])
+                self._log_replay("dream", nxt, self.seq)
+            cell = nxt
+        return steps * brain.macs()
 
     def _intruder(self, boxes: list, daylight: float, seconds: float) -> float:
         """A person where, at this time of day, people haven't been lately:
@@ -665,23 +713,39 @@ class Organism:
                 code = np.unique(np.concatenate([ci[:half], cj[half:]]))
                 self.mb.learn(code, 0.5 * (ri + rj), self.learning_rate)
                 self.replays["rem"] += 1
-                self._log_replay("rem", self.episodes[i][2])
-                self._log_replay("rem", self.episodes[j][2])
+                self.seq += 1
+                self._log_replay("rem", self.episodes[i][2], self.seq)
+                self._log_replay("rem", self.episodes[j][2], self.seq)
             else:
-                # NREM, or awake: the biggest surprise first (prioritized replay)
-                i = int(np.argmax(self.priority))
+                # NREM, or awake: the biggest surprise first (prioritized replay).
+                # With a backup (genome.replay_backup, born 0), a replay goes on
+                # as a path: each next step is the moment BEFORE the last one,
+                # which learns its own reward plus backup x the value of the
+                # moment that followed it -- reverse replay after reward
+                # (Foster & Wilson 2006) handing a meal's value back along the
+                # route that led to it. At 0 it is exactly the old replay.
+                if self.replay_backup > 0.0 and self.chain is not None and self.chain[0] >= 0:
+                    i, seq = self.chain
+                else:
+                    i = int(np.argmax(self.priority))
+                    self.seq += 1
+                    seq = self.seq
                 code, reward, cell = self.episodes[i]
-                self.mb.learn(code, reward, self.learning_rate)
-                self.priority[i] = abs(reward - self.mb.value(code))
+                target = reward
+                if self.replay_backup > 0.0 and i + 1 < len(self.episodes):
+                    target = reward + self.replay_backup * self.mb.value(self.episodes[i + 1][0])
+                self.mb.learn(code, target, self.learning_rate)
+                self.priority[i] = abs(target - self.mb.value(code))
                 if cell is not None:
-                    self.place[cell] += self.learning_rate * (reward - self.place[cell])
+                    self.place[cell] += self.learning_rate * (target - self.place[cell])
+                self.chain = (i - 1, seq) if self.replay_backup > 0.0 else None
                 self.replays["nrem" if asleep_settled else "awake"] += 1
-                self._log_replay("nrem" if asleep_settled else "awake", cell)
+                self._log_replay("nrem" if asleep_settled else "awake", cell, seq)
         return count * kc_macs(self.live_kc)
 
-    def _log_replay(self, kind: str, cell) -> None:
+    def _log_replay(self, kind: str, cell, seq: int = 0) -> None:
         if cell is not None:
-            self.replay_log.append((kind, int(cell[0]), int(cell[1]), self.k))
+            self.replay_log.append((kind, int(cell[0]), int(cell[1]), self.k, seq))
             del self.replay_log[:-64]
 
     def _substep(self, shift: tuple, in_world: bool) -> None:

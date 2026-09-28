@@ -159,5 +159,22 @@ Sleep replays experience:
 - **NREM:** the biggest surprises first, then the place map scaled down.
 - **REM:** experiences recombined.
 
+- **Paths (sequence replay):** with an inherited backup (born 0), a replay
+  goes on as a path, walking back from the surprise it started at. Each earlier
+  moment learns its own reward plus backup × the value of the moment that
+  followed. This is reverse replay after reward (Foster & Wilson 2006): it
+  hands a meal's value back along the route that led to it. Each step costs
+  one replay.
+
+- **Dreams (closed loop):** asleep and settled, its brain can steer an
+  imagined gaze through the real eye physics, its senses fed by its own maps
+  instead of its eyes. This is its internal representation standing in for the
+  world: preplay of paths not yet taken (Pfeiffer & Foster 2013), and dreaming
+  as model-running (Hobson & Friston 2012). Along the imagined path it learns a
+  value map by the same backup (Sutton's Dyna): a place is worth its food plus
+  backup × what the path reached next. Its place sense then points to the
+  place worth most. Each dream step costs one brain step. How many steps it
+  dreams is inherited, born 0; a dream teaches nothing without a backup above 0.
+
 It can also replay awake, in quiet moments. How much of each is inherited,
 starting at 0.

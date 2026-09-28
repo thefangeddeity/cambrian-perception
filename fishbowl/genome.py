@@ -193,6 +193,8 @@ class Genome:
         awake_replay: int = 0,
         sleep_replay: int = 0,
         rem_share: float = 0.0,
+        replay_backup: float = 0.0,
+        dream_steps: int = 0,
         vigilance: float = 1.0,
         pump: float | None = None,
         aversive_rate: float = 0.0,
@@ -232,6 +234,12 @@ class Genome:
         self.awake_replay = int(np.clip(awake_replay, 0, MAX_REPLAYS))
         self.sleep_replay = int(np.clip(sleep_replay, 0, MAX_REPLAYS))
         self.rem_share = float(np.clip(rem_share, 0.0, 1.0))
+        # Sequence replay (organism._replay): how much of the next moment's
+        # value flows back along a replayed path. Born 0: replay as before.
+        self.replay_backup = float(np.clip(replay_backup, 0.0, 1.0))
+        # Closed-loop dreaming (organism._dream): brain steps per settled
+        # sleeping look run on its own maps. Born 0: no dreams.
+        self.dream_steps = int(np.clip(dream_steps, 0, MAX_REPLAYS))
         # Vigilance: how easily a change in the field wakes it (state.big_change).
         self.vigilance = float(np.clip(vigilance, MIN_VIGILANCE, MAX_VIGILANCE))
         # Its feeding pump (state.py): how fast blood flows in while a host is
@@ -279,6 +287,8 @@ class Genome:
             self.awake_replay,
             self.sleep_replay,
             self.rem_share,
+            self.replay_backup,
+            self.dream_steps,
             self.vigilance,
             self.pump,
             self.aversive_rate,
@@ -495,15 +505,19 @@ class Genome:
             self.host_pref = _host_pref(w)
             return "host", (choice if self.host_pref != old else "noop_inapplicable")
         if choice == "mutate_replay":
-            old = (self.awake_replay, self.sleep_replay, self.rem_share)
-            which = rng.randrange(3)
+            old = (self.awake_replay, self.sleep_replay, self.rem_share, self.replay_backup, self.dream_steps)
+            which = rng.randrange(5)
             if which == 0:
                 self.awake_replay = int(np.clip(self.awake_replay + rng.choice((-1, 1)), 0, MAX_REPLAYS))
             elif which == 1:
                 self.sleep_replay = int(np.clip(self.sleep_replay + rng.choice((-1, 1)), 0, MAX_REPLAYS))
-            else:
+            elif which == 2:
                 self.rem_share = float(np.clip(self.rem_share + rng.gauss(0.0, TRAIT_SIGMA), 0.0, 1.0))
-            new = (self.awake_replay, self.sleep_replay, self.rem_share)
+            elif which == 3:
+                self.replay_backup = float(np.clip(self.replay_backup + rng.gauss(0.0, TRAIT_SIGMA), 0.0, 1.0))
+            else:
+                self.dream_steps = int(np.clip(self.dream_steps + rng.choice((-1, 1)), 0, MAX_REPLAYS))
+            new = (self.awake_replay, self.sleep_replay, self.rem_share, self.replay_backup, self.dream_steps)
             return "replay", (choice if new != old else "noop_inapplicable")
         if choice == "mutate_pump":
             old = self.pump
@@ -637,6 +651,8 @@ class Genome:
             "awake_replay": self.awake_replay,
             "sleep_replay": self.sleep_replay,
             "rem_share": self.rem_share,
+            "replay_backup": self.replay_backup,
+            "dream_steps": self.dream_steps,
             "vigilance": self.vigilance,
             "pump": self.pump,
             "aversive_rate": self.aversive_rate,
@@ -697,6 +713,8 @@ class Genome:
             host_pref={int(k): float(v) for k, v in (data.get("host_pref") or {}).items()},
             awake_replay=int(data.get("awake_replay", 0)),
             sleep_replay=int(data.get("sleep_replay", 0)),
+            replay_backup=float(data.get("replay_backup", 0.0)),
+            dream_steps=int(data.get("dream_steps", 0)),
             rem_share=float(data.get("rem_share", 0.0)),
             vigilance=float(data.get("vigilance", 1.0)),
             pump=data.get("pump"),

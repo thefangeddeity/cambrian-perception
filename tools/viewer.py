@@ -596,7 +596,7 @@ PAGE = r"""<!doctype html>
       <label><input type="checkbox" data-layer="place"> <b style="color:#6f6">food places</b></label>
       <label><input type="checkbox" data-layer="people"> <b style="color:#f7c">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#7fd4ff">still surprising</b></label>
-      <label><input type="checkbox" data-layer="dreams"> <b style="color:#b9f">dreams</b></label></div>
+      <label><input type="checkbox" data-layer="dreams"> <b style="color:#b9f">replay</b> (blue NREM, violet REM, grey awake; lines = replayed paths) <b style="color:#fd5">and dreams</b> (gold: imagined paths through its own maps)</label></div>
     <div class="cap">Its wide-field eyes: <span id="field-px">--</span>. Threat, arousal and where things move; no detail. Box = its <b style="color:var(--cyan)">gaze</b>, a few seconds behind live; trail = last 3 s.</div>
     <div class="legend cap" style="margin-top:8px">
       <span><b style="color:var(--green)">&#9633;</b> gaze, centered</span>
@@ -614,7 +614,7 @@ PAGE = r"""<!doctype html>
     <canvas id="brain" height="520"></canvas>
     <canvas id="mb" height="150" style="margin-top:6px"></canvas>
     <div class="cap" id="mb-cap"></div>
-    <div class="cap"><b id="brain-mb">--</b>. 29 inputs &rarr; <b id="brain-units">--</b> recurrent units, <b id="brain-layers">--</b> stacked &rarr; pan / tilt / alarm / tempo / sleep, plus grown loops. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits; fill = activity. Right: unit &rarr; unit memory.</div>
+    <div class="cap"><b id="brain-mb">--</b>. 34 inputs &rarr; <b id="brain-units">--</b> recurrent units, <b id="brain-layers">--</b> stacked &rarr; pan / tilt / alarm / tempo / sleep, plus grown loops. Only what exists is drawn: new units are born by duplicating one (up to 256, a safety bound; the price limits it), and grown loops appear as they grow. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits; fill = activity. Right: unit &rarr; unit memory.</div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
@@ -700,7 +700,7 @@ PAGE = r"""<!doctype html>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger'];
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
@@ -829,16 +829,27 @@ PAGE = r"""<!doctype html>
         const a = colour(vals[r * cols + c]); if (a) { ctx.fillStyle = a; ctx.fillRect(c * cw, r * ch, cw + 0.5, ch + 0.5); }
       }
     };
-    if (LAYERS.place) { const top = Math.max(1e-6, ...m.place.map(Math.abs)); cells(m.place, m.shape, v => v > 0 ? `rgba(90, 255, 110, ${0.55 * v / top})` : null); }
+    if (LAYERS.place) {  // what has fed it there, plus what its dreams learned it leads to
+      const worth = m.value ? m.place.map((v, k) => v + m.value[k]) : m.place;
+      const top = Math.max(1e-6, ...worth.map(Math.abs)); cells(worth, m.shape, v => v > 0 ? `rgba(90, 255, 110, ${0.55 * v / top})` : null);
+    }
     if (LAYERS.people) cells(m.people, m.shape, v => v > 0.01 ? `rgba(255, 110, 200, ${0.5 * Math.min(1, v)})` : null);
     if (LAYERS.familiar) cells(m.familiar, m.mem_shape, v => v < 0 ? 'rgba(40, 0, 60, 0.45)' : `rgba(127, 212, 255, ${0.45 * (1 - v)})`);
     if (LAYERS.dreams && d.dreams) {
       const [rows, cols] = m.shape, cw = W / cols, ch = H / rows;
-      const hue = { nrem: '120, 150, 255', rem: '190, 140, 255', awake: '200, 200, 200' };
-      d.dreams.forEach(([kind, r, c, age]) => {
-        const a = Math.max(0, 1 - age / 3); if (!a) return;
-        ctx.strokeStyle = `rgba(${hue[kind] || '200, 200, 200'}, ${0.9 * a})`; ctx.lineWidth = 2;
-        ctx.strokeRect(c * cw + 1, r * ch + 1, cw - 2, ch - 2);
+      const hue = { nrem: '120, 150, 255', rem: '190, 140, 255', awake: '200, 200, 200', dream: '255, 210, 90' };
+      let prev = null;
+      d.dreams.forEach(([kind, r, c, age, seq]) => {
+        const a = Math.max(0, 1 - age / 3);
+        if (a) {
+          ctx.strokeStyle = `rgba(${hue[kind] || '200, 200, 200'}, ${0.9 * a})`; ctx.lineWidth = 2;
+          ctx.strokeRect(c * cw + 1, r * ch + 1, cw - 2, ch - 2);
+          // a replayed path (sequence replay): consecutive steps of one sequence joined
+          if (prev && seq && prev[4] === seq && (prev[1] !== r || prev[2] !== c)) {
+            ctx.beginPath(); ctx.moveTo((prev[2] + 0.5) * cw, (prev[1] + 0.5) * ch); ctx.lineTo((c + 0.5) * cw, (r + 0.5) * ch); ctx.stroke();
+          }
+        }
+        prev = [kind, r, c, age, seq];
       });
     }
   }

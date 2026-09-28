@@ -27,6 +27,7 @@ class HourlyMetrics:
         self._reset(time.time())
         self.last_index = None   # the feed's last frame index already counted
         self.bite_run = 0        # frames in the bite still going on
+        self.sleep_run = 0       # frames in the sleep bout still going on
         self.last_xy = None
         self.last_heading = None
 
@@ -36,6 +37,7 @@ class HourlyMetrics:
         self.look_sum = self.missed_sum = 0.0  # look interval (frames) and missed share, weighted by new frames
         self.sums = collections.Counter()  # the live actor's per-look competence sums (fishbowl/livelife.py)
         self.bites: list[float] = []
+        self.sleeps: list[float] = []  # sleep bouts that ended this hour, seconds
         self.turning = 0.0
         self.path = 0.0
 
@@ -57,10 +59,14 @@ class HourlyMetrics:
             sleeping = k < len(asleep) and asleep[k]
             if sleeping:
                 self.asleep += 1
+                self.sleep_run += 1
                 self._end_bite(fps)
                 self.last_xy = self.last_heading = None
                 continue
             self.awake += 1
+            if self.sleep_run:
+                self.sleeps.append(self.sleep_run / max(1.0, fps))
+                self.sleep_run = 0
             if k < len(alarm) and alarm[k]:
                 self.warn += 1
             if k in swat_frames:
@@ -119,6 +125,11 @@ class HourlyMetrics:
             "diet_scent_mean": round(s["diet_s"] / n, 3) if n else None,
             "tree_sees_unlabelled": round(s["tree_yes_yolo_no"] / looks, 3),
             "tree_misses_labelled": round(s["tree_no_yolo_yes"] / looks, 3),
+            # what it replayed and dreamt this hour: replays by kind, how many
+            # replay sequences (paths) it began, and closed-loop dreams
+            "replay_awake": int(s["replay_awake"]), "replay_nrem": int(s["replay_nrem"]),
+            "replay_rem": int(s["replay_rem"]), "replay_sequences": int(s["replay_sequences"]),
+            "dreams": int(s["dreams"]),
         }
 
     def due(self) -> bool:
@@ -135,6 +146,11 @@ class HourlyMetrics:
         line = {
             "t": round(now), "seconds": round(now - self.started), "frames": self.frames,
             "asleep_share": round(self.asleep / self.frames, 3),
+            # when and how it sleeps: bouts that ended this hour, and the one still going
+            "sleep_bouts": len(self.sleeps),
+            "sleep_bout_s_median": round(statistics.median(self.sleeps), 1) if self.sleeps else None,
+            "sleep_bout_s_max": round(max(self.sleeps), 1) if self.sleeps else None,
+            "asleep_now_s": round(self.sleep_run / max(1.0, fps), 1),
             "bites": len(b),
             "bite_s_median": round(statistics.median(b), 2) if b else None,
             "bite_s_mean": round(statistics.fmean(b), 2) if b else None,

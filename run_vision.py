@@ -567,7 +567,8 @@ def evaluate_genome(
         "asleep": [int(asleeps[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] >= 0.5) if asleeps else 0 for k in range(nf)],
         # Memory carried to the next generation: surprise, the mushroom body's
         # learning, the place map and where people are expected (day, night).
-        "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night, org.mb.danger_weights),
+        "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night, org.mb.danger_weights,
+                    org.value_map),
         # Per frame: its alarm (the warning) and the intruder sense, for the viewer.
         "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
         "replays": dict(org.replays),
@@ -1107,7 +1108,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
                       np.array(m["var"], dtype=float),
                       np.array(m.get("learned") or [], dtype=float),
-                      *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger")))
+                      *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")))
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
@@ -1137,7 +1138,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                        "var": [[round(float(x), 6) for x in row] for row in memory_now[1]],
                        "learned": [round(float(x), 5) for x in memory_now[2]] if len(memory_now) > 2 else [],
                        **{k: np.round(memory_now[i], 5).tolist()
-                          for i, k in ((3, "place"), (4, "people_day"), (5, "people_night"), (6, "danger"))
+                          for i, k in ((3, "place"), (4, "people_day"), (5, "people_night"), (6, "danger"), (7, "value"))
                           if len(memory_now) > i and memory_now[i] is not None}}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
@@ -1176,6 +1177,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "pump": round(genome.pump, 3), "metabolism": round(genome.metabolism, 3), "pace": genome.pace,
             "kc": genome.kc, "receptors": genome.receptors, "zoom": round(genome.zoom, 3),
             "vigilance": round(genome.vigilance, 3), "quota_pct": quota_pct,
+            "replay": {"awake": genome.awake_replay, "sleep": genome.sleep_replay, "rem_share": round(genome.rem_share, 2),
+                       "backup": round(genome.replay_backup, 3), "dream_steps": genome.dream_steps},
             "body": {k: round(float(body_now[k]), 3) for k in ("energy", "glycogen", "reserve", "ketone", "wasting")
                      if body_now and k in body_now},
         })
@@ -1537,7 +1540,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "zoom_gain": genome.zoom,
             "metabolism": genome.metabolism,
             "host_pref": {prey_lib.PREY_CLASSES[c]: round(w, 2) for c, w in genome.host_pref.items()},
-            "replay_traits": {"awake": genome.awake_replay, "sleep": genome.sleep_replay, "rem_share": round(genome.rem_share, 2)},
+            "replay_traits": {"awake": genome.awake_replay, "sleep": genome.sleep_replay, "rem_share": round(genome.rem_share, 2),
+                              "backup": round(genome.replay_backup, 3), "dream_steps": genome.dream_steps},
             "vigilance": genome.vigilance,
             "pump": genome.pump,
             "prey_sense": genome.prey_sense,

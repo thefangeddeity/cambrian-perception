@@ -45,7 +45,7 @@ def memory_of(org: Organism) -> tuple:
     def c(a):
         return None if a is None else np.array(a, dtype=float, copy=True)
     return (c(org.memory), c(org.variance), c(org.mb.weights), c(org.place), c(org.people_day),
-            c(org.people_night), c(org.mb.danger_weights))
+            c(org.people_night), c(org.mb.danger_weights), c(org.value_map))
 
 
 def _carry(old: Organism, new: Organism) -> None:
@@ -57,6 +57,10 @@ def _carry(old: Organism, new: Organism) -> None:
     new.state = fovea.FoveaState(cx=old.state.cx, cy=old.state.cy, n=new.state.n,
                                  vx=old.state.vx, vy=old.state.vy)
     ob, nb = old.brain, new.brain
+    # Its episodes of this life and their replay order go on too: replay
+    # draws on them, and dozens of adoptions a minute used to empty them.
+    new.episodes, new.priority, new.replays = old.episodes, old.priority, old.replays
+    new.replay_log, new.value_errors, new.seq, new.dreams = old.replay_log, old.value_errors, old.seq, old.dreams
     if ob.hidden.shape == nb.hidden.shape:
         nb.hidden = ob.hidden.copy()
         if len(ob.layer_hidden) == len(nb.layer_hidden):
@@ -93,6 +97,7 @@ def _circuits(org: Organism) -> dict:
         # familiar: 1 = as still as sensor noise (fully habituated), low = still varying; -1 = never seen
         fam = np.where(np.isnan(mean), -1.0, np.clip(NOISE_FLOOR ** 2 / np.maximum(var, 1e-12), 0.0, 1.0))
         out["maps"] = {"shape": [rows, cols], "place": np.round(org.place, 3).ravel().tolist(),
+                       "value": np.round(org.value_map, 3).ravel().tolist() if org.value_map is not None else None,
                        "people": np.round(people, 3).ravel().tolist(),
                        "mem_shape": list(mean.shape), "familiar": np.round(fam, 2).ravel().tolist()}
     mb = org.mb
@@ -106,7 +111,7 @@ def _circuits(org: Organism) -> dict:
                      "food": food, "food_scale": fs, "danger": danger, "danger_scale": ds,
                      "cost_share": round(share, 4)}
     fps = max(1.0, org.fps)
-    out["dreams"] = [[kind, r, c, round((org.k - k) / fps, 1)] for kind, r, c, k in org.replay_log
+    out["dreams"] = [[kind, r, c, round((org.k - k) / fps, 1), seq] for kind, r, c, k, seq in org.replay_log
                      if (org.k - k) / fps < 10.0]
     return out
 
@@ -189,6 +194,7 @@ class LiveLife:
             org = self.org
             org.fps = fps
             missed0 = org.missed
+            replays0, seq0, dreams0 = dict(org.replays), org.seq, org.dreams
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
                 sig, shift = self.field.step(grey)
                 swats0 = org.swats
@@ -219,6 +225,11 @@ class LiveLife:
                     batch["swat_acts"].append(j)
                 self.last, self.last_time = index, arrived
             missed = org.missed - missed0
+            # what it replayed and dreamt (for the hourly metrics)
+            for kind in ("awake", "nrem", "rem"):
+                batch["sums"]["replay_" + kind] += org.replays[kind] - replays0.get(kind, 0)
+            batch["sums"]["replay_sequences"] += org.seq - seq0
+            batch["sums"]["dreams"] += org.dreams - dreams0
             batch["pace"] = float(org.last_interval)
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)

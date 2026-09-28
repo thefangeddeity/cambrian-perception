@@ -102,7 +102,7 @@ INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y"
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
                "prey scent", "prey dir x", "prey dir y", "food value", "place dx", "place dy", "place value",
-               "intruder")
+               "intruder", "danger")
 OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
 
 
