@@ -157,7 +157,7 @@ MEAN_RATE, VAR_RATE = 0.1, 0.05
 # Intruder: a person at a spot where, at this time of day, people haven't
 # been over the last ~20 minutes (its day/night sense's slow average) -- its
 # own surprise; the regulars' spots become expected. One of the brain's
-# inputs; barking at it is its alarm output (nothing rewards it yet: the
+# inputs; warning of it is its alarm output (nothing rewards it yet: the
 # owner's feedback is to breed that).
 
 # --- The frame's global shift (for the stabilizer) -------------------------------

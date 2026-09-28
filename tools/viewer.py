@@ -271,7 +271,7 @@ LOCK_HUD_JS = r"""
       fw: (traj[i][2] || 0.35) * (d.frame_h || 9) / (d.frame_w || 16),
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
       guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null, snack: at(d.snacks) || 0,
-      asleep: !!at(d.asleep_frames), bark: !!at(d.alarm_frames),
+      asleep: !!at(d.asleep_frames), warn: !!at(d.alarm_frames),
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
       delay,
     };
@@ -420,7 +420,7 @@ LOCK_HUD_JS = r"""
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
-                  ...(fs.bark ? [[blink ? 'BARK' : '', '#ff4444', 'bold 12px monospace']] : []),
+                  ...(fs.warn ? [[blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']] : []),
                   [fs.delay != null ? `delayed ${fs.delay.toFixed(1)} s` : 'its latest run, looped', '#9fb6c6', '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
@@ -648,7 +648,7 @@ PAGE = r"""<!doctype html>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>host preference</td><td>Its food is living things -- people and animals ("protein"), never plants or food items. Which of them its prey sense answers most strongly evolves, like a mosquito's odour tuning; people are never below the even weight, so every lineage can track people.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>place map and replay</td><td>It learns which spots of its field have fed it, and its brain can read where the best one is. It can replay what it lived: awake in quiet moments (a big change cuts it short), and asleep -- NREM replays the biggest surprises first and scales the place map back down; REM replays recombined experiences. Replay costs thinking energy and time against each look's deadline. All off as it is born.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>feeding pump</td><td>A bite is a flow, not a gulp: while a host is at its mouth, blood flows in at its pump's rate (seconds of waking life per second on the host) times the catch's confidence, until the gut is full. Looking faster doesn't eat faster; staying on the host does. A bigger pump is more muscle to keep, so it costs a little all the time.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>vigilance and intruders</td><td>How big a change it takes to wake it evolves (its sensors stay on while it sleeps). Its intruder sense: a person where, at this time of day, people haven't been lately. Its alarm is its bark (BARK on the camera); nothing rewards barking yet -- the livecam owner's feedback is to breed that.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>vigilance and intruders</td><td>How big a change it takes to wake it evolves (its sensors stay on while it sleeps). Its intruder sense: a person where, at this time of day, people haven't been lately. Its alarm is its warning (WARN on the camera); nothing rewards warning yet -- the livecam owner's feedback is to breed that.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>input</td><td>hunger, search, curiosity</td><td>Not scored directly: they are what it feels. Hunger builds while blood sugar and gut are low and drives search; curiosity grows while nothing new comes in and drops when it eats novelty. All three feed its brain.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>motor</td><td>sleep</td><td>Its own choice (a brain output), with three physiological overrides: it collapses when sleep pressure maxes out (and can't wake by choice until it has recovered), starving wakes it (and keeps even an exhausted animal up), and a big change in the field wakes it. Asleep: eyes shut, no eating, slow sampling of the field, a third of the waking burn -- the reserve can cover sleep but not waking, so sleep is how to get through a quiet room. Sleep also pays back tiredness (at full pressure it gets only half of what it catches) and consolidates its habituation memory. It can only fall asleep once it is tired enough (sleep pressure above a threshold, lower in the dark), and wakes by itself once rested (Borbely's two thresholds), so it can't sleep through a busy room. Falling asleep takes a moment to settle; waking, it is groggy for a few seconds and can't eat. Its sense of day and night is the field's light and its trend.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Not wired in: when something dark starts expanding anywhere in the whole field (locust-LGMD style, dark-only per Yilmaz &amp; Meister 2013), it earns up to +1 for widening its gaze or making a saccade within 3 frames of real time, more for faster. No approach, no reward, no penalty. The flinch has to evolve.</td></tr>

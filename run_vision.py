@@ -565,7 +565,7 @@ def evaluate_genome(
         # Memory carried to the next generation: surprise, the mushroom body's
         # learning, the place map and where people are expected (day, night).
         "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night),
-        # Per frame: its alarm (the bark) and the intruder sense, for the viewer.
+        # Per frame: its alarm (the warning) and the intruder sense, for the viewer.
         "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
         "replays": dict(org.replays),
         "intruder": round(org.intruder, 3),
