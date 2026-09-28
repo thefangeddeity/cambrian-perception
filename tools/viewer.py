@@ -413,17 +413,26 @@ LOCK_HUD_JS = r"""
   // (replayAt), d = status, picture = a frame is shown (the reticle is drawn
   // only then), imgAspect = the picture's width / height (fitted inside the
   // box), st = glide state kept between frames, opts.gen = show generation.
+  // The HUD's palette, "red phosphor" (a 2026-09-28 UX panel, 8-2): one red
+  // ramp, meaning carried by brightness and weight (it survives without
+  // colour), bone-white only for what matters now -- a lock, a bite, a warning.
+  const HUD_HOT = '#ff2a1a', HUD_EMBER = '#c21d12', HUD_ASH = '#7a130c', HUD_BONE = '#f2ede6';
+  const HUD_FILM = 'rgba(90, 0, 0, 0.22)', HUD_SCAN = 'rgba(0, 0, 0, 0.14)';
   function drawLock(ctx, bw, bh, fs, d, picture, imgAspect, now, st, opts) {
+    // Red phosphor (a 2026-09-28 UX panel): the picture under a thin red film
+    // and faint scanlines, so it reads as seen by a machine.
+    ctx.fillStyle = HUD_FILM; ctx.fillRect(0, 0, bw, bh);
+    ctx.fillStyle = HUD_SCAN; for (let y = 0; y < bh; y += 3) ctx.fillRect(0, y, bw, 1);
     const dt = Math.min(1, (now - (st.lastT || now)) / 1000); st.lastT = now;
     const L = lockState(fs), aspect = bw / bh;
     const sleeping = L.mode === 'SLEEP';
-    const col = L.mode === 'LOCK' ? '#ff4d6d' : L.mode === 'TRACK' ? '#fd4' : sleeping ? '#a8c' : '#7fd4ff';
+    const col = L.mode === 'LOCK' ? HUD_BONE : L.mode === 'TRACK' ? HUD_HOT : sleeping ? HUD_ASH : HUD_EMBER;
     const blink = Math.floor(now / 350) % 2 === 0;
     if (picture) {
       const ia = imgAspect || aspect;
       const w = ia >= aspect ? bw : bh * ia, h = ia >= aspect ? bw / ia : bh;
       ctx.save(); ctx.translate((bw - w) / 2, (bh - h) / 2);
-      ctx.strokeStyle = 'rgba(255, 95, 162, 0.75)'; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = HUD_EMBER; ctx.lineWidth = 1.5;
       (fs.boxes || []).forEach(b => lockCorners(ctx, b[2] * w, b[3] * h, b[4] * w, b[5] * h, 8));
       // glide between its gazes (the eye moves between them too); snap when the replay loops
       if (st.i != null && fs.i < st.i) st.rx = null;
@@ -446,7 +455,7 @@ LOCK_HUD_JS = r"""
         if (age < 280) {
           const k = age / 280, e = 1 - Math.pow(1 - k, 3);
           const X0 = (x - gw / 2) * e, Y0 = (y - gh / 2) * e, X1 = w + (x + gw / 2 - w) * e, Y1 = h + (y + gh / 2 - h) * e;
-          ctx.save(); ctx.strokeStyle = `rgba(255, 77, 109, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
+          ctx.save(); ctx.strokeStyle = `rgba(242, 237, 230, ${0.9 * (1 - k)})`; ctx.lineWidth = 3;
           lockCorners(ctx, X0, Y0, X1, Y1, Math.min(X1 - X0, Y1 - Y0) * 0.14);
           ctx.restore();
         }
@@ -475,7 +484,7 @@ LOCK_HUD_JS = r"""
     }
     st.mode = L.mode;
     const b = d.body_now || d.body || {}, threat = Math.max(0, Math.min(1, b.threat || 0));
-    if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 68, 68, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
+    if (threat > 0.05) { ctx.strokeStyle = `rgba(255, 42, 26, ${0.85 * threat})`; ctx.lineWidth = 8; ctx.strokeRect(4, 4, bw - 8, bh - 8); }
     // Meals and snacks it had, counted as the feed plays (since this page
     // opened): a feeding act is a look that caught prey (in a livecam, a
     // snapshot) or any surprise; acts closer together than its bout
@@ -500,24 +509,24 @@ LOCK_HUD_JS = r"""
     // changing numbers move away from the edge), mirrored in Arabic top right,
     // right-justified as Arabic reads.
     const tw = ctx.measureText(tag).width, tx = bw / 2 - (tw + 9) / 2;
-    ctx.fillStyle = blink ? '#f44' : 'rgba(255, 68, 68, 0.3)'; ctx.beginPath(); ctx.arc(tx + 4, 18, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = '#cfe6f5'; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
+    ctx.fillStyle = blink ? HUD_HOT : HUD_ASH; ctx.beginPath(); ctx.arc(tx + 4, 18, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = HUD_HOT; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
     // Left-hand readout, top to bottom: mode + ID, delay, (operators only)
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then snacks, then meals, then its warning.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 12px monospace'],
-                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? '#fd4' : '#9fb6c6', '11px monospace']];
+                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_HOT : HUD_EMBER, '11px monospace']];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
-      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? '#4fa' : '#fd4', '11px monospace']);
+      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_HOT : HUD_ASH, '11px monospace']);
     }
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
-    rows.push([`snacks ${boutText('snack', st.snacks)}`, '#d8b4ff', '11px monospace']);
-    rows.push([`meals ${boutText('meal', st.meals)}`, '#ff9fb8', '11px monospace']);
+    rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_EMBER, '11px monospace']);
+    rows.push([`meals ${boutText('meal', st.meals)}`, HUD_EMBER, '11px monospace']);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
     // it warns, a dim lamp otherwise. The client page never shows it.
-    if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', '#ff4444', 'bold 12px monospace']
-                                                  : ['WARN', 'rgba(255, 68, 68, 0.28)', 'bold 12px monospace']);
+    if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', HUD_BONE, 'bold 12px monospace']
+                                                  : ['WARN', HUD_ASH, 'bold 12px monospace']);
     ctx.textAlign = 'left';
     rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
     hudOverlay(ctx.canvas, rows);  // Arabic, Ukrainian, Taiwanese: page text over the HUD
@@ -1331,7 +1340,7 @@ PAGE = r"""<!doctype html>
         const rt = d.replay_traits;
         $('h-replay').textContent = rt ? (rt.awake || rt.sleep ? `awake ${rt.awake}, asleep ${rt.sleep} (REM ${Math.round(rt.rem_share * 100)}%)` : 'off') : '--';
         $('h-prey').textContent = ['eyes only', 'scent', 'scent + direction'][d.prey_sense ?? 0] || '--';
-        $('h-quota').textContent = d.quota_pct !== undefined ? d.quota_pct + '%' : '--';
+        $('h-quota').textContent = d.quota_pct !== undefined ? (d.host_cores ? `${(d.quota_pct / 100).toFixed(1)} of ${d.host_cores} cores` : d.quota_pct + '% of a core') : '--';  // systemd's % = one core
         $('h-stale').innerHTML = '';
         drawBody(d); drawBrain(d); showLive(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);

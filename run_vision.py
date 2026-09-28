@@ -1498,6 +1498,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "learning_rate": round(genome.learning_rate, 5),
             "food_value": live_info.get("food_value"),
             "quota_pct": quota_pct,
+            "host_cores": os.cpu_count(),  # the quota is in cores (100% = one); the viewer shows it of these
             # Gemini's homeostasis: the candidate's body at the end of this
             # generation's run, its energy over time, how many frames the
             # flinch, and the gaze's real path
