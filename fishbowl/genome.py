@@ -68,10 +68,15 @@ MIN_VIGILANCE, MAX_VIGILANCE = 0.25, 4.0   # bounds only: a quarter to four time
 # Prey sense (run_vision.py): 0 = eyes only, 1 = scent (prey somewhere in
 # view), 2 = + a coarse direction to it. mutate_prey_sense steps it by one.
 MAX_PREY_SENSE = 2
-# Structural additions that change nothing at birth (run_vision.py keeps
-# them on a tie, so they can drift until they are useful).
-NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "grow_unit", "duplicate_layer",
-                      "grow_kc", "mutate_learning")
+# Structural additions that change nothing at birth AND cost nothing until
+# used (run_vision.py keeps them on a tie, so they can drift until they are
+# useful). Not grow_kc or grow_unit (2026-09-28, a panel): Kenyon cells and
+# hidden units are computed -- and priced -- every look from birth, but the
+# price was below the tie window, so a tie always kept growth while a shrink
+# was kept one time in ten: a one-way ratchet that drove the mushroom body to
+# its 4096 ceiling (tina 3712, tanzania's old lineage 4096) without selection
+# ever weighing it. Priced growth now faces the same odds as shrinking.
+NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "duplicate_layer", "mutate_learning")
 # The mushroom body (fishbowl/mushroom.py): Kenyon cells come and go a cohort
 # at a time; a first learning rate is drawn log-uniformly from 0.001 up to 1
 # (above 1 a single update overshoots its own prediction error), later ones
