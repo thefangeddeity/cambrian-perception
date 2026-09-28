@@ -793,6 +793,9 @@ WORLD_REFRESH_GENERATIONS = 5
 # longest gaps (its cadence, bursts included) -- the HLS convention of giving
 # up after a few missed reload periods, applied to whatever the source is.
 STALL_CADENCES = 3
+# A web stream arrives in segments a few seconds apart (YouTube live: ~2-5 s),
+# so it gets at least a few missed reloads' worth before it counts as stalled.
+STREAM_STALL_MIN_S = 30.0
 # ...or sooner, once the snapshot is older than this or three generations,
 # whichever is longer: on a slow host its gaze stays close to live (and a
 # dead feed is noticed) without spending most of its time refreshing.
@@ -864,6 +867,16 @@ def _dessert() -> dict | None:
 TREE_PLAIN_INPUTS = 2 + TREE_HIDDEN
 
 
+def _stream_failed(dessert: dict | None) -> None:
+    """The chosen stream failed this run. Its choice is dropped (back to the
+    camera) only after it fails sandbox.SOURCE_FAILURES_TO_DROP runs in a
+    row; one hiccup just ends this run, and the next one tries it again."""
+    if dessert is not None and sandbox.source_failed(dessert["url"]):
+        print(f"The chosen stream failed {sandbox.SOURCE_FAILURES_TO_DROP} runs in a row -- dropping it.")
+        sandbox.clear_selected_source(dessert["url"])
+        sandbox.source_opened()
+
+
 def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) -> None:
     # Dessert overrides the camera until its deadline; then this run
     # exits and systemd restarts it back on the camera.
@@ -924,15 +937,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             # (Restart=always). Drop the choice and go back to the camera --
             # but only once it has failed a few runs in a row: one timeout
             # is a network hiccup, not a stream that ended.
-            if dessert is not None and sandbox.source_failed(dessert["url"]):
-                print(f"Live stream unavailable ({e}) -- failed {sandbox.SOURCE_FAILURES_TO_DROP} runs in a row: "
-                      f"clearing the video choice, back to {home_source}.")
-                sandbox.clear_selected_source(dessert["url"])
-                sandbox.source_opened()
-            else:
-                print(f"Live stream unavailable ({e}) -- trying again on the next run.")
+            print(f"Live stream unavailable ({e}).")
+            _stream_failed(dessert)
             return
-        sandbox.source_opened()
 
     clip_name = _clip_display_name(source, clip_path)
 
@@ -982,9 +989,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if not feed.wait_for(600, timeout=0.5):
             print("Live feed never filled its window -- aborting.")
             feed.close()
-            if dessert is not None:
-                sandbox.clear_selected_source(dessert["url"] if dessert else None)
+            _stream_failed(dessert)
             return
+        if dessert is not None:
+            sandbox.source_opened()  # it delivered: its failure count starts over
         frames, vectors, seen_total, prey_boxes, colour_frames = feed.snapshot()
     else:
         print(f"Loading real frames from {clip_path!r} into memory (never written to disk)...")
@@ -1156,8 +1164,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         # A chosen video (live or recorded) that has ended: back to its camera.
         if feed is not None and feed.ended:
             print(f"The video ended -- back to {home_source}.")
-            if dessert is not None:
-                sandbox.clear_selected_source(dessert["url"])
+            if source == "live":
+                _stream_failed(dessert)  # a live stream's "end" can be a hiccup
+            elif dessert is not None:
+                sandbox.clear_selected_source(dessert["url"])  # a recording that ended has ended
             break
         # The video choice, checked every generation (a small file read): any
         # change -- a video chosen, cleared, or swapped for another -- stops
@@ -1223,14 +1233,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             world.first_index = feed.snapshot_first
             if total != seen_total:
                 last_new_frame = time.time()
-            elif time.time() - last_new_frame > STALL_CADENCES * max(feed.longest_gap(), 1.0 / max(1.0, _fps())):
+            elif time.time() - last_new_frame > max(STALL_CADENCES * max(feed.longest_gap(), 1.0 / max(1.0, _fps())),
+                                                    STREAM_STALL_MIN_S if source == "live" else 0.0):
                 # Audit: a stalled feed used to be scored forever on the same
                 # frozen frames. A dead stream goes back to the camera; a
                 # stalled camera restarts the process (reopening the device).
                 print(f"No new frames for {time.time() - last_new_frame:.0f} s -- "
                       + ("stream ended, back to the camera." if source == "live" else "camera stalled, restarting."))
-                if source == "live" and dessert is not None:
-                    sandbox.clear_selected_source(dessert["url"] if dessert else None)
+                if source == "live":
+                    _stream_failed(dessert)
                 break
             seen_total = total
         futures = None
