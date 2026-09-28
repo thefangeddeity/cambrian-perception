@@ -24,8 +24,17 @@ Sleep:
     clears during sleep.
   - sleep is the brain's own choice (a `sleep` output), with a settling
     period on falling asleep (no clearing yet) and grogginess on waking
-    (can't eat yet); two physiological overrides, not behaviour rules:
-    collapse when pressure maxes out, and hunger that wakes it.
+    (can't eat yet); one physiological override, not a behaviour rule:
+    collapse when pressure maxes out.
+  - hunger and boredom make it sleepy: both lower the bar for sleep, as the
+    dark does (with not much to take in, save energy). Hunger used to force
+    it awake instead -- a starving body burning at the waking rate with
+    nothing to eat.
+  - torpor (after Heller): sleep deepens into torpor while it is hungry --
+    NREM, shallow torpor and hibernation are one continuum, entered through
+    sleep, with the body's set point lowered (Heller & Glotzbach 1977). A
+    torpid body burns a fraction of sleep's rate, clears no sleep pressure
+    (torpor is not sleep), and has to rewarm before it can eat again.
 Sleep pays for itself twice: it saves energy when there is nothing to eat,
 and it restores what tiredness takes (a tired hunter gets less of what it
 catches; sleep also consolidates its habituation memory -- run_vision.py).
@@ -53,6 +62,13 @@ STORE_EFFICIENCY = 0.75
 MOBILIZE_BELOW = 0.5   # reserve tops blood sugar up below this level...
 MOBILIZE_RATE = 0.5    # ...at up to 0.5 B/s: enough for sleep, not for waking
 SLEEP_METABOLISM = 0.3  # B/s while asleep
+# Torpor: metabolism falls below 5% of basal in deep hibernation (Geiser
+# 2004's review); entering takes about an hour, rewarming about half that
+# before it can hunt (orders of magnitude for small mammals; constants audit).
+TORPOR_METABOLISM = 0.05  # B/s at full depth (waking basal is ~1 B/s)
+TORPOR_ENTRY_S = 3600.0
+TORPOR_EXIT_S = 1800.0
+TORPOR_CAN_EAT = 0.5      # rewarmed enough to hunt below this depth
 # Awake: a fixed cost of being awake at all, plus a share that follows its
 # tempo (a fast gaze is expensive, a slow one cheap). The floor sits above
 # what the reserve can supply (MOBILIZE_RATE), so however slowly it gazes,
@@ -79,8 +95,7 @@ SLEEP_SETTLE_S = 10.0   # falling asleep: no clearing yet
 SLEEP_INERTIA_S = 7.0   # waking up: groggy, can't eat yet
 COLLAPSE_S = 0.95       # sleep pressure that forces sleep...
 COLLAPSE_RELEASE_S = 0.8  # ...and holds it until pressure is back below this
-HUNGER_WAKE_G = 0.15    # blood sugar that forces waking -- with an empty gut AND an empty
-HUNGER_WAKE_R = 0.05    # reserve: while the reserve can still carry sleep, a hungry animal may sleep
+HUNGER_WAKE_R = 0.05    # a reserve below this counts as empty (with blood sugar under EMPTY_G: degraded)
 EMPTY_G = 0.1           # below this the body degrades
 # Sleep needs sleep pressure (Borbely's two thresholds, both lowered by the
 # dark -- the circadian part, from its sense of the field's light): it can
@@ -114,6 +129,7 @@ class MosquitoState:
     light_fast: float = 0.5    # whole-field light, ~1 min average
     light_slow: float = 0.5    # whole-field light, ~20 min average
     cleared: float = 0.0       # sleep pressure cleared since last asked (for memory consolidation)
+    torpor: float = 0.0        # 0 = normal body; 1 = full torpor (Heller): deepens asleep while hungry
 
     # ---- what the organism "feels" ------------------------------------
     def drive(self) -> float:
@@ -144,29 +160,40 @@ class MosquitoState:
         return 1.0 - TIRED_EFFICIENCY * self.sleep_pressure
 
     @property
+    def boredom(self) -> float:
+        """Nothing new to take in (curiosity unmet) in a still field."""
+        return _clamp(self.curiosity * (1.0 - self.arousal))
+
+    @property
     def can_eat(self) -> bool:
-        return self.asleep < 0.5 and self.sleep_clock >= SLEEP_INERTIA_S
+        # awake, past waking grogginess, and rewarmed enough from torpor
+        return self.asleep < 0.5 and self.sleep_clock >= SLEEP_INERTIA_S and self.torpor < TORPOR_CAN_EAT
 
     # ---- sleep --------------------------------------------------------
     def set_sleep(self, wants_sleep: bool, loom: float = 0.0, field_motion: float = 0.0) -> None:
-        """The brain's choice, with the body's two overrides and a raised
-        arousal threshold while asleep (only a big change wakes it)."""
+        """The brain's choice, with the body's override (collapse) and a raised
+        arousal threshold while asleep (only a big change wakes it).
+
+        Borbely's two thresholds, lowered by the dark -- and by boredom and
+        hunger, the same way: with not much to take in, sleep comes easier.
+        A bored animal counts as in the dark; hunger scales both thresholds
+        down to nothing (a starving animal may rest to save what it has, and
+        doesn't wake just because it has slept enough -- Heller's lowered set
+        point, the way into torpor)."""
         asleep = self.asleep >= 0.5
         want = wants_sleep
-        starving = self.energy < HUNGER_WAKE_G and self.gut < 0.02 and self.reserve < HUNGER_WAKE_R
-        day = self.daylight
-        if want and not asleep and self.sleep_pressure < SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * day:
-            want = False  # not tired enough to fall asleep
-        if asleep and self.sleep_pressure < SLEEP_END_DARK + (SLEEP_END_DAY - SLEEP_END_DARK) * day:
+        wake_drive = self.daylight * (1.0 - self.boredom)
+        fed = 1.0 - self.hunger
+        onset = (SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * wake_drive) * fed
+        end = (SLEEP_END_DARK + (SLEEP_END_DAY - SLEEP_END_DARK) * wake_drive) * fed
+        if want and not asleep and self.sleep_pressure < onset:
+            want = False  # not tired (or bored, or hungry) enough to fall asleep
+        if asleep and self.sleep_pressure < end:
             want = False  # slept enough: wakes by itself
-        # Exhaustion: collapse, and no waking by choice until it has recovered
-        # -- unless it is starving, which keeps even an exhausted animal up.
-        if not starving and ((not asleep and self.sleep_pressure > COLLAPSE_S)
-                             or (asleep and self.sleep_pressure > COLLAPSE_RELEASE_S)):
+        # Exhaustion: collapse, and no waking by choice until it has recovered.
+        if (not asleep and self.sleep_pressure > COLLAPSE_S) or (asleep and self.sleep_pressure > COLLAPSE_RELEASE_S):
             want = True
-        # What wakes even an exhausted animal (and keeps it up): starving, or a big change.
-        if starving:
-            want = False
+        # What wakes even an exhausted animal: a big change.
         if asleep and (loom > 0.18 or field_motion > 0.6):
             want = False
         if want != asleep:
@@ -210,9 +237,15 @@ class MosquitoState:
         k = 0.5 ** (seconds / ACCLIMATIZE_HALF_LIFE_S)
         self.metabolic_rate = k * self.metabolic_rate + (1.0 - k) * (1.0 / max(1, pace))
 
+        # --- torpor: deepens asleep while hungry (toward how hungry it is),
+        # rewarms otherwise -- slower to enter than to leave ---
+        target = self.hunger if asleep and self.sleep_clock > SLEEP_SETTLE_S else 0.0
+        tau = TORPOR_ENTRY_S if target > self.torpor else TORPOR_EXIT_S
+        self.torpor += (1.0 - math.exp(-seconds / tau)) * (target - self.torpor)
+
         # --- spending (B-seconds) ---
         if asleep:
-            burn = SLEEP_METABOLISM * seconds
+            burn = (SLEEP_METABOLISM * (1.0 - self.torpor) + TORPOR_METABOLISM * self.torpor) * seconds
         else:
             burn = (WAKE_FLOOR + TEMPO_SHARE * (1.0 + self.arousal) * self.metabolic_rate) * seconds
         burn += (EFFORT_COST * motor_effort + aperture_cost) * LEGACY_UNIT
@@ -245,7 +278,8 @@ class MosquitoState:
         if asleep:
             if self.sleep_clock > SLEEP_SETTLE_S:
                 before = self.sleep_pressure
-                self.sleep_pressure = self.sleep_pressure * math.exp(-seconds / S_FALL_S)
+                # torpor is not sleep: the deeper, the less it clears
+                self.sleep_pressure = self.sleep_pressure * math.exp(-seconds * (1.0 - self.torpor) / S_FALL_S)
                 self.cleared += before - self.sleep_pressure
         else:
             load = 0.5 + 0.5 * _clamp(self.metabolic_rate)
@@ -292,7 +326,7 @@ class MosquitoState:
 
     # ---- persistence --------------------------------------------------
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
-              "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow")
+              "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "torpor")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
