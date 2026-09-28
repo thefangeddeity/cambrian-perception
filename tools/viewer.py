@@ -686,7 +686,7 @@ PAGE = r"""<!doctype html>
       <label><input type="checkbox" data-layer="people"> <b style="color:#ff6f8a">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
       <label><input type="checkbox" data-layer="dreams"> <b style="color:#e0909c">replay</b> &amp; <b style="color:#fff0c0">dreams</b></label></div>
-    <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">TARGET</b> = a host; red frame = something looming.</div>
+    <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
   </div>
   <div class="panel" id="brain-panel">
@@ -886,8 +886,12 @@ PAGE = r"""<!doctype html>
     pb.forEach(([cls, conf, x0, y0, x1, y1]) => {
       ctx.strokeStyle = '#ff6f8a'; ctx.lineWidth = 3; ctx.setLineDash([8, 4]);
       ctx.strokeRect(snapL(x0), snapT(y0), snapR(x1) - snapL(x0), snapB(y1) - snapT(y0)); ctx.setLineDash([]);
-      ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#ff6f8a'; ctx.fillText(`TARGET ${(conf * 100).toFixed(0)}%`, x0 * W + 2, y0 * H - 3);  // every host is a target (its preferences are in the traits)
     });
+    // the boxes carry no labels (they would clash on a coarse grid): one count for them all
+    if (pb.length) {
+      ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#ff6f8a'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`TARGETS ${pb.length}`, 10, H - 8);
+    }
     const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
     if (eat > 0.01) {
       ctx.fillStyle = 'rgba(255, 95, 162, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top';
