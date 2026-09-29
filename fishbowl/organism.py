@@ -30,7 +30,7 @@ import numpy as np
 
 from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
-                         PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT)
+                         PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS)
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -342,9 +342,15 @@ NECTAR_REFILL_S = 3 * 3600.0
 
 # What a host passes each frame about the whole field (sig): the keys below.
 SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light", "mismatch", "mismatch_cx", "mismatch_cy", "structure",
-               "parallax")
+               "parallax", "motion_map", "mismatch_map")
 
 
+# Its collicular priority map (a 2026-09-29 panel; the superior colliculus --
+# Land, Nilsson, Tooby & Cosmides, Friston): over the whole field's cells, a
+# weighted sum of these features; the strongest cell pulls its gaze. The
+# weights are inherited (genome.colliculus); host size's weight is the cat's
+# size gate, evolvable either way (a cat wants small and fast, a mosquito big).
+COLLICULAR_FEATURES = ("motion", "mismatch", "parallax", "host", "host size", "plant")
 GROUND_CLASSES = sorted(prey_lib.PREY_CLASSES)  # the classes whose sizes measure its ground plane
 
 
@@ -425,6 +431,8 @@ class Organism:
         # give a line whose zero is the horizon. Kept per scene (item 12).
         g_mem = memory[11] if memory is not None and len(memory) > 11 else None
         self.ground = np.array(g_mem, dtype=float) if g_mem is not None and len(g_mem) else np.zeros((len(GROUND_CLASSES), 5))
+        self.colliculus = np.array(getattr(g, "colliculus", [0.0] * 6), dtype=float)
+        self.priority_map = None
         self.uncertainty = 0.0   # running mean of its mushroom body's prediction errors (at its own learning rate)
         self.just_missed = False
         self.cam_shift = (0.0, 0.0)
@@ -689,6 +697,7 @@ class Organism:
         self.last_parallax = par
         parallax = float(par[cell_p[0] * self.place.shape[1] + cell_p[1]]) if par is not None and cell_p is not None and len(par) else 0.0
         camera_moving = float(min(1.0, math.hypot(*self.cam_shift) / SHIFT_MAX)) if self.cam_moving else 0.0
+        coll, coll_macs = self._colliculus(sig, boxes, plants, state, was_asleep)
         own_pace = float(np.tanh(math.log2(max(1e-6, self.last_interval / max(1.0, self.fps) * REFERENCE_GAZES_PER_S))))
         cell = self._cell(state.cx, state.cy)
         place_dx, place_dy, place_value = self._place_sense(state.cx, state.cy)
@@ -715,7 +724,7 @@ class Organism:
         if was_asleep and body.sleep_clock > SLEEP_SETTLE_S:
             replay_macs += self._dream()
             replay_macs += self._sleep_program()
-        replay_macs += recall_macs + scene_macs + head_macs
+        replay_macs += recall_macs + scene_macs + head_macs + coll_macs
         if (self.sec_per_mac and self.last_out is not None
                 and self.sec_per_mac / max(1e-3, body.metabolism) * (brain.macs() + replay_macs)
                 > self.last_interval / max(1.0, self.fps)):  # its brain runs at the pace its metabolism powers
@@ -731,7 +740,7 @@ class Organism:
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
-                tuple(head_vals),
+                tuple(head_vals), coll,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1023,6 +1032,40 @@ class Organism:
             return None
         self._stash()
         return {"current": self.scene, "library": [dict(s) for s in self.scenes]}
+
+    def _colliculus(self, sig, boxes, plants, state, asleep: bool):
+        """Its collicular priority map: per whole-field cell, the weighted sum
+        of COLLICULAR_FEATURES; the brain gets the direction to the strongest
+        cell and how strong it is. Off (no work) while every weight is 0."""
+        if asleep or self.place is None or not self.colliculus.any():
+            self.priority_map = None
+            return (0.0, 0.0, 0.0), 0
+        rows, cols = self.place.shape
+        n = rows * cols
+        def cells(key):
+            try:
+                a = np.asarray(sig[key], dtype=float).ravel()
+            except (KeyError, IndexError, TypeError):
+                return np.zeros(n)
+            return a if a.shape[0] == n else np.zeros(n)
+        host, size, plant = np.zeros(n), np.zeros(n), np.zeros(n)
+        for grid, items, sized in ((host, boxes or [], True), (plant, plants or [], False)):
+            for c, conf, x0, y0, x1, y1 in items:
+                cell = self._cell((x0 + x1) / 2, (y0 + y1) / 2)
+                if cell is None:
+                    continue
+                k = cell[0] * cols + cell[1]
+                grid[k] = max(grid[k], float(conf))
+                if sized:
+                    size[k] = max(size[k], float(conf) * min(1.0, (x1 - x0) * (y1 - y0) * n))  # 1 = a box a cell big or more
+        feats = np.stack([cells("motion_map"), cells("mismatch_map"), cells("parallax"), host, size, plant])
+        s = self.colliculus @ feats
+        self.priority_map = s
+        k = int(np.argmax(s))
+        if s[k] <= 0.0:
+            return (0.0, 0.0, 0.0), feats.size
+        r, c = divmod(k, cols)
+        return ((c + 0.5) / cols - state.cx, (r + 0.5) / rows - state.cy, float(np.clip(s[k], 0.0, 1.0))), feats.size
 
     def _learn_ground(self, boxes: list) -> None:
         """Each host a measuring stick: its base's height in the frame and its
@@ -1332,7 +1375,8 @@ class Organism:
                                     / REFERENCE_MACS if p["kc_on"] else 0.0)  # + the aversive output neuron, once it exists
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
-                                                                         + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS)
+                                                                         + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
+                                                                         + COLLICULUS_INPUTS)
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

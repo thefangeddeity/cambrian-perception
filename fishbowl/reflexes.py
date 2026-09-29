@@ -203,19 +203,20 @@ def mismatch_step(model: tuple[np.ndarray, np.ndarray] | None, v: np.ndarray, sh
         cy = float(((yy + 0.5) * grid).sum() / tot / rows)
     mean = mean + alpha * dev
     var = var + alpha * (dev * dev - var)
-    return area, cx, cy, (mean, var)
+    return area, cx, cy, (mean, var), (over > 0).astype(float)
 
 
 def mismatch_score(vectors: np.ndarray, shape: tuple[int, int], seconds_per_frame: float,
-                   tau_s: float, sigmas: float, noise_floor: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """mismatch_step over a whole snapshot: (area, x, y) per frame."""
+                   tau_s: float, sigmas: float, noise_floor: float):
+    """mismatch_step over a whole snapshot: (area, x, y, the mismatching cells) per frame."""
     n = len(vectors)
     area, xs, ys = np.zeros(n), np.full(n, 0.5), np.full(n, 0.5)
+    cells = np.zeros((n, shape[0] * shape[1]))
     alpha = 1.0 - float(np.exp(-seconds_per_frame / tau_s))
     model = None
     for t in range(n):
-        area[t], xs[t], ys[t], model = mismatch_step(model, vectors[t], shape, alpha, sigmas, noise_floor)
-    return area, xs, ys
+        area[t], xs[t], ys[t], model, cells[t] = mismatch_step(model, vectors[t], shape, alpha, sigmas, noise_floor)
+    return area, xs, ys, cells
 
 
 def expansion_score(vectors: np.ndarray, threshold: float = 0.08, adapt: float = 0.05) -> np.ndarray:

@@ -853,9 +853,12 @@ class World:
             ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv, self.field_shape)
             ws["field_light"] = np.asarray(wv).mean(axis=1)
             ws["structure"] = np.asarray(wv, dtype=float) - np.asarray(wv, dtype=float).mean(axis=1, keepdims=True)
-            ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"] = reflexes.mismatch_score(
+            ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"], ws["mismatch_map"] = reflexes.mismatch_score(
                 wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S, SURPRISE_SIGMAS, NOISE_FLOOR)
             ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
+            dv = np.abs(np.diff(np.asarray(wv, dtype=float), axis=0))
+            ws["motion_map"] = np.clip(np.vstack([np.zeros((1, dv.shape[1])), dv]) * PERIPH_MOTION_GAIN, 0.0, 1.0) if len(wv) > 1 \
+                else np.zeros((len(wv), np.asarray(wv).shape[-1]))
             ws["parallax"] = parallax_series(self.frames[::pace], ws["shift_x"], ws["shift_y"], self.field_shape)
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]

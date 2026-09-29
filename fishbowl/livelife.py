@@ -173,6 +173,8 @@ def _circuits(org: Organism) -> dict:
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
                      "uncertainty": round(float(org.uncertainty), 3), "camera_moving": bool(org.cam_moving),
+                     "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
+                     "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]
                                     for c, v in zip(org.head_classes[:org.n_heads], org.mb.head_values(org.last_kc)[:org.n_heads])]}
     b = org.body

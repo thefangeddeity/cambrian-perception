@@ -50,8 +50,10 @@ class FieldSignals:
         self.background += EXPANSION_ADAPT * (v - self.background)
         # Movement and where it is (motion_energy_score, peripheral_motion_centroid).
         motion, mcx, mcy = 0.0, 0.5, 0.5
+        motion_map = np.zeros(v.shape)
         if self.prev is not None:
             d = np.abs(v - self.prev)
+            motion_map = np.clip(d * org.PERIPH_MOTION_GAIN, 0.0, 1.0)
             motion = float(d.mean())
             grid = d.reshape(shape)
             tot = grid.sum()
@@ -63,7 +65,7 @@ class FieldSignals:
         self.prev = v
         # Mismatch with its slow model of the room (reflexes.mismatch_step).
         alpha = 1.0 - float(np.exp(-1.0 / max(1e-6, self.fps) / org.MISMATCH_TAU_S))
-        mismatch, mmx, mmy, self.structure = reflexes.mismatch_step(self.structure, v, shape, alpha, org.SURPRISE_SIGMAS, org.NOISE_FLOOR)
+        mismatch, mmx, mmy, self.structure, mismatch_map = reflexes.mismatch_step(self.structure, v, shape, alpha, org.SURPRISE_SIGMAS, org.NOISE_FLOOR)
         # The frame's global shift (organism.global_shifts, streamed).
         size = org.shift_size(grey.shape)
         small = cv2.resize(grey, size, interpolation=cv2.INTER_AREA).astype(np.float32)
@@ -77,5 +79,5 @@ class FieldSignals:
         self.t += 1
         sig = {"expansion": expansion, "motion_energy": motion, "motion_cx": mcx, "motion_cy": mcy,
                "field_light": float(v.mean()), "mismatch": mismatch, "mismatch_cx": mmx, "mismatch_cy": mmy,
-               "structure": v - float(v.mean()), "parallax": parallax}
+               "structure": v - float(v.mean()), "parallax": parallax, "motion_map": motion_map, "mismatch_map": mismatch_map}
         return sig, shift

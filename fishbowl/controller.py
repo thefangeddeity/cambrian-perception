@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 57  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes
+BASE_INPUTS = 60  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
@@ -87,7 +87,8 @@ SPEED_INPUTS = (46, 47)       # its own pace (seconds per look) and whether it j
 UNCERTAINTY_INPUT = 48        # how wrong its mushroom body's predictions have been lately (Friston's precision)
 GROUND_INPUTS = (49, 50)      # how near the ground at its gaze is, and where the horizon is (a learned ground plane)
 PARALLAX_INPUTS = (51, 52)    # parallax at its gaze and how much the camera itself moves (moving streams)
-ARCHETYPE_INPUTS = (53, 54, 55, 56)  # its archetype heads: mushroom-body readouts taught by the detector's classes
+ARCHETYPE_INPUTS = (53, 54, 55, 56)
+COLLICULUS_INPUTS = (57, 58, 59)  # where its collicular priority map's winner is, and how strong (organism.py)  # its archetype heads: mushroom-body readouts taught by the detector's classes
 PROTEIN_INPUT = 43  # its protein store (for eggs; only blood fills it)
 VELOCITY_INPUTS = (44, 45)  # the followed host's velocity (prey sense level 3)
 RECALL_INPUTS = (40, 41, 42)  # what the memory its view recalls held, and where it happened (pattern completion)
@@ -115,7 +116,8 @@ INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y"
                "intruder", "danger", "plant scent", "plant dir x", "plant dir y", "mismatch", "mismatch dx", "mismatch dy",
                "recalled value", "recalled dx", "recalled dy", "protein", "host vx", "host vy",
                "own pace", "missed", "uncertainty", "ground near", "horizon", "parallax", "camera moving",
-               "archetype 1", "archetype 2", "archetype 3", "archetype 4")
+               "archetype 1", "archetype 2", "archetype 3", "archetype 4",
+               "collicular dx", "collicular dy", "collicular strength")
 OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
 
 
@@ -237,6 +239,7 @@ class MosquitoBrain:
         parallax: float = 0.0,
         camera_moving: float = 0.0,
         archetypes=(0.0, 0.0, 0.0, 0.0),
+        colliculus=(0.0, 0.0, 0.0),
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -262,6 +265,7 @@ class MosquitoBrain:
             ground_near, horizon,  # its learned ground plane
             parallax, camera_moving,  # depth from a moving camera
             *archetypes,  # its archetype heads
+            *colliculus,  # its collicular priority map's winner
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):

@@ -83,6 +83,26 @@ def seed_genome(g, rng: random.Random) -> list[str]:
     return done
 
 
+def seed_colliculus(g, rng: random.Random) -> list[str]:
+    """The collicular map (2026-09-29): its six weights at draws a few trait
+    steps wide, and its three inputs wired at the brain's mutation step."""
+    from fishbowl import genome as G
+    from fishbowl.controller import COLLICULUS_INPUTS
+    done = []
+    if not any(g.colliculus):
+        g.colliculus = [rng.gauss(0.0, 3 * G.TRAIT_SIGMA) for _ in range(6)]
+        done.append("colliculus " + ", ".join(f"{w:+.2f}" for w in g.colliculus))
+    w = g.brain.weights_ih
+    for c in COLLICULUS_INPUTS:
+        if c < w.shape[1] and not w[:, c].any():
+            w[:, c] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+    return done + ["collicular inputs wired"]
+
+
+# Each seed set applies once per lineage (state/seeded.txt lists those applied).
+SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus}
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__)
@@ -90,8 +110,10 @@ def main() -> int:
     state = Path(sys.argv[1])
     path = state / "checkpoint.json"
     mark = state / "seeded.txt"  # its own file: a checkpoint save would drop a mark inside it
-    if mark.exists():
-        print(f"already seeded ({mark.read_text().strip()}): nothing to do -- evolution prunes from here")
+    applied = {line.split(":")[0] for line in mark.read_text(encoding="utf-8").splitlines() if line.strip()} if mark.exists() else set()
+    todo = [name for name in SEED_SETS if name not in applied]
+    if not todo:
+        print("every seed set already applied: nothing to do -- evolution prunes from here")
         return 0
     c = json.loads(path.read_text(encoding="utf-8-sig"))
     from fishbowl.genome import Genome
@@ -101,14 +123,18 @@ def main() -> int:
         if (state / f).exists():
             shutil.copy2(state / f, backup / f)
     g = Genome.from_dict(c["genome"])
-    done = seed_genome(g, random.Random(SEED))
+    lines = []
+    for name in todo:
+        done = SEED_SETS[name](g, random.Random(f"{SEED}:{name}"))
+        lines.append(f"{name}: " + "; ".join(done or ["nothing needed"]))
     c["genome"] = g.to_dict()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(c), encoding="utf-8")
     tmp.replace(path)
     (state / "checkpoint.prev.json").unlink(missing_ok=True)
-    mark.write_text(f"{TAG}: " + "; ".join(done) + "\n", encoding="utf-8")
-    print("seeded:", "; ".join(done) or "nothing needed", f"(backup: {backup.name})")
+    with open(mark, "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print("seeded:", " | ".join(lines), f"(backup: {backup.name})")
     return 0
 
 

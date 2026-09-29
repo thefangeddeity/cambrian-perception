@@ -362,3 +362,24 @@ can afford more and bigger ones.
   recurrent context); h = tanh(b + basal + context + a x basal x
   tanh(context)) -- far more firing when evidence and context agree. Two more
   multiplies a unit when on.
+
+## A collicular priority map (2026-09-29)
+
+The superior colliculus is a topographic priority map: every point of the
+field sums evidence, and the strongest pulls the eyes (Land, Nilsson, Tooby &
+Cosmides, Friston). Ours is on the 144 whole-field cells: salience = a
+weighted sum of motion, mismatch (novelty), parallax, host presence, host
+size and plants; the brain gets the direction to the winning cell and its
+strength. The six weights are inherited; the host-size weight is a cat's size
+gate made evolvable -- negative prefers small fast things (a cat), positive
+big ones (a mosquito). About 900 multiply-adds a look, priced; off while every
+weight is 0.
+
+## Seeding, and when not to wait (panel 11-3)
+
+Brains overproduce and prune (Changeux, Edelman). A capacity whose estimated
+discovery time on the fleet is over a month is seeded rather than waited for
+(six months is the outer bound): switched on at values a few steps along its
+own trait's distribution, always priced, always prunable, never hard-wired
+(`tools/seed.py`; each seed set applies once per lineage, listed in
+`state/seeded.txt`). Dennett's side and Urmson's meet there.
