@@ -1335,27 +1335,45 @@ PAGE = r"""<!doctype html>
     if (hz == null) {
       note = 'no horizon yet: it learns its ground plane from the sizes of the hosts it sees';
     } else {
-      // the ground: grid lines of constant depth and constant sideways position
-      ctx.strokeStyle = 'rgba(156, 207, 122, 0.35)'; ctx.lineWidth = 1;
-      for (let z = 1; z <= ZMAX + 1e-6; z += 0.25) { const a = at(-1.6 * z * 0.5, 0, z), b = at(1.6 * z * 0.5, 0, z); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
-      for (let fx = 0; fx <= 1.0001; fx += 1 / 8) { const a = at((fx - 0.5) * 1.6, 0, 1), b = at((fx - 0.5) * 1.6 * ZMAX, 0, ZMAX); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
-      // parallax: columns on its cells
+      // its height data: hosts (their real height, at their base) and parallax (nearness, per cell)
+      const boxes = (d.prey_boxes && d.prey_boxes.length) ? d.prey_boxes[d.prey_boxes.length - 1] : [];
+      const pts = [];  // [x, z, height, kind]
+      (boxes || []).forEach(([cls, conf, x0, y0, x1, y1]) => {
+        const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
+        pts.push([g0[0], g0[1], (y1 - y0) * g0[1] * 1.6, 'host', x0, x1, y1, conf]);
+      });
       if (sn.parallax) sn.parallax.forEach((v, k) => {
         if (v <= 0.05) return;
-        const r = Math.floor(k / cols), cc = k % cols, g = place((cc + 0.5) / cols, (r + 0.5) / rows); if (!g) return;
-        const a = at(g[0], 0, g[1]), b = at(g[0], 0.6 * v, g[1]);
-        ctx.strokeStyle = `rgba(127, 212, 255, ${0.4 + 0.6 * v})`; ctx.lineWidth = 3 * a[3]; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        const r = Math.floor(k / cols), cc = k % cols, g = place((cc + 0.5) / cols, (r + 0.5) / rows);
+        if (g) pts.push([g[0], g[1], 0.6 * v, 'parallax']);
       });
-      // hosts: standing at their distance, their real height (frame height x depth)
-      const boxes = (d.prey_boxes && d.prey_boxes.length) ? d.prey_boxes[d.prey_boxes.length - 1] : [];
-      (boxes || []).forEach(([cls, conf, x0, y0, x1, y1]) => {
-        const g0 = place(x0, y1), g1 = place(x1, y1); if (!g0 || !g1) return;
-        const hgt = (y1 - y0) * g0[1] * 1.6;
-        const p = [at(g0[0], 0, g0[1]), at(g1[0], 0, g1[1]), at(g1[0], hgt, g1[1]), at(g0[0], hgt, g0[1])];
-        ctx.fillStyle = `rgba(255, 111, 138, ${0.15 + 0.3 * conf})`; ctx.strokeStyle = 'rgba(255, 111, 138, 0.9)'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); p.slice(1).forEach(q => ctx.lineTo(q[0], q[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
+      // the membrane: the ground mesh, raised at each node by a Gaussian blend of
+      // nearby data (each point's height x its falloff; the highest wins) --
+      // a viewer's smoothing (SIGMA is display, not model)
+      const SIGMA = 0.28, NU = 24, NZ = 16;
+      const heightAt = (x, z) => { let h = 0; for (const q of pts) { const dd = (x - q[0]) ** 2 + (z - q[1]) ** 2; h = Math.max(h, q[2] * Math.exp(-dd / (2 * SIGMA * SIGMA))); } return h; };
+      const tall = Math.max(1e-6, ...pts.map(q => q[2]));
+      const node = [];
+      for (let j = 0; j <= NZ; j++) {
+        const z = 1 + (ZMAX - 1) * j / NZ, row = [];
+        for (let i = 0; i <= NU; i++) { const x = (i / NU - 0.5) * 1.6 * z, h = heightAt(x, z); row.push([at(x, h, z), h]); }
+        node.push(row);
+      }
+      const seg = (p, q) => {
+        const t = Math.min(1, (p[1] + q[1]) / 2 / tall);
+        ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${0.3 + 0.6 * t})`;
+        ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(q[0][0], q[0][1]); ctx.stroke();
+      };
+      ctx.lineWidth = 1;
+      for (let j = NZ; j >= 0; j--) for (let i = 0; i < NU; i++) seg(node[j][i], node[j][i + 1]);
+      for (let i = 0; i <= NU; i++) for (let j = NZ; j > 0; j--) seg(node[j][i], node[j - 1][i]);
+      // the data points themselves, faint, under the membrane's peaks
+      pts.forEach(q => {
+        const a = at(q[0], 0, q[1]), b = at(q[0], q[2], q[1]);
+        ctx.strokeStyle = q[3] === 'host' ? 'rgba(255, 111, 138, 0.5)' : 'rgba(127, 212, 255, 0.5)'; ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
       });
-      note = `ground plane learned from hosts' sizes, horizon ${Math.round(100 * hz)}% down the frame; pink: hosts at their distance and height`
+      note = `ground plane learned from hosts' sizes, horizon ${Math.round(100 * hz)}% down the frame; a membrane over its height data -- rising pink where hosts stand (their height)`
              + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));
     }
     // inset: the lines its trees read on its eye
