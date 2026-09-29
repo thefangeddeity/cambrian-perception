@@ -409,6 +409,15 @@ can afford more and bigger ones.
   frame. Its brain, gaze and senses are never shed. Every genome, the parent
   included, is scored in worker processes (a pool of one, if memory is
   short): its body's process only lives.
+- **Its body in view** (2026-09-29; Gibson's nose, Neisser's ecological
+  self): on a tram's cab view 60% of what it tracked never moved -- the cab --
+  so its one fit said "still" and it never saw itself travel. When most of what
+  it tracks is still and the rest agree on a motion of their own, the still
+  part is its body, travelling with the camera, and the rest is the world. An
+  expansion counts when it is beyond twice its standard error and the frame
+  before showed one the same way (replication: neighbouring corners share
+  tracking windows, so one frame's errors are correlated). Tram cab: moving in
+  83% of steps (was 0%); walking: 83%; a still camera with sensor noise: 0 of 80.
 - **Walking cameras** (2026-09-29): a camera walking forward shifts the frame
   hardly at all -- the image flows out of its centre (Gibson) -- so it read as
   still, and parallax never switched on (on a 24/7 walking stream: moving in

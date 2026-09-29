@@ -262,13 +262,33 @@ def global_shift(prev_small: np.ndarray, cur_small: np.ndarray, window: np.ndarr
     return 0.0, 0.0
 
 
+def _similarity(a: np.ndarray, b: np.ndarray):
+    """One similarity transform fitted to tracked points with RANSAC: (log scale,
+    its standard error, the inliers, the transform), or None. The error comes
+    from the inliers' residuals and their spread about their centre."""
+    m, inl = cv2.estimateAffinePartial2D(a, b, method=cv2.RANSAC, ransacReprojThreshold=1.0)
+    if m is None or inl is None or inl.sum() < 8:
+        return None
+    inl = inl.ravel() == 1
+    A, B = a[inl], b[inl]
+    e = B - (A @ m[:, :2].T + m[:, 2])
+    sigma2 = float((e ** 2).sum()) / max(1, 2 * len(A) - 4)
+    spread = float(((A - A.mean(axis=0)) ** 2).sum())
+    k = max(1e-6, math.hypot(m[0, 0], m[1, 0]))
+    return float(np.log(k)), math.sqrt(sigma2 / max(spread, 1e-9)) / k, inl, m
+
+
 def global_scale(prev_small: np.ndarray, cur_small: np.ndarray) -> float:
     """The whole frame's expansion between two small frames (log scale; + when
     the camera walks forward -- Gibson's outflow of forward locomotion): corner
-    features tracked from one to the other (Lucas-Kanade), one similarity
-    transform fitted to them with RANSAC (so things moving on their own are
-    outliers), its scale kept only when it is trustworthy -- enough features
-    agreeing, and within SHIFT_MAX of no change, as the shift is."""
+    features tracked from one to the other (Lucas-Kanade), a similarity
+    transform fitted to them with RANSAC (things moving on their own are
+    outliers). Its own body in view (a 2026-09-29 panel; Gibson's nose, Neisser's
+    ecological self): when most of what it tracks doesn't move at all -- a tram's
+    cab, a car's bonnet -- that still part travels with the camera, and the
+    world's motion is what the rest agree on. An expansion counts when it is
+    beyond twice its standard error (the fit's own precision), and within
+    SHIFT_MAX, as the shift is."""
     a, b = prev_small.astype(np.uint8), cur_small.astype(np.uint8)
     p0 = cv2.goodFeaturesToTrack(a, maxCorners=100, qualityLevel=0.01, minDistance=5)
     if p0 is None or len(p0) < 8:
@@ -277,11 +297,25 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray) -> float:
     ok = st.ravel() == 1
     if ok.sum() < 8:
         return 0.0
-    m, inliers = cv2.estimateAffinePartial2D(p0[ok], p1[ok], method=cv2.RANSAC, ransacReprojThreshold=1.0)
-    if m is None or inliers is None or inliers.sum() < 8:
+    pa, pb = p0[ok].reshape(-1, 2), p1[ok].reshape(-1, 2)
+    fit = _similarity(pa, pb)
+    if fit is None:
         return 0.0
-    s = float(np.log(max(1e-6, math.hypot(m[0, 0], m[1, 0]))))
-    return s if abs(s) <= SHIFT_MAX else 0.0
+    s, se, inl, m = fit
+    still = float(np.median(np.hypot(*(pb[inl] - pa[inl]).T))) < 1.0  # its inliers moved less than RANSAC's own pixel
+    if still and (~inl).sum() >= 8:  # the still part is its body; the world is what the rest agree on
+        world = _similarity(pa[~inl], pb[~inl])
+        if world is not None:
+            s, se = world[0], world[1]
+    return s if abs(s) > 2.0 * se and abs(s) <= SHIFT_MAX else 0.0
+
+
+def replicated(s: float, previous: float) -> float:
+    """An expansion counts when the frame before showed one too, the same way
+    (replication: real motion persists, a fit's noise flips; the fits' errors
+    are correlated -- neighbouring corners share tracking windows -- so one
+    significant frame alone isn't enough)."""
+    return s if s and previous and (s > 0) == (previous > 0) else 0.0
 
 
 def parallax_map(prev_small, small, shift, shape) -> np.ndarray:
@@ -310,12 +344,12 @@ def parallax_map(prev_small, small, shift, shape) -> np.ndarray:
 def camera_moves(shift, small_shape) -> bool:
     """The camera itself moved: a whole-frame shift of at least one pixel of the
     small frame it is measured on (below that it's the measurement's noise), or
-    an expansion that moves the frame's corners by as much (walking forward:
-    the image flows out of its centre, with no shift at all)."""
+    a significant expansion (walking forward: the image flows out of its
+    centre, with no shift at all)."""
     h, w = small_shape[:2]
     if abs(shift[0]) * w >= 1.0 or abs(shift[1]) * h >= 1.0:
         return True
-    return len(shift) > 2 and abs(math.expm1(shift[2])) * math.hypot(w / 2, h / 2) >= 1.0
+    return len(shift) > 2 and shift[2] != 0.0  # an expansion is only reported when it is significant (global_scale)
 
 
 def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, shape, ss: np.ndarray | None = None) -> np.ndarray:
@@ -346,6 +380,9 @@ def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.
         sx[k], sy[k] = global_shift(prev.copy(), cur.copy(), window)  # copies: phase correlation windows its inputs in place
         ss[k] = global_scale(prev, cur)
         prev = cur
+    raw = ss.copy()
+    for k in range(1, n):
+        ss[k] = replicated(raw[k], raw[k - 1])
     return sx, sy, ss
 
 
