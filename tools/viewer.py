@@ -1388,7 +1388,10 @@ PAGE = r"""<!doctype html>
   // height, parallax as cyan columns where things move against the camera,
   // and, inset, the lines its perception trees read on its eye (oriented
   // pools as bars at their angle). Click it to steer, like the others.
-  const SP3 = { yaw: -0.5, pitch: 0.45, zoom: 1, dirty: true, loop: false, drag: null, d: null };
+  // Seen from its own eye by default (POV: at its camera's height, looking where
+  // it looks -- it is driving into this, not studying a graph of it), or from
+  // outside ("overview", the oblique orbit).
+  const SP3 = { pov: true, hy: 0, hp: 0, yaw: -0.5, pitch: 0.45, zoom: 1, dirty: true, loop: false, drag: null, d: null };
   function drawSpace(d) {
     const c = $('space'); if (!c || !d) return;
     const W = Math.max(240, Math.floor(c.parentElement.clientWidth - 24));
@@ -1405,13 +1408,23 @@ PAGE = r"""<!doctype html>
       const x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = -y * cp - z1 * sp, z2 = -y * sp + z1 * cp, w = F / (F + z2);
       return [W / 2 + x1 * scale * w, H / 2 + y2 * scale * w, z2, w];
     };
-    const ZMAX = 3.0;  // the far edge drawn (the horizon itself is infinitely far)
+    const ZMAX = SP3.pov ? 40.0 : 3.0;  // the far edge drawn (the horizon itself is infinitely far)
     const place = (fx, fy) => {  // a point of the frame on its ground: (sideways, depth), or null above the horizon
       if (hz == null || fy <= hz + 1e-3) return null;
       const z = Math.min(ZMAX, (1 - hz) / (fy - hz));  // 1 at the frame's bottom, growing toward the horizon
       return [(fx - 0.5) * z * 1.6, z];
     };
-    const at = (x, y, z) => proj(x, y, z - ZMAX / 2 - 0.5);
+    // Its eye: a pinhole at its camera's height (1.6 (1 - horizon) here), the
+    // frame's own geometry -- looking straight ahead at zoom 1, a point lands
+    // where the stream shows it (frame x = 0.5 + x / 1.6 z; y = horizon + (h - y) / 1.6 z).
+    const HC = hz != null ? 1.6 * (1 - hz) : 1.0;
+    const hcy = Math.cos(SP3.hy), hsy = Math.sin(SP3.hy), hcp = Math.cos(SP3.hp), hsp = Math.sin(SP3.hp);
+    const eye = (x, y, z) => {
+      const ry = y - HC, x1 = x * hcy - z * hsy, z1 = x * hsy + z * hcy;
+      const y2 = ry * hcp + z1 * hsp, z2 = Math.max(0.05, -ry * hsp + z1 * hcp);
+      return [W / 2 + W * SP3.zoom * x1 / (1.6 * z2), H * (hz != null ? hz : 0.5) - H * SP3.zoom * y2 / (1.6 * z2), z2, Math.min(1, 1 / z2)];
+    };
+    const at = SP3.pov ? eye : (x, y, z) => proj(x, y, z - ZMAX / 2 - 0.5);
     let note = '';
     if (hz == null) {
       note = 'no horizon yet: it learns its ground plane from the sizes of the hosts and plants it sees whole';
@@ -1445,7 +1458,8 @@ PAGE = r"""<!doctype html>
       const big = Math.max(1e-6, ...sticks.map(q => Math.abs(q.elev)));
       const node = [];
       for (let j = 0; j <= NZ; j++) {
-        const z = 1 + (ZMAX - 1) * j / NZ, row = [];
+        // rows spaced as the frame's rows are (evenly in 1 / depth) from its eye; evenly in depth from outside
+        const z = SP3.pov ? 1 / (1 - (j / NZ) * (1 - 1 / ZMAX)) : 1 + (ZMAX - 1) * j / NZ, row = [];
         for (let i = 0; i <= NU; i++) { const x = (i / NU - 0.5) * 1.6 * z, h = groundAt(x, z); row.push([at(x, h, z), h]); }
         node.push(row);
       }
@@ -1503,7 +1517,9 @@ PAGE = r"""<!doctype html>
     ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(edges ? `lines: ${edges} on its eye` : 'lines: none yet', ox, oy + side + 3);
     if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
-    $('space-cap').textContent = note + '. Click it to steer (drag turns, wheel or pinch zooms; Esc releases).';
+    const smode = SP3.pov ? '<b>its eye</b> &middot; <a href="#" data-sp="overview">overview</a>' : '<a href="#" data-sp="eye">its eye</a> &middot; <b>overview</b>';
+    $('space-cap').innerHTML = note + (SP3.pov ? '. Seen from its eye: click it to steer (drag turns its head, wheel or pinch zooms, double-click looks ahead again; Esc releases). '
+                                            : '. Click it to steer (drag turns, wheel or pinch zooms; Esc releases). ') + `<span id="space-mode">${smode}</span>`;
     const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
     $('cortex-cap').innerHTML = !cx ? '' : `<b>Who it knows</b> (its visual cortex: each one by true height and colour; ${cx.individuals} so far; ${(cx.ms || 0).toFixed(1)} ms a frame): `
       + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &middot; seen ${k.seen}&times;`
@@ -1518,7 +1534,8 @@ PAGE = r"""<!doctype html>
     const redraw = () => { SP3.dirty = true; spaceKick(); };
     const P = new Map(); let pinch = null;
     c.addEventListener('wheel', e => { if (!active()) return; e.preventDefault(); SP3.zoom = Math.max(0.4, Math.min(6, SP3.zoom * Math.exp(-e.deltaY * 0.0015))); redraw(); }, { passive: false });
-    c.addEventListener('dblclick', () => { if (!active()) return; SP3.yaw = -0.5; SP3.pitch = 0.45; SP3.zoom = 1; redraw(); });
+    c.addEventListener('dblclick', () => { if (!active()) return; SP3.hy = 0; SP3.hp = 0; SP3.yaw = -0.5; SP3.pitch = 0.45; SP3.zoom = 1; redraw(); });
+    document.addEventListener('click', e => { const a = e.target.closest('#space-mode a'); if (a) { e.preventDefault(); e.stopPropagation(); SP3.pov = a.dataset.sp === 'eye'; SP3.zoom = 1; redraw(); } }, true);
     c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); P.set(e.pointerId, pt(e)); pinch = null; c.style.cursor = 'grabbing'; });
     c.addEventListener('pointermove', e => {
       if (!P.has(e.pointerId)) return;
@@ -1529,7 +1546,13 @@ PAGE = r"""<!doctype html>
         pinch = dist; redraw(); return;
       }
       if (P.size > 2) return;
-      SP3.yaw += (now[0] - prev[0]) * 0.008; SP3.pitch = Math.max(0.05, Math.min(1.4, SP3.pitch + (now[1] - prev[1]) * 0.008)); redraw();
+      if (SP3.pov) {  // its head: turns and looks up or down, within what a neck allows
+        SP3.hy = Math.max(-1.0, Math.min(1.0, SP3.hy + (now[0] - prev[0]) * 0.004));
+        SP3.hp = Math.max(-0.5, Math.min(0.5, SP3.hp + (now[1] - prev[1]) * 0.004));
+      } else {
+        SP3.yaw += (now[0] - prev[0]) * 0.008; SP3.pitch = Math.max(0.05, Math.min(1.4, SP3.pitch + (now[1] - prev[1]) * 0.008));
+      }
+      redraw();
     });
     const up = e => { P.delete(e.pointerId); pinch = null; if (!P.size) c.style.cursor = ''; };
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
