@@ -262,17 +262,42 @@ def global_shift(prev_small: np.ndarray, cur_small: np.ndarray, window: np.ndarr
     return 0.0, 0.0
 
 
+def global_scale(prev_small: np.ndarray, cur_small: np.ndarray) -> float:
+    """The whole frame's expansion between two small frames (log scale; + when
+    the camera walks forward -- Gibson's outflow of forward locomotion): corner
+    features tracked from one to the other (Lucas-Kanade), one similarity
+    transform fitted to them with RANSAC (so things moving on their own are
+    outliers), its scale kept only when it is trustworthy -- enough features
+    agreeing, and within SHIFT_MAX of no change, as the shift is."""
+    a, b = prev_small.astype(np.uint8), cur_small.astype(np.uint8)
+    p0 = cv2.goodFeaturesToTrack(a, maxCorners=100, qualityLevel=0.01, minDistance=5)
+    if p0 is None or len(p0) < 8:
+        return 0.0
+    p1, st, _ = cv2.calcOpticalFlowPyrLK(a, b, p0, None)
+    ok = st.ravel() == 1
+    if ok.sum() < 8:
+        return 0.0
+    m, inliers = cv2.estimateAffinePartial2D(p0[ok], p1[ok], method=cv2.RANSAC, ransacReprojThreshold=1.0)
+    if m is None or inliers is None or inliers.sum() < 8:
+        return 0.0
+    s = float(np.log(max(1e-6, math.hypot(m[0, 0], m[1, 0]))))
+    return s if abs(s) <= SHIFT_MAX else 0.0
+
+
 def parallax_map(prev_small, small, shift, shape) -> np.ndarray:
     """Parallax (a 2026-09-29 panel; Land, Friston: depth from a moving
     camera): with the camera's own motion (the frame's global shift) undone,
     what still moved, per whole-field cell -- near things slide more than far
-    ones. Zero when the camera doesn't move."""
+    ones. Zero when the camera doesn't move. The camera's motion is its
+    shift and, when it walks forward or back, its expansion (shift[2], log
+    scale about the frame's centre): both are undone."""
     rows, cols = shape
     if prev_small is None or small is None or prev_small.shape != small.shape or not camera_moves(shift, small.shape):
         return np.zeros(rows * cols)
     h, w = small.shape
-    moved = cv2.warpAffine(prev_small, np.float32([[1, 0, shift[0] * w], [0, 1, shift[1] * h]]), (w, h),
-                           borderMode=cv2.BORDER_REPLICATE)
+    k = math.exp(shift[2]) if len(shift) > 2 else 1.0
+    moved = cv2.warpAffine(prev_small, np.float32([[k, 0, (1 - k) * w / 2 + shift[0] * w], [0, k, (1 - k) * h / 2 + shift[1] * h]]),
+                           (w, h), borderMode=cv2.BORDER_REPLICATE)
     # Cell by cell (as its motion sense compares receptors), how much of the
     # change is left once the camera's own motion is undone: what still moved,
     # over what moved at all (+ sensor noise) -- 0 for the scene sliding past as
@@ -284,12 +309,16 @@ def parallax_map(prev_small, small, shift, shape) -> np.ndarray:
 
 def camera_moves(shift, small_shape) -> bool:
     """The camera itself moved: a whole-frame shift of at least one pixel of the
-    small frame it is measured on (below that it's the measurement's noise)."""
+    small frame it is measured on (below that it's the measurement's noise), or
+    an expansion that moves the frame's corners by as much (walking forward:
+    the image flows out of its centre, with no shift at all)."""
     h, w = small_shape[:2]
-    return abs(shift[0]) * w >= 1.0 or abs(shift[1]) * h >= 1.0
+    if abs(shift[0]) * w >= 1.0 or abs(shift[1]) * h >= 1.0:
+        return True
+    return len(shift) > 2 and abs(math.expm1(shift[2])) * math.hypot(w / 2, h / 2) >= 1.0
 
 
-def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, shape) -> np.ndarray:
+def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, shape, ss: np.ndarray | None = None) -> np.ndarray:
     """parallax_map over a recording (the batch twin of field.FieldSignals)."""
     out = np.zeros((len(frames), shape[0] * shape[1]))
     if len(frames) < 2:
@@ -298,25 +327,26 @@ def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, sh
     prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
     for k in range(1, len(frames)):
         cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
-        out[k] = parallax_map(prev, cur, (sx[k], sy[k]), shape)
+        out[k] = parallax_map(prev, cur, (sx[k], sy[k], 0.0 if ss is None else ss[k]), shape)
         prev = cur
     return out
 
 
-def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
-    """The whole frame's shift from frame k-1 to frame k, for a recording."""
+def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The whole frame's shift (and expansion) from frame k-1 to frame k, for a recording."""
     n = len(frames)
-    sx, sy = np.zeros(n), np.zeros(n)
+    sx, sy, ss = np.zeros(n), np.zeros(n), np.zeros(n)
     if n < 2:
-        return sx, sy
+        return sx, sy, ss
     size = shift_size(frames[0].shape)
     window = cv2.createHanningWindow(size, cv2.CV_32F)
     prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
     for k in range(1, n):
         cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
         sx[k], sy[k] = global_shift(prev.copy(), cur.copy(), window)  # copies: phase correlation windows its inputs in place
+        ss[k] = global_scale(prev, cur)
         prev = cur
-    return sx, sy
+    return sx, sy, ss
 
 
 def peripheral_motion_centroid(world_vectors: np.ndarray, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
@@ -470,6 +500,7 @@ class Organism:
         self.uncertainty = 0.0   # running mean of its mushroom body's prediction errors (at its own learning rate)
         self.just_missed = False
         self.cam_shift = (0.0, 0.0)
+        self.cam_scale = 0.0
         self.cam_moving = False
         self.last_parallax = None
         self.imagery = bool(getattr(g, "imagery", 0))
@@ -611,7 +642,8 @@ class Organism:
         shift from the previous frame (for the stabilizer).
         """
         self.cam_shift = (float(shift[0]), float(shift[1]))
-        self.cam_moving = camera_moves(self.cam_shift, shift_size(frame.shape)[::-1])
+        self.cam_scale = float(shift[2]) if len(shift) > 2 else 0.0
+        self.cam_moving = camera_moves(self.cam_shift + (self.cam_scale,), shift_size(frame.shape)[::-1])
         if self.k == 0:
             if len(self.scenes) > self.max_scenes:  # a smaller library now: keep the most recent
                 keep = sorted(range(len(self.scenes)), key=lambda i: self.scenes[i].get("last", 0.0))[-self.max_scenes:]
@@ -734,7 +766,7 @@ class Organism:
         par = sig["parallax"] if not was_asleep else None
         self.last_parallax = par
         parallax = float(par[cell_p[0] * self.place.shape[1] + cell_p[1]]) if par is not None and cell_p is not None and len(par) else 0.0
-        camera_moving = float(min(1.0, math.hypot(*self.cam_shift) / SHIFT_MAX)) if self.cam_moving else 0.0
+        camera_moving = float(min(1.0, max(math.hypot(*self.cam_shift), abs(self.cam_scale)) / SHIFT_MAX)) if self.cam_moving else 0.0
         coll, coll_macs = self._colliculus(sig, boxes, plants, state, was_asleep)
         own_pace = float(np.tanh(math.log2(max(1e-6, self.last_interval / max(1.0, self.fps) * REFERENCE_GAZES_PER_S))))
         cell = self._cell(state.cx, state.cy)

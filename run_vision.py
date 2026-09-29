@@ -487,10 +487,13 @@ def evaluate_genome(
                    colour=world_colour is not None, prey=world_prey is not None, record=True, sec_per_mac=sec_per_mac)
     sig = _SignalsAt(world_signals)
     shift_x, shift_y = world_signals["shift_x"], world_signals["shift_y"]
+    shift_s = world_signals.get("shift_s")
+    if shift_s is None:
+        shift_s = np.zeros(len(shift_x))
     for t in range(len(frames)):
         sig.t = t
         org.frame(frames[t], sig, world_prey[t] if world_prey is not None and t < len(world_prey) else [],
-                  world_colour[t] if world_colour is not None else None, (shift_x[t], shift_y[t]))
+                  world_colour[t] if world_colour is not None else None, (shift_x[t], shift_y[t], shift_s[t]))
     org.finish()
     (positions, fracs, frame_path, responses, alarms, teacher_p, teacher_y, idxs, intervals, dxs, dys,
      movement_costs, periph_active, prey_eaten, foods, energies, drives, asleeps) = (org.rec[n] for n in Organism.RECORDS)
@@ -856,11 +859,11 @@ class World:
             ws["structure"] = np.asarray(wv, dtype=float) - np.asarray(wv, dtype=float).mean(axis=1, keepdims=True)
             ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"], ws["mismatch_map"] = reflexes.mismatch_score(
                 wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S, SURPRISE_SIGMAS, NOISE_FLOOR)
-            ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
+            ws["shift_x"], ws["shift_y"], ws["shift_s"] = _global_shifts(self.frames[::pace])
             dv = np.abs(np.diff(np.asarray(wv, dtype=float), axis=0))
             ws["motion_map"] = np.clip(np.vstack([np.zeros((1, dv.shape[1])), dv]) * PERIPH_MOTION_GAIN, 0.0, 1.0) if len(wv) > 1 \
                 else np.zeros((len(wv), np.asarray(wv).shape[-1]))
-            ws["parallax"] = parallax_series(self.frames[::pace], ws["shift_x"], ws["shift_y"], self.field_shape)
+            ws["parallax"] = parallax_series(self.frames[::pace], ws["shift_x"], ws["shift_y"], self.field_shape, ws["shift_s"])
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
 

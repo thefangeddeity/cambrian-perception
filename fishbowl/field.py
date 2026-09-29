@@ -74,6 +74,7 @@ class FieldSignals:
             if self.window is None or self.window.shape != small.shape:
                 self.window = cv2.createHanningWindow(size, cv2.CV_32F)
             shift = org.global_shift(self.prev_small.copy(), small.copy(), self.window)  # copies: phase correlation windows its inputs in place
+            shift = (shift[0], shift[1], org.global_scale(self.prev_small, small))
         parallax = org.parallax_map(self.prev_small, small, shift, shape)
         self.prev_small = small
         self.t += 1

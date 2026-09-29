@@ -370,6 +370,15 @@ can afford more and bigger ones.
   is still off (replay backup, dream steps, colour, any unwired input, and
   receptor leaves where a tree reads only constants -- a tree that never reads
   its eye can never grow a line).
+- **Walking cameras** (2026-09-29): a camera walking forward shifts the frame
+  hardly at all -- the image flows out of its centre (Gibson) -- so it read as
+  still, and parallax never switched on (on a 24/7 walking stream: moving in
+  0% of steps). Its camera's motion is now its shift and its expansion:
+  corners tracked frame to frame (Lucas-Kanade), one similarity transform
+  fitted with RANSAC (things moving on their own are outliers); the camera
+  moves when either moves the frame's corners a pixel or more, and parallax
+  undoes both. On the same stream: moving in about half its steps (the walker
+  strolls, at the one-pixel line), parallax with it.
 - **Parallax** (moving cameras): with the camera's own motion undone, what is
   left of each cell's change over what changed at all (+ sensor noise): 0 for
   the scene sliding past, towards 1 for what is nearer or moving on its own.
