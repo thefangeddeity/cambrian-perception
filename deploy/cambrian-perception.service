@@ -15,6 +15,9 @@ ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/
 # share this box) -- loosen only after watching real headroom over
 # time, not upfront.
 CPUQuota=150%
+# Its cgroup is its own to split (run_vision.py _split_body_and_workers):
+# body/ with its memory protected, workers/ at the idle scheduling class.
+Delegate=yes
 MemoryMax=1536M
 MemoryHigh=1024M
 

@@ -765,14 +765,56 @@ def _kernel32():
     return k32
 
 
+def _cgroup_base():
+    """This service's own cgroup (v2), when systemd delegated it (Delegate=yes)
+    and it can write there; its body's cgroup's parent, once split."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        line = next(l for l in open("/proc/self/cgroup", encoding="utf-8").read().splitlines() if l.startswith("0::"))
+    except (OSError, StopIteration):
+        return None
+    base = Path("/sys/fs/cgroup") / line[3:].lstrip("/")
+    if base.name in ("body", "workers"):
+        base = base.parent
+    return base if os.access(base / "cgroup.subtree_control", os.W_OK) else None
+
+
+def _split_body_and_workers() -> None:
+    """Linux (a 2026-09-29 panel; Poettering): the kernel, not niceness, keeps
+    evolution out of its body's way. Its service's delegated cgroup splits in
+    two: body/ (this process, and what it starts) with its memory protected
+    (memory.low = max: under pressure the workers' pages are reclaimed first),
+    and workers/ at the idle scheduling class (cpu.idle: they run only on time
+    nothing else wants). The service's own caps (CPUQuota, MemoryMax) still
+    bound the two together. Without delegation (or cgroup v2), nothing changes."""
+    base = _cgroup_base()
+    if base is None:
+        return
+    try:
+        for d in ("body", "workers"):
+            (base / d).mkdir(exist_ok=True)
+        (base / "body" / "cgroup.procs").write_text(str(os.getpid()))
+        (base / "cgroup.subtree_control").write_text("+cpu +memory")
+        try:
+            (base / "workers" / "cpu.idle").write_text("1")
+        except OSError:
+            (base / "workers" / "cpu.weight").write_text("1")  # kernels before 5.15: the lowest weight
+        (base / "body" / "memory.low").write_text("max")
+        print("Its body and its evolution in their own cgroups (workers idle; its memory protected).")
+    except OSError as e:
+        print(f"Its cgroups couldn't be split ({e}); niceness only.")
+
+
 def _worker_below_the_body() -> None:
     """A worker runs one step below the organism's own process: the living
     organism (its live actor, in the main process) is real time, evolution is
     background -- on a busy host the scheduler serves the body first, and
     evolution gets what is left (Windows: background mode -- the documented
     way to lower a process's CPU, I/O and memory priority together, so under
-    memory pressure its pages go before the body's (Russinovich); elsewhere:
-    5 more niceness)."""
+    memory pressure its pages go before the body's (Russinovich); Linux: the
+    idle cgroup (Poettering, _split_body_and_workers); macOS: the Darwin
+    background band (Oakley); and everywhere but Windows, 5 more niceness)."""
     try:
         if os.name == "nt":
             k32 = _kernel32()
@@ -780,6 +822,14 @@ def _worker_below_the_body() -> None:
             k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00000040)  # then IDLE_PRIORITY_CLASS (CPU): in this order both hold
         else:
             os.nice(5)
+            base = _cgroup_base()
+            if base is not None and (base / "workers" / "cgroup.procs").exists():
+                (base / "workers" / "cgroup.procs").write_text(str(os.getpid()))  # Linux: into the idle cgroup
+            if sys.platform == "darwin":
+                # macOS (Oakley, Levin): the Darwin background band -- efficiency
+                # cores on Apple Silicon, throttled disk -- PRIO_DARWIN_PROCESS, PRIO_DARWIN_BG
+                import ctypes
+                ctypes.CDLL(None, use_errno=True).setpriority(4, 0, 0x1000)
     except (OSError, AttributeError):
         pass
 
@@ -1831,6 +1881,7 @@ def _body_at_full_speed() -> None:
 
 def main() -> int:
     _body_at_full_speed()
+    _split_body_and_workers()
     # Line-buffered, so the journal shows each line as it happens (not all
     # at once when the run exits).
     sys.stdout.reconfigure(line_buffering=True)

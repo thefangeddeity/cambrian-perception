@@ -116,6 +116,7 @@ cat > /tmp/$LABEL.plist <<EOF
         <string>tools/cambrian_service.py</string>
     </array>
     <key>WorkingDirectory</key><string>$DIR</string>
+    <key>ProcessType</key><string>Standard</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
     <key>StandardOutPath</key><string>$DIR/state/launchd.log</string>
