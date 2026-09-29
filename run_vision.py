@@ -53,6 +53,7 @@ import time
 import sys
 from pathlib import Path
 
+from fishbowl import video_source as _quiet  # noqa: F401,E402  (sets OpenCV's log levels before cv2 loads)
 import cv2
 import numpy as np
 
@@ -758,6 +759,8 @@ class _Workers:
         method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
         self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=n, mp_context=multiprocessing.get_context(method))
         self.world, self.meta, self.shm = None, None, []
+        import atexit
+        atexit.register(self.close)  # however the run ends, its shared frames are released
 
     def publish(self, world: "World") -> bool:
         """Shares this snapshot's frames (once). False if they can't be shared."""
@@ -793,8 +796,11 @@ class _Workers:
     def close(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
         for block in self.shm:
-            block.close()
-            block.unlink()
+            try:
+                block.close()
+                block.unlink()
+            except (FileNotFoundError, OSError):
+                pass
         self.shm = []
 
 

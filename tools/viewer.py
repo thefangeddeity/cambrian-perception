@@ -38,6 +38,31 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+
+class QuietHTTPServer(ThreadingHTTPServer):
+    """A browser closing a tab mid-response (a broken pipe, a reset, an aborted
+    connection) is not an error worth a traceback in the logs."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
+
+def _read_shared(path) -> bytes | None:
+    """A file the organism replaces several times a second: on Windows, a read
+    that lands on the replace is refused for an instant -- try again briefly,
+    then give up (the page asks again within a second)."""
+    for _ in range(10):
+        try:
+            return path.read_bytes() if path.exists() else None
+        except PermissionError:
+            time.sleep(0.02)
+    return None
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # LIVE_SOURCES imported (not duplicated) from run_vision.py -- a
 # second copy here would drift out of sync with the real list. Safe
@@ -1891,16 +1916,13 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/state":
-            if LIVE_STATUS_PATH.exists():
-                body = LIVE_STATUS_PATH.read_bytes()
-            else:
-                body = b"{}"
+            body = _read_shared(LIVE_STATUS_PATH) or b"{}"
             # The organism acting live (fishbowl/livelife.py): its newest frames
             # replace the generation's replay, when it is fresh and of this run.
             actor = LIVE_STATUS_PATH.with_name("live_actor.json")
             try:
                 if actor.exists() and time.time() - actor.stat().st_mtime < 10.0:
-                    d, a = json.loads(body or b"{}"), json.loads(actor.read_bytes())
+                    d, a = json.loads(body or b"{}"), json.loads(_read_shared(actor) or b"{}")
                     if a.get("world_epoch") == d.get("world_epoch"):
                         d.update(a)
                         body = json.dumps(d, separators=(",", ":")).encode("utf-8")
@@ -2063,7 +2085,7 @@ def main() -> int:
     global PAGE
     if _livecam_installed():  # checked once, at start
         PAGE = PAGE.replace('<span class="chip" id="h-stale">', SUITE_CHIP + '<span class="chip" id="h-stale">', 1)
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server = QuietHTTPServer((args.host, args.port), Handler)
     print(f"Viewer running at http://{args.host}:{args.port}/ (polls {LIVE_STATUS_PATH})")
     try:
         server.serve_forever()

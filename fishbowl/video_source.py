@@ -12,6 +12,14 @@ README's fishbowl boundary.
 
 import collections
 import os
+
+# Quiet OpenCV and FFmpeg (a 2026-09-28 infrastructure review): their warnings
+# and errors printed whole signed stream URLs -- carrying the host's public IP
+# -- into the logs, dozens a day, and our own stall and failure handling
+# already reports what matters. Set before OpenCV loads; an operator can still
+# override them in the environment.
+os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")  # AV_LOG_QUIET
 import shutil
 import subprocess
 import threading
@@ -91,6 +99,8 @@ def open_capture(source):
         ffmpeg = _ffmpeg_binary()
         if ffmpeg:
             return _FFmpegPipe(str(source), ffmpeg)
+    if not isinstance(source, int) and cv2.videoio_registry.hasBackend(cv2.CAP_FFMPEG):
+        return cv2.VideoCapture(source, cv2.CAP_FFMPEG)  # a URL straight to FFmpeg, not tried as an image sequence first
     return cv2.VideoCapture(source)
 
 
@@ -213,8 +223,15 @@ class FrameRing:
             def log_message(self, *args):
                 pass
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        server.daemon_threads = True
+        class QuietServer(ThreadingHTTPServer):
+            daemon_threads = True
+
+            def handle_error(self, request, client_address):  # a viewer closing mid-frame is not an error
+                import sys
+                if not isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+                    super().handle_error(request, client_address)
+
+        server = QuietServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=server.serve_forever, name="FrameRing", daemon=True).start()
         port = server.server_address[1]
         tmp = port_file.with_suffix(".tmp")
