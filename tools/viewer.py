@@ -1517,9 +1517,7 @@ PAGE = r"""<!doctype html>
     ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(edges ? `lines: ${edges} on its eye` : 'lines: none yet', ox, oy + side + 3);
     if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
-    const smode = SP3.pov ? '<b>its eye</b> &middot; <a href="#" data-sp="overview">overview</a>' : '<a href="#" data-sp="eye">its eye</a> &middot; <b>overview</b>';
-    $('space-cap').innerHTML = note + (SP3.pov ? '. Seen from its eye: click it to steer (drag turns its head, wheel or pinch zooms, double-click looks ahead again; Esc releases). '
-                                            : '. Click it to steer (drag turns, wheel or pinch zooms; Esc releases). ') + `<span id="space-mode">${smode}</span>`;
+    $('space-cap').textContent = note + '. Seen from its own eye, as its feed shows it.';
     const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
     $('cortex-cap').innerHTML = !cx ? '' : `<b>Who it knows</b> (its visual cortex: each one by true height and colour; ${cx.individuals} so far; ${(cx.ms || 0).toFixed(1)} ms a frame): `
       + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &middot; seen ${k.seen}&times;`
@@ -1527,36 +1525,8 @@ PAGE = r"""<!doctype html>
           + (k.cadence != null ? ` &middot; ${k.cadence.toFixed(1)} steps/s` : '')
           + ` &middot; last ${ago(Math.max(0, (cx.now || k.last) - k.last))} ago`).join('; ') : 'nobody yet (it first learns, from things it follows, how much one individual varies)');
   }
-  (() => {
-    const c = $('space'); if (!c) return;
-    const active = steerable(c);
-    const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
-    const redraw = () => { SP3.dirty = true; spaceKick(); };
-    const P = new Map(); let pinch = null;
-    c.addEventListener('wheel', e => { if (!active()) return; e.preventDefault(); SP3.zoom = Math.max(0.4, Math.min(6, SP3.zoom * Math.exp(-e.deltaY * 0.0015))); redraw(); }, { passive: false });
-    c.addEventListener('dblclick', () => { if (!active()) return; SP3.hy = 0; SP3.hp = 0; SP3.yaw = -0.5; SP3.pitch = 0.45; SP3.zoom = 1; redraw(); });
-    document.addEventListener('click', e => { const a = e.target.closest('#space-mode a'); if (a) { e.preventDefault(); e.stopPropagation(); SP3.pov = a.dataset.sp === 'eye'; SP3.zoom = 1; redraw(); } }, true);
-    c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); P.set(e.pointerId, pt(e)); pinch = null; c.style.cursor = 'grabbing'; });
-    c.addEventListener('pointermove', e => {
-      if (!P.has(e.pointerId)) return;
-      const prev = P.get(e.pointerId), now = pt(e); P.set(e.pointerId, now);
-      if (P.size === 2) {  // two fingers zoom; they never turn it
-        const [a, b] = [...P.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
-        if (pinch) SP3.zoom = Math.max(0.4, Math.min(6, SP3.zoom * dist / pinch));
-        pinch = dist; redraw(); return;
-      }
-      if (P.size > 2) return;
-      if (SP3.pov) {  // its head: turns and looks up or down, within what a neck allows
-        SP3.hy = Math.max(-1.0, Math.min(1.0, SP3.hy + (now[0] - prev[0]) * 0.004));
-        SP3.hp = Math.max(-0.5, Math.min(0.5, SP3.hp + (now[1] - prev[1]) * 0.004));
-      } else {
-        SP3.yaw += (now[0] - prev[0]) * 0.008; SP3.pitch = Math.max(0.05, Math.min(1.4, SP3.pitch + (now[1] - prev[1]) * 0.008));
-      }
-      redraw();
-    });
-    const up = e => { P.delete(e.pointerId); pinch = null; if (!P.size) c.style.cursor = ''; };
-    c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
-  })();
+  // Its sense of space is not ours to steer: it shows what its eye sees, from
+  // where its eye is (a 2026-09-29 decision) -- nothing here moves it.
   function spaceKick() {  // drawn on the next frame, only while on screen and the tab is visible
     if (SP3.loop) return;
     SP3.loop = true;
