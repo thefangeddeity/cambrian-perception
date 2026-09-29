@@ -741,8 +741,6 @@ PAGE = r"""<!doctype html>
       <label><input type="checkbox" data-layer="place"> <b style="color:#ffb066">food places</b></label>
       <label><input type="checkbox" data-layer="people"> <b style="color:#ff6f8a">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
-      <label><input type="checkbox" data-layer="ground"> <b style="color:#9ccf7a">ground</b></label>
-      <label><input type="checkbox" data-layer="parallax"> <b style="color:#7fd4ff">parallax</b></label>
       <label><input type="checkbox" data-layer="priority"> <b style="color:#ff66cc">priority</b></label>
 </div>
     <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; <b style="color:#9ccf7a">dotted</b> = a plant (nectar); red frame = something looming.</div>
@@ -753,6 +751,11 @@ PAGE = r"""<!doctype html>
     <h2>its perception tree</h2>
     <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
     <div id="trees"></div>
+  </div>
+  <div class="panel" id="space-panel" style="grid-column: 1 / -1">
+    <h2>its sense of space</h2>
+    <canvas id="space"></canvas>
+    <div class="cap" id="space-cap">--</div>
   </div>
   <div class="panel" id="brain-panel">
     <h2>its brain</h2>
@@ -1021,20 +1024,6 @@ PAGE = r"""<!doctype html>
         ctx.strokeRect(x + lw / 2 + 1, y + lw / 2 + 1, w - lw - 2, h - lw - 2);
       });
     }
-    if (LAYERS.ground && sn.horizon != null) {  // its learned ground plane: the horizon, and depth bands below it (lines)
-      const hy = sn.horizon * H;
-      ctx.strokeStyle = 'rgba(156, 207, 122, 0.9)'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
-      ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke(); ctx.setLineDash([]);
-      for (const d2 of [2, 4, 8]) {  // where things are 1/2, 1/4, 1/8 as near as at the frame's bottom
-        const y = hy + (H - hy) / d2; ctx.strokeStyle = `rgba(156, 207, 122, ${0.2 + 0.3 / d2})`; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-      }
-    }
-    if (LAYERS.parallax && sn.parallax) each(sn.parallax, m.shape, (v, x, y, w, h) => {  // what moves against the camera's own motion (crosses)
-      if (v <= 0.05) return;
-      const s = Math.min(w, h) * 0.3 * v; ctx.strokeStyle = `rgba(127, 212, 255, ${0.4 + 0.6 * v})`; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(x + w / 2 - s, y + h / 2); ctx.lineTo(x + w / 2 + s, y + h / 2); ctx.moveTo(x + w / 2, y + h / 2 - s); ctx.lineTo(x + w / 2, y + h / 2 + s); ctx.stroke();
-    });
     if (LAYERS.priority && sn.priority) {  // its collicular priority map: bars by salience, the winner ringed
       const top = Math.max(1e-6, ...sn.priority);
       let best = -1, bi = -1; sn.priority.forEach((v, k) => { if (v > best) { best = v; bi = k; } });
@@ -1312,6 +1301,97 @@ PAGE = r"""<!doctype html>
     cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid; firing cells glow phosphor green, brighter the more they have learned. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Click it to steer (drag turns, wheel or pinch zooms, hover a cell; Esc or a click outside releases).`;
   }
 
+  // Its sense of space, rendered in 3D: the world as it reconstructs it. Its
+  // learned ground plane laid out in depth (each field cell below the horizon
+  // at the distance the plane implies: depth ~ 1 / (y - horizon), sideways
+  // ~ depth x x), the hosts it sees standing on it at their distance and
+  // height, parallax as cyan columns where things move against the camera,
+  // and, inset, the lines its perception trees read on its eye (oriented
+  // pools as bars at their angle). Click it to steer, like the others.
+  const SP3 = { yaw: -0.5, pitch: 0.45, zoom: 1, dirty: true, loop: false, drag: null, d: null };
+  function drawSpace(d) {
+    const c = $('space'); if (!c || !d) return;
+    const W = Math.max(300, Math.floor(c.parentElement.clientWidth - 24)), H = Math.round(W * 0.42);
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+    SP3.d = d;
+    const ctx = c.getContext('2d'), sn = d.senses || {};
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
+    const m = d.maps, [rows, cols] = (m && m.shape) || d.world_grid_shape || [9, 16];
+    const hz = sn.horizon;
+    const cy = Math.cos(SP3.yaw), sy = Math.sin(SP3.yaw), cp = Math.cos(SP3.pitch), sp = Math.sin(SP3.pitch);
+    const F = 4.0, scale = Math.min(W, H) * 0.42 * SP3.zoom;
+    const proj = (x, y, z) => {  // world: x sideways, y up, z away (centred on the scene's middle)
+      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = -y * cp - z1 * sp, z2 = -y * sp + z1 * cp, w = F / (F + z2);
+      return [W / 2 + x1 * scale * w, H / 2 + y2 * scale * w, z2, w];
+    };
+    const ZMAX = 3.0;  // the far edge drawn (the horizon itself is infinitely far)
+    const place = (fx, fy) => {  // a point of the frame on its ground: (sideways, depth), or null above the horizon
+      if (hz == null || fy <= hz + 1e-3) return null;
+      const z = Math.min(ZMAX, (1 - hz) / (fy - hz));  // 1 at the frame's bottom, growing toward the horizon
+      return [(fx - 0.5) * z * 1.6, z];
+    };
+    const at = (x, y, z) => proj(x, y, z - ZMAX / 2 - 0.5);
+    let note = '';
+    if (hz == null) {
+      note = 'no horizon yet: it learns its ground plane from the sizes of the hosts it sees';
+    } else {
+      // the ground: grid lines of constant depth and constant sideways position
+      ctx.strokeStyle = 'rgba(156, 207, 122, 0.35)'; ctx.lineWidth = 1;
+      for (let z = 1; z <= ZMAX + 1e-6; z += 0.25) { const a = at(-1.6 * z * 0.5, 0, z), b = at(1.6 * z * 0.5, 0, z); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+      for (let fx = 0; fx <= 1.0001; fx += 1 / 8) { const a = at((fx - 0.5) * 1.6, 0, 1), b = at((fx - 0.5) * 1.6 * ZMAX, 0, ZMAX); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+      // parallax: columns on its cells
+      if (sn.parallax) sn.parallax.forEach((v, k) => {
+        if (v <= 0.05) return;
+        const r = Math.floor(k / cols), cc = k % cols, g = place((cc + 0.5) / cols, (r + 0.5) / rows); if (!g) return;
+        const a = at(g[0], 0, g[1]), b = at(g[0], 0.6 * v, g[1]);
+        ctx.strokeStyle = `rgba(127, 212, 255, ${0.4 + 0.6 * v})`; ctx.lineWidth = 3 * a[3]; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      });
+      // hosts: standing at their distance, their real height (frame height x depth)
+      const boxes = (d.prey_boxes && d.prey_boxes.length) ? d.prey_boxes[d.prey_boxes.length - 1] : [];
+      (boxes || []).forEach(([cls, conf, x0, y0, x1, y1]) => {
+        const g0 = place(x0, y1), g1 = place(x1, y1); if (!g0 || !g1) return;
+        const hgt = (y1 - y0) * g0[1] * 1.6;
+        const p = [at(g0[0], 0, g0[1]), at(g1[0], 0, g1[1]), at(g1[0], hgt, g1[1]), at(g0[0], hgt, g0[1])];
+        ctx.fillStyle = `rgba(255, 111, 138, ${0.15 + 0.3 * conf})`; ctx.strokeStyle = 'rgba(255, 111, 138, 0.9)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); p.slice(1).forEach(q => ctx.lineTo(q[0], q[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
+      });
+      note = `ground plane learned from hosts' sizes, horizon ${Math.round(100 * hz)}% down the frame; pink: hosts at their distance and height`
+             + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));
+    }
+    // inset: the lines its trees read on its eye
+    const N = d.receptors || 12, side = Math.min(110, H * 0.45), cell = side / N, ox = W - side - 8, oy = 8;
+    ctx.fillStyle = 'rgba(5, 7, 10, 0.9)'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);
+    ctx.strokeStyle = '#1c2a36'; ctx.lineWidth = 1; ctx.strokeRect(ox, oy, side, side);
+    let edges = 0;
+    (function walk(n) {
+      if (!n) return;
+      if (n.kind === 'edge' || n.kind === 'pool') {
+        const x = ox + (n.kx + N / 2 + 0.5) * cell, y = oy + (n.ky + N / 2 + 0.5) * cell, r = (Math.round(n.value) + 0.5) * cell, col = PLANE_COL[n.index] || '200,200,200';
+        ctx.strokeStyle = `rgba(${col},0.5)`; ctx.strokeRect(x - r, y - r, 2 * r, 2 * r);
+        if (n.kind === 'edge') { const a = n.angle || 0; ctx.strokeStyle = `rgb(${col})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - r * Math.sin(a), y + r * Math.cos(a)); ctx.lineTo(x + r * Math.sin(a), y - r * Math.cos(a)); ctx.stroke(); ctx.lineWidth = 1; edges++; }
+      }
+      (n.children || []).forEach(walk);
+    })(d.trees && d.trees.response);
+    ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(edges ? `lines: ${edges} on its eye` : 'lines: none yet', ox, oy + side + 3);
+    if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
+    $('space-cap').textContent = note + '. Click it to steer (drag turns, wheel or pinch zooms; Esc releases).';
+  }
+  (() => {
+    const c = $('space'); if (!c) return;
+    const active = steerable(c);
+    const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
+    const redraw = () => { if (SP3.d) drawSpace(SP3.d); };
+    c.addEventListener('wheel', e => { if (!active()) return; e.preventDefault(); SP3.zoom = Math.max(0.4, Math.min(6, SP3.zoom * Math.exp(-e.deltaY * 0.0015))); redraw(); }, { passive: false });
+    c.addEventListener('dblclick', () => { if (!active()) return; SP3.yaw = -0.5; SP3.pitch = 0.45; SP3.zoom = 1; redraw(); });
+    c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); SP3.drag = pt(e); });
+    c.addEventListener('pointermove', e => {
+      if (!SP3.drag) return;
+      const now = pt(e); SP3.yaw += (now[0] - SP3.drag[0]) * 0.008; SP3.pitch = Math.max(0.05, Math.min(1.4, SP3.pitch + (now[1] - SP3.drag[1]) * 0.008)); SP3.drag = now; redraw();
+    });
+    const up = () => { SP3.drag = null; };
+    c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+  })();
   // The retina panel runs on the same replay clock as the picture and the
   // visual field: its gaze where the replayed path has it, and its n x n
   // retina rebuilt here from the frame on screen with the same averaging its
@@ -1956,7 +2036,7 @@ PAGE = r"""<!doctype html>
   }
   const CH_EXTRA = {};
   function redrawAll() {
-    if (D) { drawBody(D); drawBrain(D); drawSenses(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
+    if (D) { drawBody(D); drawBrain(D); drawSenses(D); drawSpace(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
     balanceSide();
     if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, ch.hourly ? lastHourly : lastHistory));
   }
@@ -2068,7 +2148,7 @@ PAGE = r"""<!doctype html>
         $('h-prey').textContent = ['eyes only', 'scent', 'scent + direction'][d.prey_sense ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? (d.host_cores ? `${(d.quota_pct / 100).toFixed(1)} of ${d.host_cores} cores` : d.quota_pct + '% of a core') : '--';  // systemd's % = one core
         $('h-stale').innerHTML = '';
-        drawBody(d); drawBrain(d); drawSenses(d); showLive(d);
+        drawBody(d); drawBrain(d); drawSenses(d); drawSpace(d); showLive(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
     } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }
