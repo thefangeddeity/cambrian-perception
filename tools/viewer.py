@@ -425,7 +425,7 @@ LOCK_HUD_JS = r"""
     const spots = { ar: ['rtl', `top:${m}px;right:${side}px;text-align:right`, AR_FONT, toArabic],
                     uk: ['ltr', `bottom:${m}px;left:${side}px;text-align:left`, 'monospace', toUkrainian],
                     tw: ['ltr', `bottom:${m}px;right:${side}px;text-align:right`, TW_FONT, toTaiwanese] };
-    rows = rows.filter(r => r[3] !== 'telemetry').map(([t, c, f]) => [t, c, f.replace(/(\d+)px/, (_, n) => Math.round(n * 0.85) + 'px')]);
+    rows = rows.filter(r => r[3] !== 'telemetry').map(([t, c, f]) => [t, c, f.replace(/(\d+)px/, (_, n) => Math.max(7, Math.round(n * 0.85)) + 'px')]);
     Object.entries(spots).forEach(([key, [dir, where, family, conv]]) => {
       let el = host.querySelector(':scope > .hud-' + key);
       if (!el) {
@@ -561,7 +561,7 @@ LOCK_HUD_JS = r"""
       });
     }
     // its text scales with the picture: full size from 560 px wide, down to 60% on a phone
-    const hk = Math.max(0.6, Math.min(1, bw / 560)), hpx = n => Math.max(7, Math.round(n * hk)), lh = 16 * hk, y0 = 18 * hk;
+    const hk = Math.max(0.6, Math.min(1, bw / 560)), hpx = n => Math.max(8, Math.round(n * hk)), lh = 16 * hk, y0 = 18 * hk;
     ctx.canvas._hudK = hk;
     ctx.font = `${hpx(11)}px monospace`; ctx.textBaseline = 'middle';
     // LIVE: the organism acting live (fishbowl/livelife.py)
