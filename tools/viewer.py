@@ -758,17 +758,17 @@ PAGE = r"""<!doctype html>
       <div id="submit-status" class="cap" style="margin-top:6px"></div>
     </div>
   </div>
+  <div class="panel" id="space-panel">
+    <h2>navigation</h2>
+    <canvas id="space"></canvas>
+    <div class="cap" id="space-cap">--</div>
+    <div class="cap" id="cortex-cap"></div>
+  </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
     <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
-  </div>
-  <div class="panel" id="space-panel">
-    <h2>its sense of space</h2>
-    <canvas id="space"></canvas>
-    <div class="cap" id="space-cap">--</div>
-    <div class="cap" id="cortex-cap"></div>
   </div>
   <div class="panel" id="tree-panel">
     <h2>its perception tree</h2>
