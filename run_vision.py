@@ -491,10 +491,13 @@ def evaluate_genome(
     shift_s = world_signals.get("shift_s")
     if shift_s is None:
         shift_s = np.zeros(len(shift_x))
+    shift_r = world_signals.get("shift_r")
+    if shift_r is None:
+        shift_r = np.zeros(len(shift_x))
     for t in range(len(frames)):
         sig.t = t
         org.frame(frames[t], sig, world_prey[t] if world_prey is not None and t < len(world_prey) else [],
-                  world_colour[t] if world_colour is not None else None, (shift_x[t], shift_y[t], shift_s[t]))
+                  world_colour[t] if world_colour is not None else None, (shift_x[t], shift_y[t], shift_s[t], shift_r[t]))
     org.finish()
     (positions, fracs, frame_path, responses, alarms, teacher_p, teacher_y, idxs, intervals, dxs, dys,
      movement_costs, periph_active, prey_eaten, foods, energies, drives, asleeps) = (org.rec[n] for n in Organism.RECORDS)
@@ -952,7 +955,8 @@ class World:
             ws["structure"] = np.asarray(wv, dtype=float) - np.asarray(wv, dtype=float).mean(axis=1, keepdims=True)
             ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"], ws["mismatch_map"] = reflexes.mismatch_score(
                 wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S, SURPRISE_SIGMAS, NOISE_FLOOR)
-            ws["shift_x"], ws["shift_y"], ws["shift_s"] = _global_shifts(self.frames[::pace])
+            ws["shift_r"] = np.zeros(len(self.frames[::pace]))
+            ws["shift_x"], ws["shift_y"], ws["shift_s"] = _global_shifts(self.frames[::pace], None, ws["shift_r"])
             dv = np.abs(np.diff(np.asarray(wv, dtype=float), axis=0))
             ws["motion_map"] = np.clip(np.vstack([np.zeros((1, dv.shape[1])), dv]) * PERIPH_MOTION_GAIN, 0.0, 1.0) if len(wv) > 1 \
                 else np.zeros((len(wv), np.asarray(wv).shape[-1]))
@@ -1014,6 +1018,7 @@ def _pack_scenes(lib) -> dict | None:
     return {"current": int(lib["current"]),
             "library": [{**{k: arr(s.get(k)) for k in ("gist", "place", "people_day", "people_night", "value_map", "memory", "variance", "ground", "terrain")},
                          "gist_shape": list(np.shape(s["gist"])), "last": float(s.get("last", 0.0)),
+                         "heading": None if s.get("heading") is None else round(float(s["heading"]), 5),
                          "nectar": {k: round(float(v), 4) for k, v in (s.get("nectar") or {}).items()}}
                         for s in lib["library"]]}
 
@@ -1028,6 +1033,8 @@ def _unpack_scenes(packed):
         sc = {k: arr(s.get(k)) for k in ("place", "people_day", "people_night", "value_map", "memory", "variance", "ground", "terrain")}
         sc["gist"] = arr(s["gist"]).reshape(s.get("gist_shape") or -1)
         sc["last"], sc["nectar"] = float(s.get("last", 0.0)), dict(s.get("nectar") or {})
+        if s.get("heading") is not None:
+            sc["heading"] = float(s["heading"])
         lib.append(sc)
     return {"current": int(packed["current"]), "library": lib}
 

@@ -409,6 +409,16 @@ can afford more and bigger ones.
   ("contact ~N looks", a dashed ghost where it expects the host) and in its
   eye's view (a reticle that tightens with tau, taught vs felt nearness, the
   ghost standing on its ground).
+- **Feeling its rotation** (2026-09-29; Taube's head-direction cells,
+  Jayaraman's fly compass ring, Jeffery and O'Keefe on landmark anchoring): a
+  vestibular sense -- yaw from the frame's shift (focal length ~ frame
+  height), roll from the ego-motion fit (significant and replicated) -- summed
+  over each look as turning and tilting, in its half field of view (inputs
+  64-65); a compass (gene, born off, seeded on) integrating the yaw (inputs
+  66-67, sin and cos), re-anchored to the heading each scene of its library
+  was lived at. Parallax and camera-motion undo the roll too. Tested: a pan
+  integrates to 73.7 deg against 76.4 deg of geometry. Next (proposed): the
+  entorhinal step, grid-cell path integration of speed x heading.
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

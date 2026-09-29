@@ -31,7 +31,7 @@ import numpy as np
 from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
                          PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT,
-                         NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT)
+                         NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT, HEADING_INPUTS)
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -278,7 +278,7 @@ def _similarity(a: np.ndarray, b: np.ndarray):
     return float(np.log(k)), math.sqrt(sigma2 / max(spread, 1e-9)) / k, inl, m
 
 
-def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | None = None) -> float:
+def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | None = None, roll: list | None = None) -> float:
     """The whole frame's expansion between two small frames (log scale; + when
     the camera walks forward -- Gibson's outflow of forward locomotion): corner
     features tracked from one to the other (Lucas-Kanade), a similarity
@@ -292,10 +292,14 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
     a, b = prev_small.astype(np.uint8), cur_small.astype(np.uint8)
     p0 = cv2.goodFeaturesToTrack(a, maxCorners=100, qualityLevel=0.01, minDistance=5)
     if p0 is None or len(p0) < 8:
+        if roll is not None:
+            roll.append(0.0)
         return 0.0
     p1, st, _ = cv2.calcOpticalFlowPyrLK(a, b, p0, None)
     ok = st.ravel() == 1
     if ok.sum() < 8:
+        if roll is not None:
+            roll.append(0.0)
         return 0.0
     pa, pb = p0[ok].reshape(-1, 2), p1[ok].reshape(-1, 2)
     if keep is not None:  # the tracked corners, as frame fractions (x0, y0, x1, y1), for tau at its gaze
@@ -303,13 +307,21 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
         keep.append((np.hstack([pa, pb]) / np.array([w, h, w, h], dtype=np.float32)).astype(np.float32))
     fit = _similarity(pa, pb)
     if fit is None:
+        if roll is not None:
+            roll.append(0.0)
         return 0.0
     s, se, inl, m = fit
     still = float(np.median(np.hypot(*(pb[inl] - pa[inl]).T))) < 1.0  # its inliers moved less than RANSAC's own pixel
     if still and (~inl).sum() >= 8:  # the still part is its body; the world is what the rest agree on
         world = _similarity(pa[~inl], pb[~inl])
         if world is not None:
-            s, se = world[0], world[1]
+            s, se, m = world[0], world[1], world[3]
+    if roll is not None:
+        # its roll: the camera's rotation about its view (+ clockwise), the
+        # opposite of the world's on screen; for a similarity its error equals
+        # the scale's, so the same test applies
+        r = -math.atan2(m[1, 0], m[0, 0])
+        roll.append(r if abs(r) > 2.0 * se and abs(r) <= SHIFT_MAX else 0.0)
     return s if abs(s) > 2.0 * se and abs(s) <= SHIFT_MAX else 0.0
 
 
@@ -333,7 +345,10 @@ def parallax_map(prev_small, small, shift, shape) -> np.ndarray:
         return np.zeros(rows * cols)
     h, w = small.shape
     k = math.exp(shift[2]) if len(shift) > 2 else 1.0
-    moved = cv2.warpAffine(prev_small, np.float32([[k, 0, (1 - k) * w / 2 + shift[0] * w], [0, k, (1 - k) * h / 2 + shift[1] * h]]),
+    th = -shift[3] if len(shift) > 3 else 0.0  # its roll undone too (the fit's own angle)
+    a, b = k * math.cos(th), k * math.sin(th)
+    cx, cy = w / 2, h / 2
+    moved = cv2.warpAffine(prev_small, np.float32([[a, -b, cx + shift[0] * w - (a * cx - b * cy)], [b, a, cy + shift[1] * h - (b * cx + a * cy)]]),
                            (w, h), borderMode=cv2.BORDER_REPLICATE)
     # Cell by cell (as its motion sense compares receptors), how much of the
     # change is left once the camera's own motion is undone: what still moved,
@@ -352,7 +367,7 @@ def camera_moves(shift, small_shape) -> bool:
     h, w = small_shape[:2]
     if abs(shift[0]) * w >= 1.0 or abs(shift[1]) * h >= 1.0:
         return True
-    return len(shift) > 2 and shift[2] != 0.0  # an expansion is only reported when it is significant (global_scale)
+    return (len(shift) > 2 and shift[2] != 0.0) or (len(shift) > 3 and shift[3] != 0.0)  # expansion or roll: only reported when significant
 
 
 def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, shape, ss: np.ndarray | None = None) -> np.ndarray:
@@ -369,7 +384,7 @@ def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, sh
     return out
 
 
-def global_shifts(frames: list[np.ndarray], tracks: list | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def global_shifts(frames: list[np.ndarray], tracks: list | None = None, rolls: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The whole frame's shift (and expansion) from frame k-1 to frame k, for a recording."""
     n = len(frames)
     sx, sy, ss = np.zeros(n), np.zeros(n), np.zeros(n)
@@ -384,13 +399,20 @@ def global_shifts(frames: list[np.ndarray], tracks: list | None = None) -> tuple
         cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
         sx[k], sy[k] = global_shift(prev.copy(), cur.copy(), window)  # copies: phase correlation windows its inputs in place
         keep = [] if tracks is not None else None
-        ss[k] = global_scale(prev, cur, keep)
+        rl = [] if rolls is not None else None
+        ss[k] = global_scale(prev, cur, keep, rl)
+        if rolls is not None:
+            rolls[k] = rl[0] if rl else 0.0
         if tracks is not None:
             tracks.append(keep[0] if keep else None)
         prev = cur
     raw = ss.copy()
     for k in range(1, n):
         ss[k] = replicated(raw[k], raw[k - 1])
+    if rolls is not None:
+        rraw = rolls.copy()
+        for k in range(1, n):
+            rolls[k] = replicated(rraw[k], rraw[k - 1])
     return sx, sy, ss
 
 
@@ -632,6 +654,10 @@ class Organism:
         self.just_missed = False
         self.cam_shift = (0.0, 0.0)
         self.cam_scale = 0.0
+        self.compass = int(getattr(g, "compass", 0))
+        self.heading = 0.0            # its compass (radians): where it faces, as it has integrated its turning
+        self._yaw_look = self._roll_look = 0.0
+        self.turning = self.tilting = 0.0
         self.cam_moving = False
         self.last_parallax = None
         self.imagery = bool(getattr(g, "imagery", 0))
@@ -774,6 +800,16 @@ class Organism:
         """
         self.cam_shift = (float(shift[0]), float(shift[1]))
         self.cam_scale = float(shift[2]) if len(shift) > 2 else 0.0
+        # its vestibular sense (a 2026-09-29 panel; Taube, Jayaraman): yaw from
+        # the frame's shift (+ turning right: the world slides left; focal length
+        # ~ the frame's height, as its ground model assumes) and roll from the
+        # ego-motion fit, summed over each look; its compass integrates the yaw
+        yaw = -math.atan(self.cam_shift[0] * self.aspect)
+        roll = float(shift[3]) if len(shift) > 3 else 0.0
+        self._yaw_look += yaw
+        self._roll_look += roll
+        if self.compass:
+            self.heading = (self.heading + yaw) % (2 * math.pi)
         self.cam_moving = camera_moves(self.cam_shift + (self.cam_scale,), shift_size(frame.shape)[::-1])
         if self.k == 0:
             if len(self.scenes) > self.max_scenes:  # a smaller library now: keep the most recent
@@ -897,6 +933,12 @@ class Organism:
         self.felt_nearness = felt
         contact, contact_macs = self._contact(frame, state) if not was_asleep else (0.0, 0)
         head_macs += contact_macs
+        # what its body felt turning and tilting since its last look, in its half field of view
+        half_fov = math.atan(0.5 * self.aspect)
+        self.turning = float(np.clip(self._yaw_look / half_fov, -1.0, 1.0))
+        self.tilting = float(np.clip(self._roll_look / half_fov, -1.0, 1.0))
+        self._yaw_look = self._roll_look = 0.0
+        heading = (math.sin(self.heading), math.cos(self.heading)) if self.compass else (0.0, 0.0)
         self.last_nearness = nearness
         cell_p = self._cell(state.cx, state.cy)
         par = sig["parallax"] if not was_asleep else None
@@ -946,7 +988,7 @@ class Organism:
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
-                tuple(head_vals), coll, terrain, nearness, felt, contact,
+                tuple(head_vals), coll, terrain, nearness, felt, contact, self.turning, self.tilting, heading,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1229,6 +1271,8 @@ class Organism:
             a = getattr(self, name)
             sc[name] = None if a is None else np.array(a, copy=True)
         sc["nectar"] = dict(self.nectar)
+        if self.compass:
+            sc.setdefault("heading", self.heading)  # its landmark: the heading it had here
 
     def _unstash(self) -> None:
         """Back in a stored scene: its maps again."""
@@ -1237,6 +1281,8 @@ class Organism:
             if sc.get(name) is not None:
                 setattr(self, name, np.array(sc[name], copy=True))
         self.nectar = dict(sc.get("nectar") or {})
+        if self.compass and sc.get("heading") is not None:
+            self.heading = float(sc["heading"])  # back among its landmarks: its compass re-anchors to them
 
     def _fresh_maps(self) -> None:
         """A new place: nothing learned about it yet."""
@@ -1812,7 +1858,7 @@ class Organism:
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
                                                                          + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
-                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT))
+                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT) + HEADING_INPUTS)
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

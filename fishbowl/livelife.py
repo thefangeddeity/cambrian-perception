@@ -23,6 +23,7 @@ import base64
 import collections
 import copy
 import json
+import math
 import os
 import threading
 import time
@@ -100,7 +101,8 @@ def _carry(old: Organism, new: Organism) -> None:
         new.lessons = None if old.lessons is None else old.lessons.copy()  # its locks with the weights they hold
     new.night_lessons, new._tonight, new._night = list(old.night_lessons), old._tonight, old._night
     new.scores, new._precision_mean = old.scores, old._precision_mean
-    new._ahead, new._predicted, new._last_local_s = old._ahead, old._predicted, old._last_local_s  # its prequential record goes on with its mushroom body
+    new._ahead, new._predicted, new._last_local_s = old._ahead, old._predicted, old._last_local_s
+    new.heading = old.heading  # where it faces goes on, whatever genome thinks  # its prequential record goes on with its mushroom body
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
     new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
@@ -189,7 +191,8 @@ def _circuits(org: Organism) -> dict:
     out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(), "terrain": org.terrain_view(),
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
-                     "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "felt_nearness": round(float(org.felt_nearness), 3), "contact": round(float(org.contact), 3), "camera_moving": bool(org.cam_moving),
+                     "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "felt_nearness": round(float(org.felt_nearness), 3), "contact": round(float(org.contact), 3), "turning": round(float(org.turning), 3),
+                     "tilting": round(float(org.tilting), 3), "heading": round(math.degrees(org.heading), 1) if org.compass else None, "camera_moving": bool(org.cam_moving),
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
                      "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]

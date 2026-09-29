@@ -57,7 +57,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
-            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain", "mutate_lookahead", "mutate_extrapolation")
+            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain", "mutate_lookahead", "mutate_extrapolation", "mutate_compass")
 STABILIZER_SIGMA = 0.1
 MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
@@ -238,6 +238,7 @@ class Genome:
         felt_terrain: int = 0,
         lookahead: int = 0,
         extrapolation: float = 0.0,
+        compass: int = 0,
         colliculus: list | None = None,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
@@ -293,6 +294,10 @@ class Genome:
         # compensation by physics; evolution tunes the over/undershoot). Born 0.
         self.lookahead = int(bool(lookahead))
         self.extrapolation = float(np.clip(extrapolation, 0.0, EXTRAPOLATION_MAX))
+        # Its compass (a 2026-09-29 panel; Taube, Jayaraman's ring, Jeffery): a
+        # heading integrated from its sense of turning, re-anchored to its
+        # scenes. Born 0 (none).
+        self.compass = int(bool(compass))
         # Its collicular priority map's weights (organism.COLLICULAR_FEATURES), born 0.
         self.colliculus = ([float(w) for w in (colliculus or [])] + [0.0] * 6)[:6]
         # Its fuel set points (state.py), inherited, born at the rulebook's
@@ -389,6 +394,7 @@ class Genome:
             self.felt_terrain,
             self.lookahead,
             self.extrapolation,
+            self.compass,
             list(self.colliculus),
             self.mobilize,
             self.store,
@@ -619,6 +625,9 @@ class Genome:
             return "brain", choice
         if choice == "mutate_apical":  # its pyramidal units' coincidence gain, stepped like a trait
             self.brain.apical = float(self.brain.apical + rng.gauss(0.0, TRAIT_SIGMA))
+            return "brain", choice
+        if choice == "mutate_compass":
+            self.compass = 1 - self.compass
             return "brain", choice
         if choice == "mutate_lookahead":
             self.lookahead = 1 - self.lookahead
@@ -889,6 +898,7 @@ class Genome:
             "felt_terrain": self.felt_terrain,
             "lookahead": self.lookahead,
             "extrapolation": self.extrapolation,
+            "compass": self.compass,
             "colliculus": list(self.colliculus),
             "mobilize": self.mobilize,
             "store": self.store,
@@ -968,6 +978,7 @@ class Genome:
             felt_terrain=int(data.get("felt_terrain", 0)),
             lookahead=int(data.get("lookahead", 0)),
             extrapolation=float(data.get("extrapolation", 0.0)),
+            compass=int(data.get("compass", 0)),
             colliculus=data.get("colliculus"),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),

@@ -1029,6 +1029,9 @@ PAGE = r"""<!doctype html>
                    s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
                    s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet',
                    d.oxygen && d.oxygen.stage ? `<b style="color:#ff6f8a">short of oxygen</b>: shed ${d.oxygen.shed.join(', ')} (${d.oxygen.behind_s.toFixed(1)} s behind)` : '',
+                   Math.abs(s.turning || 0) > 0.01 ? `turning ${s.turning > 0 ? 'right' : 'left'} ${Math.round(100 * Math.abs(s.turning))}%` : '',
+                   Math.abs(s.tilting || 0) > 0.01 ? `tilting ${s.tilting > 0 ? 'clockwise' : 'anticlockwise'} ${Math.round(100 * Math.abs(s.tilting))}%` : '',
+                   s.heading != null ? `heading ${Math.round((s.heading + 360) % 360)}°` : '',
                    s.contact ? `<b style="color:#ff6f8a">approaching</b>: contact in ~${Math.max(1, Math.round(1 / s.contact))} looks` : '',
                    s.felt_nearness ? `it feels: ${s.felt_nearness >= 0.67 ? 'near' : s.felt_nearness >= 0.33 ? 'mid' : 'far'} (${s.felt_nearness.toFixed(2)})` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);

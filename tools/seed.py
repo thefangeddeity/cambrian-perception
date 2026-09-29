@@ -251,12 +251,31 @@ def seed_looking_ahead(g, rng: random.Random) -> list[str]:
     return done
 
 
+def seed_rotation(g, rng: random.Random) -> list[str]:
+    """Feeling its rotation (2026-09-29): its compass on; its turning, tilting
+    and heading inputs wired at the brain's mutation step."""
+    from fishbowl.controller import HEADING_INPUTS, TILT_INPUT, TURN_INPUT
+    done = []
+    if not g.compass:
+        g.compass = 1
+        done.append("compass on")
+    w = g.brain.weights_ih
+    wired = 0
+    for c in (TURN_INPUT, TILT_INPUT) + HEADING_INPUTS:
+        if c < w.shape[1] and not w[:, c].any():
+            w[:, c] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+            wired += 1
+    if wired:
+        done.append(f"{wired} rotation inputs wired")
+    return done
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
              "2026-09-29 maturation": seed_maturation, "2026-09-29 maturation in nights": seed_maturation_nights,
              "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain,
-             "2026-09-29 looking ahead": seed_looking_ahead}
+             "2026-09-29 looking ahead": seed_looking_ahead, "2026-09-29 rotation": seed_rotation}
 
 
 def main() -> int:
