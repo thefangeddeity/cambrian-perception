@@ -1825,7 +1825,7 @@ PAGE = r"""<!doctype html>
   })();
   function lineChart(ch, recs) {
     const c = $(ch.id); c.width = Math.max(300, Math.floor(innerWidth(c.parentElement)));
-    c.height = isMax(c) ? Math.max(190, window.innerHeight - 190) : 190;
+    c.height = isMax(c) ? Math.max(190, window.innerHeight - 190) : 190 + (CH_EXTRA[ch.id] || 0);
     const ctx = c.getContext('2d'), W = c.width, H = c.height; ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     const pad = { l: 46, r: 8, t: 8, b: 18 }, pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
     let lo = Infinity, hi = -Infinity;
@@ -1862,6 +1862,7 @@ PAGE = r"""<!doctype html>
     if (!side || !main || !body || !left || !quad) return;
     const panelOf = id => { const c = $(id); return c && c.closest('.panel'); };
     DM.extra = 0; if (D) drawDreamMap(D);
+    for (const k in CH_EXTRA) delete CH_EXTRA[k];
     [...side.children].forEach(el => main.appendChild(el));  // all back, then in their order
     CHARTS.forEach(ch => { const pn = panelOf(ch.id); if (pn) main.appendChild(pn); });
     if (getComputedStyle(quad).gridTemplateColumns.split(' ').length < 2 || document.body.classList.contains('has-max')) return;
@@ -1872,7 +1873,11 @@ PAGE = r"""<!doctype html>
     // what is still left over goes to the place map
     DM.extra = Math.max(0, body.offsetHeight - left.offsetHeight - 2);
     if (D) drawDreamMap(D);
+    // the map stops at the card's width; the charts beside it take the rest
+    const moved = [...side.children], gap = body.offsetHeight - left.offsetHeight - 2;
+    if (gap > 4 && moved.length) moved.forEach(pn => { const c = pn.querySelector('canvas'); if (c) CH_EXTRA[c.id] = Math.floor(gap / moved.length); });
   }
+  const CH_EXTRA = {};
   function redrawAll() {
     if (D) { drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
     balanceSide();
