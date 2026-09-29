@@ -336,6 +336,16 @@ can afford more and bigger ones.
   draws its ground through feet and roots: flat, bent where a thing stands
   bigger or smaller than its kind's line predicts (elevation = camera height
   x (1 - predicted / seen)).
+- **Every object measures the ground; a terrain map in its mind** (a
+  2026-09-29 panel): its detector keeps every COCO class. Its cognition still
+  sees only hosts and plants; the other things feed only its early vision's
+  ground plane (a thing on a table works too: parallel planes share one
+  horizon). Per field cell, a terrain map holds how far the ground under the
+  things measured there rises or falls (camera heights), relative to its
+  kind's line -- the surfaces mammals draw (V2 border ownership, CIP surface
+  slant, the occipital place area, boundary vector cells). Kept per scene
+  (memory item 14); input 60 is the terrain at its gaze (born unwired; seed
+  set "2026-09-29 terrain" wires it at the mutation step).
 - **Parallax** (moving cameras): with the camera's own motion undone, what is
   left of each cell's change over what changed at all (+ sensor noise): 0 for
   the scene sliding past, towards 1 for what is nearer or moving on its own.

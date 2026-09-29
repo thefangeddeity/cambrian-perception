@@ -1335,29 +1335,32 @@ PAGE = r"""<!doctype html>
     if (hz == null) {
       note = 'no horizon yet: it learns its ground plane from the sizes of the hosts and plants it sees whole';
     } else {
-      // Its ground (a 2026-09-29 space panel: the ground is what things stand
-      // on, so the surface goes through their feet and roots, never over their
-      // heads). Its plane is flat; each measuring stick -- a host or plant the
-      // frame doesn't cut -- also says where the ground is under it: standing
-      // bigger than its kind's line predicts for where its feet are, it is
-      // nearer than the plane puts it, so the ground there is raised (smaller:
-      // lowered). Pinhole geometry: elevation = camera height x (1 - predicted
-      // / seen); in the scene's units, camera height = 1.6 (1 - horizon).
-      const fits = sn.ground_fits || {}, HCAM = 1.6 * (1 - hz), pts = [];
+      // Its ground, as its mind holds it (a 2026-09-29 panel: the surface
+      // goes through feet and roots, never over heads; and it is the
+      // organism's own terrain map, not the viewer's guess). Its plane is
+      // flat; its terrain map says, per field cell, how far the ground under
+      // the things it measured there rises or falls (camera heights; one
+      // camera height here is 1.6 (1 - horizon)).
+      const HCAM = 1.6 * (1 - hz), pts = [], terr = sn.terrain || [];
       const last = k => (d[k] && d[k].length) ? (d[k][d[k].length - 1] || []) : [];
-      [['host', last('prey_boxes')], ['plant', last('plant_boxes')]].forEach(([kind, bxs]) => bxs.forEach(([cls, conf, x0, y0, x1, y1]) => {
+      [['host', last('prey_boxes')], ['plant', last('plant_boxes')], ['thing', last('thing_boxes')]].forEach(([kind, bxs]) => bxs.forEach(([cls, conf, x0, y0, x1, y1]) => {
         const cutBase = y1 >= 1 - 1 / 640, cutTop = y0 <= 1 / 640;
         const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
-        const f = fits[cls], seen = y1 - y0, pred = f ? f[0] * y1 + f[1] : null;
-        const elev = (!cutBase && !cutTop && pred != null && pred > 0 && seen > 0) ? Math.max(-1, Math.min(1, 1 - pred / seen)) * HCAM : null;
-        pts.push({ kind, x: g0[0], z: g0[1], hgt: seen * g0[1] * 1.6, x0, x1, y1, conf, elev, cutBase, cutTop });
+        pts.push({ kind, x: g0[0], z: g0[1], hgt: (y1 - y0) * g0[1] * 1.6, x0, x1, y1, conf, cutBase, cutTop });
       }));
-      const sticks = pts.filter(q => q.elev != null);
-      // the ground surface: flat where it has no evidence, bent toward each
-      // stick's elevation near it (a kernel average that falls back to the
-      // plane away from data; SIGMA is display, not model)
-      const SIGMA = 0.28, NU = 24, NZ = 16;
-      const groundAt = (x, z) => { let sw = 0, se = 0; for (const q of sticks) { const w = Math.exp(-((x - q.x) ** 2 + (z - q.z) ** 2) / (2 * SIGMA * SIGMA)); sw += w; se += w * q.elev; } return se / Math.max(1, sw); };
+      // the mesh reads its map: each node, back to the frame (depth z at frame
+      // row hz + (1 - hz) / z), blends the cells with evidence near it (in
+      // cell units; SIGMA is display, not model), falling back to the plane
+      const SIGMA = 0.8, NU = 24, NZ = 16, cells = [];
+      terr.forEach((t, k) => { if (t) cells.push([k % cols + 0.5, Math.floor(k / cols) + 0.5, t[0] * HCAM, t[1]]); });
+      const groundAt = (x, z) => {
+        if (!cells.length) return 0;
+        const fy = hz + (1 - hz) / z, fx = x / (1.6 * z) + 0.5, cx = fx * cols, cy = fy * rows;
+        let sw = 0, se = 0;
+        for (const [ux, uy, e, w] of cells) { const k = Math.min(1, w) * Math.exp(-((cx - ux) ** 2 + (cy - uy) ** 2) / (2 * SIGMA * SIGMA)); sw += k; se += k * e; }
+        return se / Math.max(1, sw);
+      };
+      const sticks = cells.map(q => ({ elev: q[2] }));
       const big = Math.max(1e-6, ...sticks.map(q => Math.abs(q.elev)));
       const node = [];
       for (let j = 0; j <= NZ; j++) {
@@ -1387,7 +1390,7 @@ PAGE = r"""<!doctype html>
         const g0 = place(q.x0, q.y1), g1 = place(q.x1, q.y1); if (!g0 || !g1) return;
         const base = groundAt(q.x, q.z), top = base + q.hgt, cut = q.cutBase || q.cutTop;
         const c4 = [at(g0[0], base, g0[1]), at(g1[0], base, g1[1]), at(g1[0], top, g1[1]), at(g0[0], top, g0[1])];
-        const rgb = q.kind === 'plant' ? '156, 207, 122' : '255, 111, 138';
+        const rgb = q.kind === 'plant' ? '156, 207, 122' : q.kind === 'thing' ? '160, 160, 170' : '255, 111, 138';
         ctx.fillStyle = `rgba(${rgb}, ${cut ? 0.08 + 0.12 * q.conf : 0.2 + 0.35 * q.conf})`; ctx.strokeStyle = `rgba(${rgb}, 0.95)`; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.fill();
         ctx.setLineDash(cut ? [4, 3] : []);
@@ -1396,7 +1399,7 @@ PAGE = r"""<!doctype html>
         ctx.setLineDash([]);
       });
       const nCut = pts.filter(q => q.cutBase || q.cutTop).length;
-      note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; the surface is its ground, through their feet and roots: flat where it has no evidence, raised or lowered where a thing stands bigger or smaller than its kind's line predicts; pink: hosts, green: plants, standing on it`
+      note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; the surface is its own terrain map, through feet and roots: flat where it has no evidence, raised or lowered where things stood bigger or smaller than their kind's line predicts; pink: hosts, green: plants, grey: other things it measures by, standing on it`
              + (nCut ? `; dashed: ${nCut} cut by the frame's edge (measuring nothing)` : '')
              + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));
     }

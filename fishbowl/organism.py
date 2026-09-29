@@ -30,7 +30,7 @@ import numpy as np
 
 from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
-                         PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS)
+                         PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT)
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -356,7 +356,9 @@ COLLICULAR_FEATURES = ("motion", "mismatch", "parallax", "host", "host size", "p
 # more than a host class does, so each class's horizon counts by how well its
 # own line fits (inverse variance, horizon() below): a class that fits badly
 # -- flowers up on a bush, pots on a sill -- counts for little, by evidence.
-GROUND_CLASSES = sorted(prey_lib.PREY_CLASSES) + [prey_lib.PLANT_CLASS]
+GROUND_CLASSES = (sorted(prey_lib.PREY_CLASSES) + [prey_lib.PLANT_CLASS]
+                  + [c for c in range(prey_lib.COCO_CLASSES) if c not in prey_lib.PREY_CLASSES and c != prey_lib.PLANT_CLASS])
+# (older memories' rows keep their places: hosts, then plants, then the rest)
 GROUND_COLS = 7  # n, sum y, sum h, sum y^2, sum y*h; then m, sum of squared residuals (against the fit then)
 
 
@@ -448,6 +450,19 @@ class Organism:
         # give a line whose zero is the horizon. Kept per scene (item 12).
         g_mem = memory[11] if memory is not None and len(memory) > 11 else None
         self.ground = _ground_shape(g_mem)
+        # Its terrain map (a 2026-09-29 panel: the surfaces mammals draw --
+        # V2's border ownership, CIP's surface slant, the occipital place area's
+        # layout, boundary vector cells): per field cell, where the ground is
+        # under the things standing there, as it sees them. Each whole thing it
+        # measures (host, plant or object) says: standing bigger than its kind's
+        # line predicts for where its feet are, it is nearer than the plane
+        # puts it -- the ground there is raised by camera height x (1 -
+        # predicted / seen) (pinhole geometry; clipped to one camera height).
+        # Running (weight, weighted elevation) sums per cell, like the ground
+        # plane's own: early vision, no gene. Kept per scene (item 14).
+        t_mem = memory[13] if memory is not None and len(memory) > 13 else None
+        self.terrain = np.array(t_mem, dtype=float) if t_mem is not None and len(t_mem) else None
+        self.things: list = []
         self.colliculus = np.array(getattr(g, "colliculus", [0.0] * 6), dtype=float)
         self.priority_map = None
         self.uncertainty = 0.0   # running mean of its mushroom body's prediction errors (at its own learning rate)
@@ -614,6 +629,7 @@ class Organism:
             self.slow = f if self.slow is None or self.slow.shape != f.shape else self.slow + a * (f - self.slow)
             frame = self.slow
         plants = prey_lib.plants_only(boxes)  # its nectar; everything else sees hosts only
+        self.things = prey_lib.things_only(boxes)  # its early vision's measuring sticks only
         boxes = prey_lib.hosts_only(boxes)
         if self.pending is not None:
             self._substep(shift, in_world=True)
@@ -709,6 +725,7 @@ class Organism:
         head_vals[self.n_heads:] = 0.0
         head_macs = 2 * self.n_heads * len(kc_active)  # reading them now, and teaching them below
         ground_near, horizon = self._ground_sense(state.cy)
+        terrain = self.terrain_at(state.cx, state.cy) if not was_asleep else 0.0
         cell_p = self._cell(state.cx, state.cy)
         par = sig["parallax"] if not was_asleep else None
         self.last_parallax = par
@@ -757,7 +774,7 @@ class Organism:
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
-                tuple(head_vals), coll,
+                tuple(head_vals), coll, terrain,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -876,8 +893,8 @@ class Organism:
                     self.mb.learn_heads(kc_active, targets, self.learning_rate, self.n_heads)
                 self._remember((kc_active.copy(), reward, cell), abs(err),
                                (self.feed_index, state.cx, state.cy, state.extent))
-            if boxes or plants:
-                self._learn_ground((boxes or []) + (plants or []))
+            if boxes or plants or self.things:
+                self._learn_ground((boxes or []) + (plants or []) + self.things)
             proto_macs = 0
             if self.imagery and len(kc_active) and self.learning_rate > 0.0:
                 # its imagery: what the eye sees now, on the prototypes' grid;
@@ -952,7 +969,7 @@ class Organism:
             self.edits_kept += 1
         return (self.tree_macs + cand_macs) * len(items)
 
-    SCENE_MAPS = ("place", "people_day", "people_night", "value_map", "memory", "variance", "ground")
+    SCENE_MAPS = ("place", "people_day", "people_night", "value_map", "memory", "variance", "ground", "terrain")
 
     def _place_in(self, structure, seconds: float) -> int:
         """Which scene it is in (see __init__); returns the multiply-adds spent."""
@@ -1042,6 +1059,7 @@ class Organism:
         self.memory, self.variance = new_memory()
         self.nectar = {}
         self.ground = np.zeros_like(self.ground)
+        self.terrain = None if self.terrain is None else np.zeros_like(self.terrain)
 
     def library(self) -> dict | None:
         """Its scene library, for memory (item 11): the current scene's maps stashed first."""
@@ -1099,7 +1117,37 @@ class Organism:
                 if fit is not None:
                     a, b = fit
                     self.ground[k, 5:7] += w * np.array([1.0, ((y1 - y0) - (a * y1 + b)) ** 2])
+                    pred = a * y1 + b
+                    cell = self._cell((x0 + x1) / 2, min(y1, 1.0 - 1e-6))
+                    if pred > 0 and self._terrain_map() is not None and self._in_map(cell):
+                        elev = float(np.clip(1.0 - pred / (y1 - y0), -1.0, 1.0))
+                        self.terrain[cell[0] * self.place.shape[1] + cell[1]] += w * np.array([1.0, elev])
                 self.ground[k, :5] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+
+    def _terrain_map(self):
+        """Its terrain sums at the field's grid ((rows x cols, 2): weight, weighted elevation); None without a field."""
+        if self.place is None:
+            return None
+        n = self.place.size
+        if self.terrain is None or self.terrain.shape != (n, 2):
+            self.terrain = np.zeros((n, 2))
+        return self.terrain.reshape(self.place.shape + (2,))
+
+    def terrain_at(self, cx: float, cy: float) -> float:
+        """The ground's rise (+) or fall (-) at a point, in camera heights: 0 where it has no evidence."""
+        t, cell = self._terrain_map(), self._cell(cx, cy)
+        if t is None or not self._in_map(cell):
+            return 0.0
+        w, s = t[cell]
+        return float(s / max(1.0, w))  # shrunk toward the flat plane until a cell has evidence
+
+    def terrain_view(self):
+        """Its terrain map, per cell (rise in camera heights, evidence weight), for the viewer."""
+        t = self._terrain_map()
+        if t is None:
+            return None
+        w, s = t[..., 0].ravel(), t[..., 1].ravel()
+        return [[round(float(si / wi), 3), round(float(wi), 2)] if wi > 0 else None for wi, si in zip(w, s)]
 
     def ground_fits(self) -> dict:
         """Each measuring class's line (height = a y + b), for the viewer."""
@@ -1423,7 +1471,7 @@ class Organism:
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
                                                                          + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
-                                                                         + COLLICULUS_INPUTS)
+                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT,))
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

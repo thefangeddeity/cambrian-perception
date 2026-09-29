@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 60  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
+BASE_INPUTS = 61  # ... + terrain at its gaze; 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
@@ -89,6 +89,7 @@ GROUND_INPUTS = (49, 50)      # how near the ground at its gaze is, and where th
 PARALLAX_INPUTS = (51, 52)    # parallax at its gaze and how much the camera itself moves (moving streams)
 ARCHETYPE_INPUTS = (53, 54, 55, 56)
 COLLICULUS_INPUTS = (57, 58, 59)  # where its collicular priority map's winner is, and how strong (organism.py)  # its archetype heads: mushroom-body readouts taught by the detector's classes
+TERRAIN_INPUT = 60  # the ground's rise or fall at its gaze, from its terrain map (organism.py), in camera heights
 PROTEIN_INPUT = 43  # its protein store (for eggs; only blood fills it)
 VELOCITY_INPUTS = (44, 45)  # the followed host's velocity (prey sense level 3)
 RECALL_INPUTS = (40, 41, 42)  # what the memory its view recalls held, and where it happened (pattern completion)
@@ -240,6 +241,7 @@ class MosquitoBrain:
         camera_moving: float = 0.0,
         archetypes=(0.0, 0.0, 0.0, 0.0),
         colliculus=(0.0, 0.0, 0.0),
+        terrain=0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -266,6 +268,7 @@ class MosquitoBrain:
             parallax, camera_moving,  # depth from a moving camera
             *archetypes,  # its archetype heads
             *colliculus,  # its collicular priority map's winner
+            terrain,  # its terrain map at its gaze
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):

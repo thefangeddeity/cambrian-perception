@@ -99,8 +99,18 @@ def seed_colliculus(g, rng: random.Random) -> list[str]:
     return done + ["collicular inputs wired"]
 
 
+def seed_terrain(g, rng: random.Random) -> list[str]:
+    """Its terrain input (2026-09-29): wired at the brain's mutation step."""
+    from fishbowl.controller import TERRAIN_INPUT
+    w = g.brain.weights_ih
+    if TERRAIN_INPUT < w.shape[1] and not w[:, TERRAIN_INPUT].any():
+        w[:, TERRAIN_INPUT] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+        return ["terrain input wired"]
+    return []
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
-SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus}
+SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain}
 
 
 def main() -> int:

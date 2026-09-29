@@ -79,8 +79,19 @@ def cut_by_frame(box) -> tuple[bool, bool]:
     return y1 >= 1.0 - 1.0 / INPUT_SIZE, y0 <= 1.0 / INPUT_SIZE
 
 
+# Everything else COCO names (a 2026-09-29 panel): not food and never seen by
+# its cognition, but its early vision measures its ground with them -- any
+# thing resting on a level surface is a measuring stick (tables share the
+# ground's horizon: parallel planes, one vanishing line).
+COCO_CLASSES = 80
+
+
 def hosts_only(boxes):
-    return [b for b in boxes or () if int(b[0]) != PLANT_CLASS]
+    return [b for b in boxes or () if int(b[0]) in PREY_CLASSES]
+
+
+def things_only(boxes):
+    return [b for b in boxes or () if int(b[0]) not in PREY_CLASSES and int(b[0]) != PLANT_CLASS]
 
 
 def plants_only(boxes):
@@ -125,10 +136,11 @@ class PreyDetector:
 
     def detect(self, bgr: np.ndarray) -> list[list[float]]:
         """[[class_id, confidence, x0, y0, x1, y1], ...], coordinates normalized to [0, 1]:
-        YOLO's hosts and potted plants, then flowers and fruit (as PLANT_CLASS)."""
+        YOLO's hosts, potted plants and every other thing it names, then
+        flowers and fruit (as PLANT_CLASS)."""
         if bgr is None or bgr.ndim != 3:
             return []
-        hosts = _yolo(self.net, bgr, {k: k for k in list(PREY_CLASSES) + [PLANT_CLASS]}) if self.net is not None else []
+        hosts = _yolo(self.net, bgr, {k: k for k in range(COCO_CLASSES)}) if self.net is not None else []
         now = time.monotonic()
         if self.flower_net is not None and now - self.flowers_at >= FLOWER_EVERY_S and not self._flowering:
             # on its own thread: a slow host (seconds per run) never delays hosts

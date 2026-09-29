@@ -49,7 +49,7 @@ def memory_of(org: Organism) -> tuple:
         return None if a is None else np.array(a, dtype=float, copy=True)
     return (c(org.memory), c(org.variance), c(org.mb.weights), c(org.place), c(org.people_day),
             c(org.people_night), c(org.mb.danger_weights), c(org.value_map), dict(org.nectar),
-            np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()), c(org.ground), c(org.mb.heads))
+            np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()), c(org.ground), c(org.mb.heads), c(org.terrain))
 
 
 def _carry(old: Organism, new: Organism) -> None:
@@ -169,7 +169,7 @@ def _circuits(org: Organism) -> dict:
             out["replay_eye"]["seen"] = {"i": int(meta[0]), "cx": round(meta[1], 4), "cy": round(meta[2], 4), "f": round(meta[3], 4)}
     # its newer senses, for the visual field card
     names = {**{int(k): v for k, v in prey_lib.PREY_CLASSES.items()}, prey_lib.PLANT_CLASS: "plant"}
-    out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(),
+    out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(), "terrain": org.terrain_view(),
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
                      "uncertainty": round(float(org.uncertainty), 3), "camera_moving": bool(org.cam_moving),
@@ -376,7 +376,7 @@ class LiveLife:
                 rec = {"i": index, "cx": round(out["cx"], 4), "cy": round(out["cy"], 4), "f": round(out["extent"], 4),
                        "eat": round(float(out["eating"]), 3),
                        "snack": round(float(snack), 3) if out["gazed"] else (prev["snack"] if prev else 0.0),
-                       "asleep": int(out["asleep"]), "alarm": int(org.last_alarm > 0.0), "boxes": hosts, "plants": plants,
+                       "asleep": int(out["asleep"]), "alarm": int(org.last_alarm > 0.0), "boxes": hosts, "plants": plants, "things": prey_lib.things_only(boxes),
                        "ev": [round(float(sig["motion_cx"]), 3), round(float(sig["motion_cy"]), 3),
                               round(float(min(1.0, sig["motion_energy"] * PERIPH_MOTION_GAIN)), 3),
                               round(float(min(1.0, sig["expansion"] * EXPANSION_GAIN)), 3), 0]}
@@ -467,7 +467,7 @@ class LiveLife:
             "trajectory": [[r["cx"], r["cy"], r["f"], r["i"] - first] for r in shown],
             "eating": [r["eat"] for r in shown], "snacks": [r["snack"] for r in shown],
             "asleep_frames": [r["asleep"] for r in shown], "alarm_frames": [r["alarm"] for r in shown],
-            "prey_boxes": [r["boxes"] for r in shown], "plant_boxes": [r["plants"] for r in shown],
+            "prey_boxes": [r["boxes"] for r in shown], "plant_boxes": [r["plants"] for r in shown], "thing_boxes": [r.get("things", []) for r in shown],
             "field_events": [r["ev"] for r in shown],
             "tree_guess": None, "teacher_label": None,  # graded only in evolution's runs
             "fovea_cx": shown[-1]["cx"], "fovea_cy": shown[-1]["cy"],
