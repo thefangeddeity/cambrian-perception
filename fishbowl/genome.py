@@ -56,7 +56,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
-            "mutate_imagery")
+            "mutate_imagery", "mutate_recall")
 STABILIZER_SIGMA = 0.1
 # The feeding pump has no biological bounds: its upkeep and its intake set
 # its limits, and log-normal steps can shrink it toward a nip without ever
@@ -202,6 +202,7 @@ class Genome:
         receptor_slowness: float = 0.0,
         plant_sense: int = 0,
         imagery: int = 0,
+        recall: int = 0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -226,6 +227,9 @@ class Genome:
         self.plant_sense = int(np.clip(plant_sense, 0, 2))
         # Imagery (mushroom.py prototypes): born off; costs its multiply-adds.
         self.imagery = int(np.clip(imagery, 0, 1))
+        # Recall (pattern completion over its own episodes): born off; costs
+        # a multiply-add per stored cell it compares.
+        self.recall = int(np.clip(recall, 0, 1))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -303,6 +307,7 @@ class Genome:
             self.receptor_slowness,
             self.plant_sense,
             self.imagery,
+            self.recall,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -473,6 +478,9 @@ class Genome:
             return "brain", (choice if self.learning_rate != old else "noop_inapplicable")
         if choice == "mutate_imagery":
             self.imagery = 1 - self.imagery
+            return "brain", choice
+        if choice == "mutate_recall":
+            self.recall = 1 - self.recall
             return "brain", choice
         if choice == "mutate_plant_sense":
             old = self.plant_sense
@@ -676,6 +684,7 @@ class Genome:
             "receptor_slowness": self.receptor_slowness,
             "plant_sense": self.plant_sense,
             "imagery": self.imagery,
+            "recall": self.recall,
         }
 
     @staticmethod
@@ -741,6 +750,7 @@ class Genome:
             receptor_slowness=float(data.get("receptor_slowness", 0.0)),
             plant_sense=int(data.get("plant_sense", 0)),
             imagery=int(data.get("imagery", 0)),
+            recall=int(data.get("recall", 0)),
         )
 
 

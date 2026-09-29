@@ -152,6 +152,7 @@ def _circuits(org: Organism) -> dict:
     out["sleep"] = {"asleep": bool(b.asleep >= 0.5), "for_s": round(b.sleep_clock, 0), "pressure": round(b.sleep_pressure, 3),
                     "dreaming": bool(org.dreaming), "imagery": bool(org.imagery),
                     "mismatch": round(float(org.mismatch), 3), "woke_by": b.woke_by,
+                    "recall": bool(org.recall), "recalled": org.recalled,
                     "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
                                "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}
     fps = max(1.0, org.fps)
@@ -240,7 +241,7 @@ class LiveLife:
             org.fps = fps
             self.field.fps = fps
             missed0 = org.missed
-            replays0, seq0, dreams0, sips0 = dict(org.replays), org.seq, org.dreams, org.sips
+            replays0, seq0, dreams0, sips0, recalls0 = dict(org.replays), org.seq, org.dreams, org.sips, org.recalls
             img0 = list(org.imagery_sums)
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
                 prev_v = self.field.last_vector
@@ -290,6 +291,7 @@ class LiveLife:
                 batch["sums"]["replay_" + kind] += org.replays[kind] - replays0.get(kind, 0)
             batch["sums"]["replay_sequences"] += org.seq - seq0
             batch["sums"]["dreams"] += org.dreams - dreams0
+            batch["sums"]["recalls"] += org.recalls - recalls0
             batch["pace"] = float(org.last_interval)
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)

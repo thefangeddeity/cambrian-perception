@@ -27,7 +27,7 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
-from .controller import DANGER_INPUT, INTRUDER_INPUT, MISMATCH_INPUTS, PLACE_INPUTS, PLANT_INPUTS, REFERENCE_MACS
+from .controller import DANGER_INPUT, INTRUDER_INPUT, MISMATCH_INPUTS, PLACE_INPUTS, PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -355,6 +355,16 @@ class Organism:
         proto = memory[9] if memory is not None and len(memory) > 9 else None  # its imagery (item 10)
         self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger, proto)
         self.imagery = bool(getattr(g, "imagery", 0))
+        # Recall (pattern completion; a 2026-09-28 panel -- Marr's CA3, which at
+        # low load retrieves like a Hopfield net: the stored pattern that best
+        # overlaps the cue): what it sees now calls up the episode of this life
+        # whose Kenyon-cell code overlaps it most, if more than chance; the
+        # brain gets what that episode held and where it happened. An inverted
+        # index (cell -> episodes), paid per stored cell compared.
+        self.recall = bool(getattr(g, "recall", 0))
+        self._index, self._indexed, self._index_of = {}, 0, None
+        self.recalled = None   # the episode recalled this look (index), or None
+        self.recalls = 0       # looks that recalled something, this life
         self.feed_index = None      # the feed's index of the frame being lived (set by a live actor)
         self.episode_meta: list = []  # each episode's (feed index, gaze cx, cy, extent): what it saw then
         self.imagery_sums = [0.0] * 6  # n, sx, sy, sxx, syy, sxy: its reconstructions against what it saw
@@ -554,12 +564,25 @@ class Organism:
         cell = self._cell(state.cx, state.cy)
         place_dx, place_dy, place_value = self._place_sense(state.cx, state.cy)
         self.intruder = self._intruder(boxes, body.daylight, self.last_interval / max(1.0, self.fps))
+        recalled = recalled_dx = recalled_dy = 0.0
+        recall_macs = 0
+        self.recalled = None
+        if self.recall and len(kc_active):
+            self.recalled, recall_macs = self._recall(kc_active)
+            if self.recalled is not None:
+                _, r_reward, r_cell = self.episodes[self.recalled]
+                recalled = float(np.clip(r_reward, -1.0, 1.0))
+                if r_cell is not None and self.place is not None:
+                    rows, cols = self.place.shape
+                    recalled_dx, recalled_dy = (r_cell[1] + 0.5) / cols - state.cx, (r_cell[0] + 0.5) / rows - state.cy
+                self.recalls += 1
         # Replay (awake in a quiet moment, or asleep once settled): it takes
         # time from this look's deadline and costs thinking energy.
         replay_macs = self._replay(was_asleep and body.sleep_clock > SLEEP_SETTLE_S,
                                    not was_asleep and not boxes and not body.big_change(loom, periph_motion, self.vigilance))
         if was_asleep and body.sleep_clock > SLEEP_SETTLE_S:
             replay_macs += self._dream()
+        replay_macs += recall_macs
         if (self.sec_per_mac and self.last_out is not None
                 and self.sec_per_mac * (brain.macs() + replay_macs) > self.last_interval / max(1.0, self.fps)):
             out = self.last_out  # still thinking: this look is missed
@@ -570,6 +593,7 @@ class Organism:
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
                 self.food_value, place_dx, place_dy, place_value, self.intruder, self.danger_value,
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
+                recalled, recalled_dx, recalled_dy,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -705,6 +729,30 @@ class Organism:
         grid = look.reshape(n, n).copy()
         grid[:m, :] = grid[-m:, :] = grid[:, :m] = grid[:, -m:] = 0.0
         return grid.reshape(-1)
+
+    def _recall(self, code) -> tuple[int | None, int]:
+        """Pattern completion: the episode whose code overlaps this one most,
+        if more than two random codes of their sizes would (chance), the most
+        recent of equals; and the multiply-adds it took (a stored cell
+        compared, or indexed, is one)."""
+        eps = self.episodes
+        if self._index_of is not eps or self._indexed > len(eps):
+            self._index, self._indexed, self._index_of = {}, 0, eps  # a new life's (or trimmed) episodes
+        macs = 0
+        for e in range(self._indexed, len(eps)):
+            cells = eps[e][0].tolist()
+            macs += len(cells)
+            for k in cells:
+                self._index.setdefault(k, []).append(e)
+        self._indexed = len(eps)
+        posts = [self._index[k] for k in code.tolist() if k in self._index]
+        if not posts:
+            return None, macs
+        macs += sum(len(p) for p in posts)
+        hits = np.bincount(np.concatenate(posts), minlength=len(eps))
+        best = len(hits) - 1 - int(np.argmax(hits[::-1]))
+        chance = len(code) * len(eps[best][0]) / max(1, self.mb.n_kc)
+        return (best if hits[best] > chance else None), macs
 
     def _cell(self, x: float, y: float):
         """The whole field's grid cell (row, col) at a point of the frame."""
@@ -869,7 +917,7 @@ class Organism:
                                  + (THINK_COST * (kc_macs(self.live_kc) + (self.live_kc if self.aversive_rate > 0.0 else 0))
                                     / REFERENCE_MACS if p["kc_on"] else 0.0)  # + the aversive output neuron, once it exists
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
-                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS)
+                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS)
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)) / REFERENCE_MACS) * self.scarcity,

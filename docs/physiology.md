@@ -219,6 +219,17 @@ Sleep replays experience:
   place worth most. Each dream step costs one brain step. How many steps it
   dreams is inherited, born 0; a dream teaches nothing without a backup above 0.
 
+- **Recall (pattern completion)** (inherited, born off; a 2026-09-28 panel):
+  what it sees calls up the episode of this life whose Kenyon-cell code
+  overlaps it most, when the overlap beats chance (two random codes of
+  those sizes). This is Marr's CA3, which at low memory load retrieves like
+  a Hopfield network: the stored pattern nearest the cue. The brain gets what
+  that episode held (its reward) and where it happened, as a sense. Asleep
+  and dreaming, the dream's own code is the cue, so a dream calls up the
+  memories it resembles. It pays a multiply-add per stored cell compared
+  (an inverted index from each Kenyon cell to its episodes), so remembering
+  more costs more. Recalls are counted hourly.
+
 - **Imagery, and seeing its dreams** (inherited, born off): each Kenyon cell
   learns a prototype, the average of what its eye saw (on a 16×16 grid
   relative to the eye) when it fired: a way back from memory to the eye, like

@@ -137,6 +137,7 @@ class HourlyMetrics:
             "replay_awake": int(s["replay_awake"]), "replay_nrem": int(s["replay_nrem"]),
             "replay_rem": int(s["replay_rem"]), "replay_sequences": int(s["replay_sequences"]),
             "dreams": int(s["dreams"]),
+            "recalls": int(s["recalls"]),
             "nectar_sips": int(s["sips"]),
             # what woke it (Gelman: does the mismatch catch the quiet arrivals?)
             "woke_by": {k: int(s["woke_" + k]) for k in ("mismatch", "loom", "motion", "rested", "choice") if s["woke_" + k]},

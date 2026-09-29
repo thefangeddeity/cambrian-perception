@@ -795,7 +795,7 @@ PAGE = r"""<!doctype html>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy'];
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
@@ -1013,6 +1013,7 @@ PAGE = r"""<!doctype html>
       + (z.dreaming ? ' &middot; <b style="color:#fff0c0">dreaming</b>' : '')
       + ` &middot; replays ${t.awake} awake / ${t.asleep} asleep, REM ${(100 * t.rem).toFixed(0)}%, backup ${t.backup}, dream steps ${t.dream_steps}`
       + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet')
+      + (z.recall ? ' &middot; recall on' : '')
       + (!z.asleep && z.woke_by ? ` &middot; woke: ${WOKE[z.woke_by] || z.woke_by}` : '')
       + (z.mismatch > 0.05 ? ` &middot; room changed ${(100 * z.mismatch).toFixed(0)}%` : '');
   }
@@ -1656,8 +1657,8 @@ PAGE = r"""<!doctype html>
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#ffe2d6', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', mutate_imagery: '#fff0c0', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', mutate_imagery: '#fff0c0', mutate_recall: '#ffd8a0', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     // the mutation chart spans its whole row, with a line per kind (their names are long and many)
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"${ch.mutations ? ' style="grid-column: 1 / -1"' : ''}><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
