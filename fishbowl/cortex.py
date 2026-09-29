@@ -153,7 +153,8 @@ class Track:
             den = ac[lag - 1] - 2 * ac[lag] + ac[lag + 1]
             if den < 0:
                 exact += 0.5 * (ac[lag - 1] - ac[lag + 1]) / den
-        return float(fps / exact)
+        hz = float(fps / exact)
+        return hz if GAIT_HZ[0] <= hz <= GAIT_HZ[1] else None  # the refinement can't carry it out of the band
 
 
 class Cortex:
@@ -166,8 +167,17 @@ class Cortex:
         # per class, per feature: spread across the class (all tracks), and within one individual (re-met)
         self.pop = {k: {f: _Welford(v) for f, v in d.items()} for k, d in (saved.get("pop") or {}).items()}
         self.within = {k: {f: _Welford(v) for f, v in d.items()} for k, d in (saved.get("within") or {}).items()}
+        self.between = {k: {f: _Welford(v) for f, v in d.items()} for k, d in (saved.get("between") or {}).items()}
         self.prev_grey = None
         self.now = 0.0
+        self.meetings = int(saved.get("meetings", 0))
+        self.consequences = dict(saved.get("consequences") or {})
+        self.s_ref = saved.get("s_ref")
+        for ind in self.library:  # step rates from before they were held to their band
+            c = ind.get("mean", {}).get("cadence")
+            if c is not None and not GAIT_HZ[0] <= c <= GAIT_HZ[1]:
+                del ind["mean"]["cadence"]
+                ind["n"].pop("cadence", None)
         self.ms = 0.0            # its running cost per frame (milliseconds), measured by the caller
         self.events: list = []   # (kind, data) for the organism's event log, drained by the caller
 
@@ -251,19 +261,43 @@ class Cortex:
             return None  # it doesn't know yet how much one of these varies: no judgement
         return w.mean ** 2 + w.var if f == "colour" else w.var
 
-    def _distance(self, tr: Track, sig: dict, ind: dict) -> tuple[float, int]:
+    def _between(self, cls: int, f: str) -> float:
+        """How much one individual varies from one meeting to the next beyond
+        its detections' own noise (light, posture, distance): random effects,
+        as its horizon pools classes -- learned from its re-meetings, the
+        squared gap between a track and its individual less what the noise of
+        both explains. 0 until it has three."""
+        b = self.between.get(str(cls), {}).get(f)
+        return max(0.0, b.mean) if b is not None and b.n >= 3 else 0.0
+
+    @staticmethod
+    def _precision(ind: dict, f: str) -> float:
+        """How uncertain an individual's mean is, in units of one detection's
+        spread: a mean of m track means, each over n_i detections, has
+        variance spread x sum(1 / n_i) / m^2."""
+        m = ind["n"].get(f, 0) if f != "colour" else ind.get("n_hist", 0)
+        q = ind.get("q", {}).get(f, float(m))  # older entries: as if each mean were one detection
+        return q / (m * m) if m else 1.0
+
+    def _distance(self, tr: Track, sig: dict, ind: dict, sig_q: dict | None = None) -> tuple[float, int]:
+        """The two-sample test (a 2026-09-29 panel): a track's mean against an
+        individual's, each at its own precision -- one detection's spread over
+        how many detections it rests on -- so a crowd's wobbling boxes don't
+        make everyone the same person. sig_q: the track side's multipliers
+        (1 / its detections), or an individual's (merging)."""
+        if sig_q is None:
+            sig_q = {"height": 1.0 / max(1, len(tr.heights)), "colour": 1.0 / max(1, tr.n_hist)}
         d2, used = 0.0, 0
         for f in FEATURES:
             v = self._scale(tr.cls, f)
-            if v is not None:
-                v = max(v, 1e-9)  # a spread of exactly nothing is only a numerical accident
-            if f in sig and f in ind["mean"] and v:
+            if v is not None and f in sig and f in ind["mean"]:
+                v = max(v, 1e-9) * (sig_q.get(f, 1.0) + self._precision(ind, f)) + self._between(tr.cls, f)  # exactly nothing: only a numerical accident
                 d2 += (sig[f] - ind["mean"][f]) ** 2 / v
                 used += 1
         if tr.hist is not None and ind.get("hist") and ind["hist"][0] == tr.hist[0]:
             v = self._scale(tr.cls, "colour")
             if v is not None:
-                v = max(v, 1e-9)
+                v = max(v, 1e-9) * (sig_q.get("colour", 1.0) + self._precision(ind, "colour")) + self._between(tr.cls, "colour")
                 d2 += _bhatt(tr.hist[1], np.array(ind["hist"][1])) ** 2 / v
                 used += 1
         return d2, used
@@ -285,16 +319,20 @@ class Cortex:
                 tr.signed = False  # nothing to know it by yet
                 return
             best = {"id": self.next_id, "cls": tr.cls, "seen": 0, "first": round(t, 1), "last": round(t, 1),
-                    "mean": {}, "n": {}, "hist": None, "n_hist": 0}
+                    "mean": {}, "n": {}, "q": {}, "hist": None, "n_hist": 0, "strength": 0.0, "bites": 0, "swats": 0}
             self.next_id += 1
             self.library.append(best)
             self.events.append(("met", {"who": best["id"], "cls": tr.cls, **{f: round(v, 2) for f, v in sig.items()}}))
-            if len(self.library) > LIBRARY_MAX:
-                self.library.remove(min(self.library, key=lambda i: (i["seen"], i["last"])))
+            if len(self.library) > LIBRARY_MAX:  # full: the weakest memory goes
+                self.library.remove(min(self.library, key=lambda i: (i.get("strength", i["seen"]), i["last"])))
         elif t - best["last"] >= MET_AGAIN_S:  # back after a real absence (not a track broken for a moment)
             self.events.append(("met again", {"who": best["id"], "cls": tr.cls, "away_s": round(t - best["last"], 1),
                                               "distance": round(float(best_d), 2)}))
         tr.who = best["id"]
+        best["seen"] += 1  # one meeting (a track)
+        best["strength"] = best.get("strength", float(best["seen"] - 1)) + 1.0
+        best["last"] = round(t, 1)
+        self.meetings += 1
 
     def _signature(self, tr: Track) -> dict:
         return tr.signature()
@@ -307,12 +345,23 @@ class Cortex:
             return
         sig, k = tr.signature(), str(tr.cls)
         pop = self.pop.setdefault(k, {})
+        q = ind.setdefault("q", {})
+        between = self.between.setdefault(k, {})
         for f, x in sig.items():
+            v = self._scale(tr.cls, f)
+            if f in FEATURES and f in ind["mean"] and v is not None:  # a re-meeting: how far this one sat from what it knew
+                between.setdefault(f, _Welford()).add((x - ind["mean"][f]) ** 2 - v * (1.0 / max(1, len(tr.heights)) + self._precision(ind, f)))
             pop.setdefault(f, _Welford()).add(x)
             n = ind["n"].get(f, 0) + 1
+            q[f] = q.get(f, float(n - 1)) + (1.0 / max(1, len(tr.heights)) if f == "height" else 1.0)
             ind["n"][f] = n
             ind["mean"][f] = ind["mean"].get(f, x) + (x - ind["mean"].get(f, x)) / n
         if tr.hist is not None:
+            v = self._scale(tr.cls, "colour")
+            if ind["hist"] and ind["hist"][0] == tr.hist[0] and v is not None:
+                between.setdefault("colour", _Welford()).add(
+                    _bhatt(tr.hist[1], np.array(ind["hist"][1])) ** 2 - v * (1.0 / max(1, tr.n_hist) + self._precision(ind, "colour")))
+            q["colour"] = q.get("colour", float(ind.get("n_hist", 0))) + 1.0 / max(1, tr.n_hist)
             if ind["hist"] and ind["hist"][0] == tr.hist[0]:
                 old = np.array(ind["hist"][1])
                 ind["n_hist"] += 1
@@ -323,7 +372,6 @@ class Cortex:
                       and i.get("hist") and i["hist"][0] == tr.hist[0]]
             for o in others[:8]:
                 pop.setdefault("colour", _Welford()).add(_bhatt(tr.hist[1], o))
-        ind["seen"] += 1
         ind["last"] = round(t, 1)
         self._merge(ind)
 
@@ -333,7 +381,8 @@ class Cortex:
         probe = Track(-1, ind["cls"], (0, 0, 0, 0), 0.0)
         probe.hist = None if not ind.get("hist") else (ind["hist"][0], np.array(ind["hist"][1]))
         for other in [i for i in self.library if i is not ind and i["cls"] == ind["cls"]]:
-            d2, used = self._distance(probe, dict(ind["mean"]), other)
+            d2, used = self._distance(probe, dict(ind["mean"]), other,
+                                      {f: self._precision(ind, f) for f in FEATURES + ("colour",)})
             if used and d2 <= CHI2_95[min(used, 4)]:
                 keep, gone = (ind, other) if ind["seen"] >= other["seen"] else (other, ind)
                 for f, x in gone["mean"].items():
@@ -341,6 +390,10 @@ class Cortex:
                     keep["mean"][f] = (keep["mean"].get(f, x) * n0 + x * n1) / max(1, n0 + n1)
                     keep["n"][f] = n0 + n1
                 keep["seen"] += gone["seen"]
+                for k in ("strength", "bites", "swats"):
+                    keep[k] = keep.get(k, 0) + gone.get(k, 0)
+                for f, v in gone.get("q", {}).items():
+                    keep.setdefault("q", {})[f] = keep["q"].get(f, 0.0) + v
                 keep["first"], keep["last"] = min(keep["first"], gone["first"]), max(keep["last"], gone["last"])
                 self.library.remove(gone)
                 for tr in self.tracks:
@@ -349,6 +402,48 @@ class Cortex:
                 self.events.append(("one and the same", {"kept": keep["id"], "merged": gone["id"], "cls": keep["cls"]}))
                 return
 
+    # ---- consequence, and what sleep keeps -----------------------------------------
+    def credit(self, cx: float, cy: float, kind: str) -> None:
+        """Something of consequence happened with whoever is at its gaze -- a
+        bite ("bites") or a swat ("swats"): that individual's memory is
+        strengthened by the event's surprisal (Shannon: -ln of how often such
+        an event comes per meeting, at least one meeting's worth) -- rare
+        events tag hardest (McGaugh's emotional tagging, in information's units)."""
+        held = [tr for tr in self.tracks if tr.who is not None and tr.box[0] <= cx <= tr.box[2] and tr.box[1] <= cy <= tr.box[3]]
+        if not held:
+            return
+        tr = max(held, key=lambda tr: tr.box[3])  # the nearest
+        ind = next((i for i in self.library if i["id"] == tr.who), None)
+        if ind is None:
+            return
+        self.consequences[kind] = self.consequences.get(kind, 0) + 1
+        w = max(1.0, math.log(max(1, self.meetings) / self.consequences[kind]))
+        ind[kind] = ind.get(kind, 0) + 1
+        ind["strength"] = ind.get("strength", float(ind["seen"])) + w
+
+    def sleep(self) -> int:
+        """NREM's downscaling (a 2026-09-29 panel; Tononi & Cirelli's synaptic
+        homeostasis): waking strengthened memories of everyone it met; sleep
+        scales them all back so the library's total returns to what it was
+        after its last sleep, and whoever falls below one meeting's worth is
+        washed away -- the inconsequential go, freeing room; those met often,
+        or bitten, or who swatted it, stay. Returns how many were washed away."""
+        for ind in self.library:
+            ind.setdefault("strength", float(ind["seen"]))
+        total = sum(i["strength"] for i in self.library)
+        if self.s_ref is None or total <= 0:
+            self.s_ref = total  # its first sleep: nothing to scale against yet
+            return 0
+        factor = min(1.0, self.s_ref / total)
+        tracked = {tr.who for tr in self.tracks}
+        for ind in self.library:
+            ind["strength"] *= factor
+        gone = [i for i in self.library if i["strength"] < 1.0 and i["id"] not in tracked]
+        for ind in gone:
+            self.library.remove(ind)
+        self.s_ref = sum(i["strength"] for i in self.library)
+        return len(gone)
+
     # ---- for the viewer and the disk ----------------------------------------------
     def view(self) -> dict:
         names = {**prey_lib.PREY_CLASSES, prey_lib.PLANT_CLASS: "plant"}
@@ -356,12 +451,15 @@ class Cortex:
             "tracks": [{"id": tr.id, "cls": tr.cls, "box": [round(v, 4) for v in tr.box], "who": tr.who,
                         **{f: round(v, 3) for f, v in tr.signature().items()}} for tr in self.tracks],
             "known": [{"id": i["id"], "cls": i["cls"], "name": names.get(i["cls"], str(i["cls"])), "seen": i["seen"],
+                       "strength": round(float(i.get("strength", i["seen"])), 2), "bites": i.get("bites", 0), "swats": i.get("swats", 0),
                        "first": i["first"], "last": i["last"], **{f: round(v, 3) for f, v in i["mean"].items()}}
-                      for i in sorted(self.library, key=lambda i: -i["last"])[:24]],
+                      for i in sorted(self.library, key=lambda i: -i.get("strength", i["seen"]))[:24]],
             "individuals": len(self.library), "now": round(self.now, 1), "ms": round(self.ms, 2),
         }
 
     def to_dict(self) -> dict:
-        return {"library": self.library, "next_id": self.next_id,
+        return {"library": self.library, "next_id": self.next_id, "meetings": self.meetings,
+                "consequences": self.consequences, "s_ref": self.s_ref,
                 "pop": {k: {f: w.to_dict() for f, w in d.items()} for k, d in self.pop.items()},
-                "within": {k: {f: w.to_dict() for f, w in d.items()} for k, d in self.within.items()}}
+                "within": {k: {f: w.to_dict() for f, w in d.items()} for k, d in self.within.items()},
+                "between": {k: {f: w.to_dict() for f, w in d.items()} for k, d in self.between.items()}}

@@ -355,7 +355,18 @@ can afford more and bigger ones.
   individual varies is learned from its own tracks -- a thing it keeps its eyes
   on is one thing (Spelke's spatiotemporal continuity) -- so it never has to be
   told. Individuals that turn out alike merge. Not fed to its brain or charged
-  for yet; kept in `state/cortex.json`; its meetings go to the events log.
+  for yet; kept in `state/cortex.json`; its meetings go to the events log. Means are
+  compared at their own precision (the two-sample test: one detection's
+  spread over the detections each rests on, plus how much one individual
+  varies between meetings -- random effects, learned from its re-meetings),
+  so a crowd's wobbling boxes don't make everyone one person. **In NREM**
+  (Tononi & Cirelli's synaptic homeostasis) every individual's memory
+  strength is scaled back so the library's total returns to its size after
+  the last sleep; whoever falls below one meeting's worth is washed away.
+  Meetings add one; a bite on someone, or a swat from them, adds its
+  surprisal (-ln of how often such events come per meeting) -- the
+  consequential stay. Known weakness: red sits on the hue wheel's seam, so
+  red things split more often.
 - **How near what it looks at is** (input 61; a 2026-09-29 panel): it knew
   where it looks (its gaze is among its inputs, an efference copy) but not how
   far. Relative, as a monocular eye's must be: the nearest thing whose box holds

@@ -391,8 +391,12 @@ class LiveLife:
                     self._event("woke", cause=org.body.woke_by or "choice", mismatch=round(float(org.mismatch), 3))
                 elif not was_asleep and org.body.asleep >= 0.5:
                     self._event("fell asleep", pressure=round(float(org.body.sleep_pressure), 3))
+                    washed = self.cortex.sleep()  # NREM: the inconsequential are washed away
+                    if washed:
+                        self._event("washed away", individuals=washed, kept=len(self.cortex.library))
                 if org.swats > swats0:
                     self._event("swatted", gut=round(float(org.body.gut), 3))
+                    self.cortex.credit(org.state.cx, org.state.cy, "swats")  # whoever swatted it is remembered
                 if org.scene_switches > ev0[0]:
                     self._event("new scene" if len(org.scenes) > ev0[2] else "back in a scene", scene=org.scene + 1, scenes=len(org.scenes))
                 if org.edits_kept > ev0[1]:
@@ -404,6 +408,7 @@ class LiveLife:
                         self._competences(org, hosts, batch["sums"])
                     if out["eating"] > 0:
                         self.acts["meal"].append(index)
+                        self.cortex.credit(org.state.cx, org.state.cy, "bites")  # and whoever it fed on
                     if snack > 0:
                         self.acts["snack"].append(index)
                 prev = self.shown[-1] if self.shown else None
