@@ -243,7 +243,9 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| maturation's range | 1 - 10,000 lessons | **G** | one lesson to many nights' worth; evolution picks within it |
+| maturation's birth range | 1 - 30 nights | S | Garcia's one-trial learning to an adult Aedes' life (was 1 - 10,000 lessons: a guess, replaced after the panel) |
+| maturation's cap | 3650 nights | B | safety only |
+| lessons per night | mean over its own last `maturation` nights | M | |
 | a lesson's credit | min(1, advantage), shared by how far each synapse moved | M | |
 | nightly loosening | its recent uncertainty (0 - 1) | M | its own prediction error |
 

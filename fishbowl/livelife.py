@@ -98,6 +98,7 @@ def _carry(old: Organism, new: Organism) -> None:
             and np.array_equal(old.g.brain.weights_ho, new.g.brain.weights_ho) and np.array_equal(old.g.brain.bias_o, new.g.brain.bias_o):
         new.brain.weights_ho, new.brain.bias_o = old.brain.weights_ho.copy(), old.brain.bias_o.copy()
         new.lessons = None if old.lessons is None else old.lessons.copy()  # its locks with the weights they hold
+    new.night_lessons, new._tonight, new._night = list(old.night_lessons), old._tonight, old._night
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
     new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
@@ -318,6 +319,15 @@ class LiveLife:
                     org.test_set = [(planes[i:i + 1], z["test_plain"][i:i + 1].astype(float), float(z["test_labels"][i]), float(keys[i]))
                                     for i in range(min(len(planes), org.sleep_set))]
                     org.test_seen = int(z["test_seen"]) if "test_seen" in z else len(org.test_set)
+                # its habits, if they were distilled on this very brain (as a transplant keeps them)
+                if "distilled_ho" in z and org.plasticity > 0.0 and org.brain is not org.g.brain \
+                        and np.array_equal(z["distilled_on"], self._brain_print(org.g.brain)) \
+                        and z["distilled_ho"].shape == org.brain.weights_ho.shape:
+                    org.brain.weights_ho, org.brain.bias_o = z["distilled_ho"].astype(float), z["distilled_bo"].astype(float)
+                    if "lessons" in z:
+                        org.lessons = z["lessons"].astype(float)
+                    org.night_lessons = [float(x) for x in z["night_lessons"]]
+                    print(f"Its distilled habits back from disk ({len(org.night_lessons)} nights measured).")
             print(f"Its memories: {len(org.episodes)} episodes and {len(org.test_set)} test looks back from disk.")
         except FileNotFoundError:
             pass
@@ -330,7 +340,7 @@ class LiveLife:
             eps, pri = list(org.episodes), list(org.priority)
             tests = list(org.test_set)
             seen = org.test_seen
-        if not eps and not tests:
+        if not eps and not tests and not self._distilled_arrays():
             return
         lens = np.array([len(e[0]) for e in eps], dtype=np.int32)
         codes = np.concatenate([e[0] for e in eps]).astype(np.uint16) if eps else np.zeros(0, np.uint16)
@@ -343,7 +353,29 @@ class LiveLife:
             data["test_plain"] = np.concatenate([t[1] for t in tests]).astype(np.float32)
             data["test_labels"] = np.array([t[2] for t in tests], dtype=np.float32)
             data["test_keys"] = np.array([t[3] if len(t) > 3 else 0.0 for t in tests], dtype=np.float64)
+        data.update(self._distilled_arrays())
         sandbox.save_episodes(data)
+
+    def _brain_print(self, brain) -> np.ndarray:
+        """A fingerprint of the genome's brain output layer its habits were distilled on."""
+        import hashlib
+        h = hashlib.sha1(np.ascontiguousarray(brain.weights_ho).tobytes() + np.ascontiguousarray(brain.bias_o).tobytes())
+        return np.frombuffer(h.digest(), dtype=np.uint8)
+
+    def _distilled_arrays(self) -> dict:
+        """What its sleep distilled and how much of it has matured (a 2026-09-29
+        panel): saved with its episodes, so a restart doesn't wipe its habits.
+        Numbers only -- its output weights, its lessons, its nights."""
+        with self.lock:
+            org = self.org
+            if org.plasticity <= 0.0 or org.brain is org.g.brain:
+                return {}
+            out = {"distilled_ho": org.brain.weights_ho.astype(np.float32), "distilled_bo": org.brain.bias_o.astype(np.float32),
+                   "distilled_on": self._brain_print(org.g.brain),
+                   "night_lessons": np.array(org.night_lessons, dtype=np.float32)}
+            if org.lessons is not None:
+                out["lessons"] = org.lessons.astype(np.float32)
+            return out
 
     # ---- its life, frame by frame ----------------------------------------------
     def _run(self) -> None:

@@ -390,6 +390,7 @@ COLLICULAR_FEATURES = ("motion", "mismatch", "parallax", "host", "host size", "p
 GROUND_CLASSES = (sorted(prey_lib.PREY_CLASSES) + [prey_lib.PLANT_CLASS]
                   + [c for c in range(prey_lib.COCO_CLASSES) if c not in prey_lib.PREY_CLASSES and c != prey_lib.PLANT_CLASS])
 # (older memories' rows keep their places: hosts, then plants, then the rest)
+MATURATION_KEEP = 3650  # nights of lessons kept at most (maturation's safety cap)
 GROUND_COLS = 7  # n, sum y, sum h, sum y^2, sum y*h; then m, sum of squared residuals (against the fit then)
 
 
@@ -459,6 +460,8 @@ class Organism:
         self.maturation = float(getattr(g, "maturation", 0.0))
         self.lessons = None     # per output synapse (weights, then biases), when it matures
         self._night = False
+        self._tonight = 0         # lessons distilled this night
+        self.night_lessons: list = []  # lessons per night, its last ones (as many as its maturation's nights)
         self.brain.reset_hidden()
         self.brain.live_units = None  # all alive until wasting says otherwise (set every look)
         # What the gaze has seen per world location, and how much each spot
@@ -1342,22 +1345,38 @@ class Organism:
             shape = (b.weights_ho.shape[0], b.weights_ho.shape[1] + 1)
             if self.lessons is None or self.lessons.shape != shape:
                 self.lessons = np.zeros(shape)
-            lock = self.lessons / (self.lessons + self.maturation)
+            lock = self._lock()
             dw *= 1.0 - lock[:, :-1]
             delta = delta * (1.0 - lock[:, -1])
             # a good lesson, credited to the synapses it moved (in proportion)
             moved = np.abs(np.hstack([dw, delta[:, None]]))
             self.lessons += min(1.0, adv) * moved / max(1e-12, float(moved.max()))
+        self._tonight += 1
         b.weights_ho += dw
         b.bias_o += delta
         self.distilled += 1
         self.distill_macs += 3 * b.weights_ho.size
 
+    def lessons_per_night(self) -> float | None:
+        """Its lessons per night, over its last `maturation` nights (the gene
+        sets its own horizon); None before its first whole night."""
+        if not self.night_lessons:
+            return None
+        return float(np.mean(self.night_lessons[-max(1, math.ceil(self.maturation)):]))
+
+    def _lock(self):
+        """Each output synapse's lock: lessons / (lessons + maturation's nights
+        in lessons). Nothing locks before a night has been measured."""
+        per_night = self.lessons_per_night()
+        if self.lessons is None or self.maturation <= 0.0 or not per_night:
+            return np.zeros_like(self.lessons) if self.lessons is not None else None
+        k = self.maturation * per_night
+        return self.lessons / (self.lessons + k)
+
     def locked_share(self) -> float:
         """How much of its distilled brain has matured (mean lock over its output synapses)."""
-        if self.lessons is None or self.maturation <= 0.0:
-            return 0.0
-        return float(np.mean(self.lessons / (self.lessons + self.maturation)))
+        lock = self._lock()
+        return 0.0 if lock is None else float(np.mean(lock))
 
     def _act_now(self):
         b = self.brain
@@ -1497,6 +1516,10 @@ class Organism:
             if self.lessons is not None:
                 self.lessons *= 1.0 - float(np.clip(self.uncertainty, 0.0, 1.0))
         elif not asleep_settled and not quiet:
+            if self._night:  # the night ends: what it distilled counts toward its nights
+                self.night_lessons.append(self._tonight)
+                del self.night_lessons[:-max(1, min(int(MATURATION_KEEP), math.ceil(max(1.0, self.maturation))))]
+                self._tonight = 0
             self._night = False
         if not count or not self.episodes or self.learning_rate <= 0.0 or not self.mb.n_kc:
             return 0

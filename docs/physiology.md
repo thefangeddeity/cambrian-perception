@@ -385,8 +385,13 @@ can afford more and bigger ones.
   it has learned that works locks, and the rest stays plastic. Each output
   synapse its sleep distills into counts the good lessons that shaped it
   (credited in proportion to how far each moved it); its lock is lessons /
-  (lessons + maturation), and its updates shrink by that much. Maturation is
-  evolvable (lessons to half-lock a synapse; born 0, never locking). Its mushroom
+  (lessons + maturation x its lessons per night), and its updates shrink by
+  that much. Maturation is evolvable, in nights (consolidation needs sleep):
+  born 0 (never locking), first drawn between one night (Garcia's one-trial
+  learning) and an adult Aedes' life (~30 nights); its lessons per night are
+  averaged over its own last `maturation` nights. What it distilled, and its
+  locks, are saved with its episodes and come back after a restart when the
+  genome's brain is the one they were learned on. Its mushroom
   body -- the fast learner -- and all its maps and libraries never lock. And it
   doesn't go dumb: each night locks loosen by how wrong its predictions have
   been lately (reconsolidation). On a test, a skill's synapses locked to 0.71

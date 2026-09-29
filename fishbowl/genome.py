@@ -92,7 +92,11 @@ NEUTRAL_GROWTH_OPS = ("grow_channel", "add_prediction", "mutate_prey_sense", "du
 # step multiplicatively. Both chosen, documented in the constants audit.
 KC_STEP = 64
 LEARNING_MIN, LEARNING_MAX, LEARNING_SIGMA = 1e-3, 1.0, 0.5
-MATURATION_MIN, MATURATION_MAX = 1.0, 1e4  # lessons to half-lock a synapse: from one to a lifetime of nights
+# Maturation: nights of good lessons to half-lock a synapse (a 2026-09-29 panel:
+# consolidation needs sleep). Born between one night (Garcia's one-trial
+# learning) and an adult Aedes' life (~30 nights); past that, evolution walks
+# freely under a safety cap of ten years.
+MATURATION_MIN, MATURATION_BIRTH_MAX, MATURATION_MAX = 1.0, 30.0, 3650.0
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
 BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
@@ -272,8 +276,8 @@ class Genome:
         self.archetype_classes = ([int(c) for c in (archetype_classes or [])] + [0, 0, 0, 0])[:4]
         # Sleep distillation's rate (organism.py; born 0: its brain never learns in life).
         self.plasticity = float(np.clip(plasticity, 0.0, LEARNING_MAX))
-        # Maturation (organism.py): how many good lessons half-lock a synapse
-        # its sleep distills into; born 0, never locking.
+        # Maturation (organism.py): how many nights of good lessons half-lock a
+        # synapse its sleep distills into; born 0, never locking.
         self.maturation = float(np.clip(maturation, 0.0, MATURATION_MAX))
         # Its collicular priority map's weights (organism.COLLICULAR_FEATURES), born 0.
         self.colliculus = ([float(w) for w in (colliculus or [])] + [0.0] * 6)[:6]
@@ -599,10 +603,10 @@ class Genome:
         if choice == "mutate_apical":  # its pyramidal units' coincidence gain, stepped like a trait
             self.brain.apical = float(self.brain.apical + rng.gauss(0.0, TRAIT_SIGMA))
             return "brain", choice
-        if choice == "mutate_maturation":  # drawn log-uniformly from one lesson to a lifetime's, stepped as rates are
+        if choice == "mutate_maturation":  # born log-uniformly in 1 - 30 nights, then stepped as rates are
             old = self.maturation
             if old <= 0.0:
-                self.maturation = float(MATURATION_MIN * (MATURATION_MAX / MATURATION_MIN) ** rng.random())
+                self.maturation = float(MATURATION_MIN * (MATURATION_BIRTH_MAX / MATURATION_MIN) ** rng.random())
             else:
                 self.maturation = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), MATURATION_MIN, MATURATION_MAX))
                 if rng.random() < 0.1:

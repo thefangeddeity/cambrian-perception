@@ -1092,7 +1092,7 @@ PAGE = r"""<!doctype html>
       + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet')
       + (z.recall ? ' &middot; recall on' : '')
       + (z.plasticity ? ` &middot; distilling habits asleep: ${z.distilled}` : '')
-      + (z.maturation ? ` &middot; matured ${Math.round(100 * (z.locked || 0))}% (a synapse half-locks after ${Math.round(z.maturation)} good lessons; surprise reopens it)` : '')
+      + (z.maturation ? ` &middot; matured ${Math.round(100 * (z.locked || 0))}% (a synapse half-locks after ${z.maturation.toFixed(1)} nights of good lessons; surprise reopens it)` : '')
       + (z.sleep_set ? ` &middot; teaching itself asleep: ${z.edits[0]} of ${z.edits[1]} edits kept (tests on ${z.sleep_set} looks)` : '')
       + (z.max_scenes > 1 ? ` &middot; scene ${z.scene} of ${z.scenes} (keeps up to ${z.max_scenes})` : '')
       + (!z.asleep && z.woke_by ? ` &middot; woke: ${WOKE[z.woke_by] || z.woke_by}` : '')
