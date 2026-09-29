@@ -532,7 +532,7 @@ LOCK_HUD_JS = r"""
     ctx.fillStyle = HUD_SYS; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
     // Left-hand readout, top to bottom: mode + ID, delay, (operators only)
     // its perception tree's own guess next to the teacher's -- green when
-    // they agree -- then (operators only) snacks, then locks (meals: a LOCK
+    // they agree -- then locks (meals: a LOCK
     // held as one feeding bout -- the HUD's own word, so a viewer needs no
     // mosquito to read it), then its warning.
     const rows = [[L.mode + lockIdText(L.id), col, 'bold 14px monospace'],
@@ -541,7 +541,6 @@ LOCK_HUD_JS = r"""
       rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_AGREE : HUD_DISAGREE, '10px monospace', 'telemetry']);
     }
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
-    if (opts && opts.internals) rows.push([`snacks ${boutText('snack', st.snacks)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
     rows.push([`locks ${boutText('meal', st.meals)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
@@ -719,7 +718,7 @@ PAGE = r"""<!doctype html>
     <div class="sleep-views">
       <div><canvas id="replay-eye" width="192" height="192" class="px"></canvas><div class="cap">recalled</div></div>
       <div><canvas id="replay-recon" width="192" height="192" class="px"></canvas><div class="cap" id="recon-cap">mind's eye</div></div>
-      <div><canvas id="replay-seen" width="192" height="192"></canvas><div class="cap">what it saw</div></div>
+      <div><canvas id="replay-seen" width="192" height="192"></canvas><div class="cap" id="seen-cap">what it saw</div></div>
     </div>
     <div class="cap" id="replay-eye-cap" style="margin-top:4px"></div>
     <canvas id="dream-map" class="px" style="margin-top:10px; display:block; margin-left:auto; margin-right:auto"></canvas>
@@ -994,6 +993,15 @@ PAGE = r"""<!doctype html>
   const SEEN = { key: null, ok: false, img: new Image() };
   // Its sleep in a line: asleep or awake (and for how long), sleep pressure,
   // whether it is dreaming now, and the inherited shape of its replay.
+  // An empty view shows its medium, not a message: a faint grid at the
+  // resolution it would draw at (the state goes in its caption).
+  function idleView(ctx, W, k) {
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, W);
+    ctx.strokeStyle = '#141a20'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 1; i < k; i++) { const x = Math.round(i * W / k) + 0.5; ctx.moveTo(x, 0); ctx.lineTo(x, W); ctx.moveTo(0, x); ctx.lineTo(W, x); }
+    ctx.stroke();
+  }
+  const DIM = s => `<span style="color:#6a5550">${s}</span>`;
   const WOKE = { mismatch: 'the room changed', loom: 'something looming', motion: 'movement', rested: 'rested', choice: 'its own choice' };
   function drawSleepLine(d) {
     const el = $('sleep-line'), z = d.sleep; if (!el) return;
@@ -1013,7 +1021,8 @@ PAGE = r"""<!doctype html>
     const r = d.replay_eye, W = c.width, ctx = c.getContext('2d');
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, W);
     if (!r) {
-      ['replay-recon', 'replay-seen'].forEach(id => { const x = $(id).getContext('2d'); x.fillStyle = '#05070a'; x.fillRect(0, 0, W, W); });
+      idleView(ctx, W, 16); ['replay-recon', 'replay-seen'].forEach(id => idleView($(id).getContext('2d'), W, 16));
+      $('recon-cap').innerHTML = "mind's eye"; $('seen-cap').innerHTML = 'what it saw';
       $('replay-eye-cap').textContent = !d.kc ? 'No mushroom body yet: nothing to replay until one evolves.'
         : 'Nothing replayed lately (it replays asleep, or awake in quiet moments).';
       drawDreamMap(d); return;
@@ -1033,18 +1042,20 @@ PAGE = r"""<!doctype html>
         const g = Math.round(255 * Math.max(0, Math.min(1, r.recon[i * k + j])));
         rctx.fillStyle = `rgb(${g},${Math.round(g * 0.92)},${Math.round(g * 0.88)})`; rctx.fillRect(Math.floor(j * q), Math.floor(i * q), Math.ceil(q), Math.ceil(q));
       }
-    } else { rctx.fillStyle = '#9a6f67'; rctx.font = '14px monospace'; rctx.fillText('no imagery yet', 10, W / 2); }
+    } else idleView(rctx, W, 16);
     // what it saw then: the frame the memory formed on, cropped to its gaze, if the frame ring still holds it
     const sc = $('replay-seen'), sctx = sc.getContext('2d'); sctx.fillStyle = '#05070a'; sctx.fillRect(0, 0, W, W);
+    let seenState = '';
     if (r.seen) {
       const key = (d.world_epoch || 0) + ':' + r.seen.i;
       if (SEEN.key !== key) { SEEN.key = key; SEEN.ok = false; SEEN.img.onload = () => { SEEN.ok = true; }; SEEN.img.onerror = () => { SEEN.ok = false; }; SEEN.img.src = '/frame?i=' + r.seen.i + '&e=' + (d.world_epoch || 0); }
       if (SEEN.ok && SEEN.img.naturalWidth) {
         const iw = SEEN.img.naturalWidth, ih = SEEN.img.naturalHeight, side = r.seen.f * ih;
         sctx.drawImage(SEEN.img, r.seen.cx * iw - side / 2, r.seen.cy * ih - side / 2, side, side, 0, 0, W, W);
-      } else { sctx.fillStyle = '#9a6f67'; sctx.font = '14px monospace'; sctx.fillText('no longer held', 10, W / 2); }
-    } else { sctx.fillStyle = '#9a6f67'; sctx.font = '14px monospace'; sctx.fillText(r.kind === 'rem' ? 'recombined' : '--', 10, W / 2); }
-    $('recon-cap').textContent = (d.sleep && d.sleep.dreaming) ? 'dream' : "mind's eye";
+      } else { idleView(sctx, W, 16); seenState = 'gone from RAM'; }
+    } else { idleView(sctx, W, 16); seenState = r.kind === 'rem' ? 'no one moment' : 'none'; }
+    $('seen-cap').innerHTML = 'what it saw' + (seenState ? ' ' + DIM('&middot; ' + seenState) : '');
+    $('recon-cap').innerHTML = ((d.sleep && d.sleep.dreaming) ? 'dream' : "mind's eye") + (r.recon ? '' : ' ' + DIM('&middot; not evolved yet'));
     const name = { nrem: 'NREM replay', rem: 'REM (recombined)', awake: 'awake replay' }[r.kind] || r.kind;
     $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago. Recalled: the parts of its eye the memory's cells listen to. Mind's eye: the picture those cells rebuild (asleep, its eye sees it: a dream). What it saw: for you only, never the organism.`;
     drawDreamMap(d);
@@ -1432,7 +1443,7 @@ PAGE = r"""<!doctype html>
     const id = want === 'video' ? youtubeId((SEL && SEL.selected_url) || (d && d.clip)) : null;
     $('stream-link-row').style.display = id ? 'block' : 'none';
     if (id) $('stream-link').href = `https://www.youtube.com/watch?v=${id}`;
-    $('live-title').textContent = d && d.is_live ? 'the stream, as it saw it' : 'its camera, as it saw it';
+    $('live-title').textContent = d && d.is_live ? 'video stream' : 'camera';
     $('live-cap').textContent = 'What it saw, a few seconds behind live, in step with the visual field. Frames stay in RAM.';
     const running = d && d.generation !== undefined ? (d.is_live ? 'video' : 'camera') : null;
     const switching = running && (running !== want || (want === 'video' && youtubeId(d.clip) !== id));
