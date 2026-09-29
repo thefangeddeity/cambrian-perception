@@ -1171,11 +1171,13 @@ class Organism:
         """Where its ground plane meets the sky (0 = top of the frame): each
         class's line height = a (y - horizon) gives a horizon, and they combine
         by inverse variance -- the textbook calibration variance of a line's
-        zero, (mse / a^2)(1/n + (mean y - horizon)^2 / (n var y)) -- so a class
-        whose members fit their line badly counts for little. None until a
+        zero, (mse / a^2)(1/n + (mean y - horizon)^2 / (n var y)), plus the
+        classes' spread between them (random effects) -- so a class whose
+        members fit their line badly counts for little, and a class that
+        disagrees with the rest cannot outweigh them. None until a
         class has spread in where its members stand and a few residuals."""
         self.ground = _ground_shape(self.ground)
-        est, wsum = 0.0, 0.0
+        est, var = [], []
         for row in self.ground:
             fit = self._ground_fit(row)
             m, rss = row[5], row[6]
@@ -1185,8 +1187,20 @@ class Organism:
             n, sy, syy = row[0], row[1], row[3]
             vy = syy / n - (sy / n) ** 2
             hz = -b / a
-            var = (max(rss / m, 1e-8) / (a * a)) * (1.0 / n + (sy / n - hz) ** 2 / (n * vy))
-            est, wsum = est + hz / var, wsum + 1.0 / var
+            est.append(hz)
+            var.append((max(rss / m, 1e-8) / (a * a)) * (1.0 / n + (sy / n - hz) ** 2 / (n * vy)))
+        if not est:
+            return None
+        # Random effects (DerSimonian & Laird 1986): classes that disagree more
+        # than their own noise explains (a class biased by where it stands --
+        # trees on a far bank, signs on poles) share the spread between them,
+        # so no one biased class outweighs the others that agree.
+        th, w = np.array(est), 1.0 / np.array(var)
+        fixed = float((w * th).sum() / w.sum())
+        q, c = float((w * (th - fixed) ** 2).sum()), float(w.sum() - (w * w).sum() / w.sum())
+        tau2 = max(0.0, (q - (len(th) - 1)) / c) if c > 0 else 0.0
+        w = 1.0 / (np.array(var) + tau2)
+        est, wsum = float((w * th).sum()), float(w.sum())
         return float(np.clip(est / wsum, -1.0, 1.0)) if wsum else None
 
     def _ground_sense(self, cy: float) -> tuple[float, float]:
