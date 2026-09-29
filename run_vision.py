@@ -1791,7 +1791,28 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     print(f"Final best_fitness: {best_fitness:.4f} -- checkpoint saved, next restart resumes from here.")
 
 
+def _body_at_full_speed() -> None:
+    """Windows 11 may run a below-normal, windowless process as background
+    work -- on the efficiency cores, at a low clock (EcoQoS). Its body is real
+    time: this process opts out of that throttling (its priority stays below
+    normal, so the host's user still comes first); its workers don't opt out,
+    so evolution stays on the efficiency cores."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        class _Throttle(ctypes.Structure):
+            _fields_ = [("Version", ctypes.c_ulong), ("ControlMask", ctypes.c_ulong), ("StateMask", ctypes.c_ulong)]
+        state = _Throttle(1, 0x1, 0x0)  # PROCESS_POWER_THROTTLING_EXECUTION_SPEED: controlled, and off
+        k32 = ctypes.windll.kernel32
+        k32.SetProcessInformation(k32.GetCurrentProcess(), 4, ctypes.byref(state), ctypes.sizeof(state))  # ProcessPowerThrottling
+    except (OSError, AttributeError):
+        pass
+
+
 def main() -> int:
+    _body_at_full_speed()
     # Line-buffered, so the journal shows each line as it happens (not all
     # at once when the run exits).
     sys.stdout.reconfigure(line_buffering=True)
