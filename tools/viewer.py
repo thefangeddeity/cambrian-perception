@@ -1361,19 +1361,26 @@ PAGE = r"""<!doctype html>
       }
       const seg = (p, q) => {
         const t = Math.min(1, (p[1] + q[1]) / 2 / tall);
-        ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${0.3 + 0.6 * t})`;
+        ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${0.18 + 0.32 * t})`;  // faint: a reading of the data, not a veil over it
         ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(q[0][0], q[0][1]); ctx.stroke();
       };
       ctx.lineWidth = 1;
       for (let j = NZ; j >= 0; j--) for (let i = 0; i < NU; i++) seg(node[j][i], node[j][i + 1]);
       for (let i = 0; i <= NU; i++) for (let j = NZ; j > 0; j--) seg(node[j][i], node[j - 1][i]);
-      // the data points themselves, faint, under the membrane's peaks
+      // the data themselves, drawn over the membrane at full strength (UX panel:
+      // show the data; the membrane is only a reading of it)
       pts.forEach(q => {
-        const a = at(q[0], 0, q[1]), b = at(q[0], q[2], q[1]);
-        ctx.strokeStyle = q[3] === 'host' ? 'rgba(255, 111, 138, 0.5)' : 'rgba(127, 212, 255, 0.5)'; ctx.lineWidth = 1;
-        ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
+        if (q[3] === 'host') {  // standing at its distance, its real height
+          const [x, z, hgt, , x0, x1, y1, conf] = q, g0 = place(x0, y1), g1 = place(x1, y1); if (!g0 || !g1) return;
+          const c4 = [at(g0[0], 0, g0[1]), at(g1[0], 0, g1[1]), at(g1[0], hgt, g1[1]), at(g0[0], hgt, g0[1])];
+          ctx.fillStyle = `rgba(255, 111, 138, ${0.2 + 0.35 * conf})`; ctx.strokeStyle = 'rgba(255, 111, 138, 0.95)'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
+        } else {  // parallax: a column on its cell
+          const a2 = at(q[0], 0, q[1]), b2 = at(q[0], q[2], q[1]);
+          ctx.strokeStyle = `rgba(127, 212, 255, ${0.5 + 0.8 * q[2]})`; ctx.lineWidth = 3 * a2[3]; ctx.beginPath(); ctx.moveTo(a2[0], a2[1]); ctx.lineTo(b2[0], b2[1]); ctx.stroke();
+        }
       });
-      note = `ground plane learned from hosts' sizes, horizon ${Math.round(100 * hz)}% down the frame; a membrane over its height data -- rising pink where hosts stand (their height)`
+      note = `ground plane learned from hosts' sizes, horizon ${Math.round(100 * hz)}% down the frame; pink: hosts standing at their distance and height; a faint membrane drawn through them (and any parallax) reads the height data as a surface`
              + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));
     }
     // inset: the lines its trees read on its eye
