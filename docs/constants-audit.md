@@ -92,6 +92,8 @@ yardsticks are found.
 | `HUNGER_WAKE_R`, `EMPTY_G` | 0.05, 0.1 | P | an empty body (degraded). `HUNGER_WAKE_G` retired 2026-09-27 with the starvation-forces-awake rule (it made sleep flap as the gut crossed its line) |
 | `WAKE_LOOM`, `WAKE_MOTION` | 0.18, 0.6 | **G** | what wakes it from sleep, now divided by the inherited vigilance (born 1: unchanged) |
 | `MISMATCH_TAU_S` | = `LIGHT_SLOW_S` (1200 s) | P | the field mismatch's model of the room adapts over its day/night sense's slow timescale (reused, not new); a cell mismatches beyond `SURPRISE_SIGMAS` x its own learned variation, floored at `NOISE_FLOOR` (the snack memory's rule), the area is read with `EXPANSION_GAIN` and wakes at `WAKE_LOOM` (the same kind of reading: an area differing from a background) |
+| `NECTAR_OIV7` | Open Images' "Plant" node, 12 classes | S | the detector's own published class hierarchy (bbox_labels_600_hierarchy.json, /m/05s2s), not a pick |
+| `FLOWER_EVERY_S` | 30 s | B | plants don't move; the flower detector's CPU budget (under ~1% of a core on Tanzania; 2026-09-28 infrastructure review) |
 | `SLEEP_ONSET_*`, `SLEEP_END_*`, `NIGHT_LIGHT`, `DAY_LIGHT` | 0.15/0.45, 0.01/0.04, 0.15/0.5 | **G** | Borbely's two thresholds; published threshold values are for humans in normalised units, not yet mapped |
 
 ### fishbowl/fovea.py, retina.py (the eye)
