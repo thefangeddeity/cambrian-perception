@@ -1020,7 +1020,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     if _is_device(source) or source == "live":
         print(f"Opening live feed {clip_path!r} (frames kept in memory only, never written to disk)...")
         detector = prey_lib.PreyDetector()
-        print(f"Prey detector: {'yolov8n loaded' if detector.available else 'MODEL MISSING -- no prey, snacks only'} ({detector.model_path})")
+        print(f"Prey detector: {'yolov8n loaded' if detector.available else 'MODEL MISSING -- no prey, snacks only'} ({detector.model_path}); plants: {'Open Images V7 model loaded' if detector.flower_net is not None else 'potted plants only (no yolov8n-oiv7 model)'}")
         feed_src = (int(source) if source.isdigit() else source) if _is_device(source) else load_source
         # Its frames for the viewer's replay (small JPEGs, a short ring):
         # only when the runtime dir really is in RAM.
