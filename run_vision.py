@@ -847,7 +847,7 @@ class World:
             ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv, self.field_shape)
             ws["field_light"] = np.asarray(wv).mean(axis=1)
             ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"] = reflexes.mismatch_score(
-                wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S)
+                wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S, SURPRISE_SIGMAS, NOISE_FLOOR)
             ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]

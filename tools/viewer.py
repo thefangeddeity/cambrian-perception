@@ -1293,7 +1293,8 @@ PAGE = r"""<!doctype html>
     const H = Math.round(W < 600 ? Math.max(320, W * quadAspect()) : W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    BZ.d = d; ctx.setTransform(BZ.k, 0, 0, BZ.k, BZ.x, BZ.y);
     const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
     const hm = Math.min(220, W * 0.25, H - 50), netW = W - hm - 40;
     const xin = 90, xh = xin + (netW - 90) * 0.5, xout = netW - 50;
@@ -1312,7 +1313,39 @@ PAGE = r"""<!doctype html>
     for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) { const v = br.weights_hh[r][q], a = Math.abs(v) / mh; ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${a})` : `rgba(255,153,0,${a})`; ctx.fillRect(hx + q * cell, hy + r * cell, cell - 1, cell - 1); }
     ctx.fillStyle = '#9a6f67'; ctx.textAlign = 'left'; ctx.fillText('recurrent weights', hx, hy - 12);
     ctx.fillText('from unit ->  (rows: to unit)', hx, hy + hm + 14);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (BZ.k > 1.01) { ctx.fillStyle = '#6a5550'; ctx.textAlign = 'right'; ctx.fillText(`${BZ.k.toFixed(1)}x  (double-click: fit)`, W - 8, H - 10); }
   }
+  // Zoom the brain: wheel (or pinch) zooms about the pointer, drag pans,
+  // double-click fits it back.
+  const BZ = { k: 1, x: 0, y: 0, d: null, drag: null, pts: new Map(), pinch: null };
+  function brainZoomTo(k, px, py) {
+    const c = $('brain'); k = Math.max(1, Math.min(12, k));
+    BZ.x = px - (px - BZ.x) * k / BZ.k; BZ.y = py - (py - BZ.y) * k / BZ.k; BZ.k = k;
+    if (k === 1) { BZ.x = BZ.y = 0; }
+    BZ.x = Math.min(0, Math.max(c.width * (1 - k), BZ.x)); BZ.y = Math.min(0, Math.max(c.height * (1 - k), BZ.y));
+    if (BZ.d) drawBrain(BZ.d);
+  }
+  function brainPoint(e) { const c = $('brain'), r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; }
+  (() => {
+    const c = $('brain'); if (!c) return;
+    c.style.touchAction = 'none'; c.style.cursor = 'zoom-in';
+    c.addEventListener('wheel', e => { e.preventDefault(); const [x, y] = brainPoint(e); brainZoomTo(BZ.k * Math.exp(-e.deltaY * 0.0015), x, y); }, { passive: false });
+    c.addEventListener('dblclick', () => { BZ.k = 1; BZ.x = BZ.y = 0; if (BZ.d) drawBrain(BZ.d); });
+    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; });
+    c.addEventListener('pointermove', e => {
+      if (!BZ.pts.has(e.pointerId)) return;
+      const prev = BZ.pts.get(e.pointerId), now = brainPoint(e); BZ.pts.set(e.pointerId, now);
+      if (BZ.pts.size === 2) {
+        const [a, b] = [...BZ.pts.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (BZ.pinch) brainZoomTo(BZ.k * dist / BZ.pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        BZ.pinch = dist; return;
+      }
+      if (BZ.k > 1) { BZ.x += now[0] - prev[0]; BZ.y += now[1] - prev[1]; brainZoomTo(BZ.k, 0, 0); }
+    });
+    const up = e => { BZ.pts.delete(e.pointerId); BZ.pinch = null; };
+    c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+  })();
 
   // Trees (every tree the genome has).
   const PLANE_NAMES = ['now', 'prev', 'rg', 'by'];

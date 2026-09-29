@@ -91,7 +91,7 @@ yardsticks are found.
 | `COLLAPSE_S`, `COLLAPSE_RELEASE_S` | 0.95, 0.8 | **G** | safety net |
 | `HUNGER_WAKE_R`, `EMPTY_G` | 0.05, 0.1 | P | an empty body (degraded). `HUNGER_WAKE_G` retired 2026-09-27 with the starvation-forces-awake rule (it made sleep flap as the gut crossed its line) |
 | `WAKE_LOOM`, `WAKE_MOTION` | 0.18, 0.6 | **G** | what wakes it from sleep, now divided by the inherited vigilance (born 1: unchanged) |
-| `MISMATCH_TAU_S` | = `LIGHT_SLOW_S` (1200 s) | P | the field mismatch's model of the room adapts over its day/night sense's slow timescale (reused, not new); a cell counts at the looming detector's threshold (0.08), the area is read with `EXPANSION_GAIN` and wakes at `WAKE_LOOM` (the same kind of reading: an area differing from a background) |
+| `MISMATCH_TAU_S` | = `LIGHT_SLOW_S` (1200 s) | P | the field mismatch's model of the room adapts over its day/night sense's slow timescale (reused, not new); a cell mismatches beyond `SURPRISE_SIGMAS` x its own learned variation, floored at `NOISE_FLOOR` (the snack memory's rule), the area is read with `EXPANSION_GAIN` and wakes at `WAKE_LOOM` (the same kind of reading: an area differing from a background) |
 | `SLEEP_ONSET_*`, `SLEEP_END_*`, `NIGHT_LIGHT`, `DAY_LIGHT` | 0.15/0.45, 0.01/0.04, 0.15/0.5 | **G** | Borbely's two thresholds; published threshold values are for humans in normalised units, not yet mapped |
 
 ### fishbowl/fovea.py, retina.py (the eye)

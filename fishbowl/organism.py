@@ -118,11 +118,13 @@ EXPANSION_GAIN = 10.0        # reflexes.expansion_score: approaching disc 0.083 
 # Field mismatch (Sokolov's orienting reflex; 2026-09-28 panel): how much of
 # the field's structure differs from its slow model of the room
 # (reflexes.mismatch_step) -- someone arriving, and staying, until it
-# habituates to them. No new constants: the model adapts over its sense of
-# light's slow timescale (~20 min, state.LIGHT_SLOW_S), a cell counts at the
-# looming detector's threshold, and the area is read with the looming
-# detector's gain (both are areas of the field that differ from a
-# background), so it wakes at the looming line (state.WAKE_LOOM) x its
+# habituates to them. No new constants: the model (each cell's mean and
+# usual variation) adapts over its sense of light's slow timescale (~20 min,
+# state.LIGHT_SLOW_S); a cell mismatches beyond SURPRISE_SIGMAS x its own
+# variation, floored at NOISE_FLOOR (the snack memory's surprise rule), so
+# waving leaves and a codec's shimmer become expected; the area is read with
+# the looming detector's gain (both are areas of the field that differ from
+# what it expects), so it wakes at the looming line (state.WAKE_LOOM) x its
 # vigilance. The brain gets it, and where it is, as a sense (priced).
 MISMATCH_TAU_S = LIGHT_SLOW_S
 

@@ -34,7 +34,7 @@ class FieldSignals:
         self.window = None
         self.last_vector = None
         self.fps = 15.0            # the host sets its frame rate (the mismatch background adapts in seconds)
-        self.structure = None      # the mismatch detector's slow background of the field's structure
+        self.structure = None      # the mismatch detector's slow model of the field's structure (mean, variance)
 
     def step(self, grey: np.ndarray) -> tuple[dict, tuple[float, float]]:
         shape = field_shape(*grey.shape[:2])
@@ -63,7 +63,7 @@ class FieldSignals:
         self.prev = v
         # Mismatch with its slow model of the room (reflexes.mismatch_step).
         alpha = 1.0 - float(np.exp(-1.0 / max(1e-6, self.fps) / org.MISMATCH_TAU_S))
-        mismatch, mmx, mmy, self.structure = reflexes.mismatch_step(self.structure, v, shape, alpha)
+        mismatch, mmx, mmy, self.structure = reflexes.mismatch_step(self.structure, v, shape, alpha, org.SURPRISE_SIGMAS, org.NOISE_FLOOR)
         # The frame's global shift (organism.global_shifts, streamed).
         size = org.shift_size(grey.shape)
         small = cv2.resize(grey, size, interpolation=cv2.INTER_AREA).astype(np.float32)

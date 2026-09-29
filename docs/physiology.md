@@ -174,8 +174,10 @@ things override it:
 - **The room changing** wakes it too (the orienting reflex, Sokolov 1963: a
   violation of its own model of its surroundings). Its whole-field eyes keep a
   slow model of the room's structure (each receptor less the field's mean, so
-  the lights dimming isn't news), adapting over ~20 minutes. The share of the
-  field that no longer matches is its **mismatch**. Motion is gone in a
+  the lights dimming isn't news), adapting over ~20 minutes: each spot's
+  usual value and how much it usually varies, so leaves that always wave
+  become expected. The share of the field that is off by more than its own
+  usual variation (the snack memory's rule) is its **mismatch**. Motion is gone in a
   second; mismatch stays while the change stays, so someone who came in
   quietly and stood still still wakes it. It wakes when the mismatch rises
   past the looming line (x vigilance) above what it was when it fell asleep:
