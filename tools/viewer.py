@@ -650,8 +650,11 @@ PAGE = r"""<!doctype html>
   h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--cyan); margin: 0 0 4px; font-weight: normal; }
   .cap { color: var(--dim); font-size: 12px; margin: 0 0 10px; }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; cursor: zoom-in; }
-  /* Tap/click a panel to fill the screen with it; tap again (or Esc) to put it back. */
+  /* Tap/click a panel to show it full screen; tap again (or Esc) to put it back.
+     Where the browser has no full screen for a card (an iPhone), it fills the page instead. */
   .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; cursor: zoom-out; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
+  .panel.maximized:fullscreen { inset: 0; border-radius: 0; border: 0; box-shadow: none; }
+  .panel.maximized::backdrop { background: var(--bg, #000); }
   body.has-max { overflow: hidden; }
   .video16x9 { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
   .video16x9 iframe, .video16x9 img, .video16x9 canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
@@ -2133,8 +2136,19 @@ PAGE = r"""<!doctype html>
     document.querySelectorAll('.panel.maximized').forEach(p => { if (p !== panel) p.classList.remove('maximized'); });
     const on = panel ? panel.classList.toggle('maximized') : false;
     document.body.classList.toggle('has-max', on);
+    // full screen where the browser allows it for a card (not an iPhone's): the page's own fill stays as the fallback
+    if (on && panel.requestFullscreen) panel.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+    else if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
     requestAnimationFrame(redrawAll);
   }
+  // leaving full screen by the browser's own way (Esc, a swipe) puts the card back too
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) {
+      const p = document.querySelector('.panel.maximized');
+      if (p) { p.classList.remove('maximized'); document.body.classList.remove('has-max'); }
+    }
+    requestAnimationFrame(redrawAll);
+  });
   document.addEventListener('click', e => {
     if (e.target.closest('input, button, label, a, select, textarea, iframe, canvas.steer')) return;
     const p = e.target.closest('.panel');
