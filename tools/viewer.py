@@ -754,8 +754,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <div class="video16x9" id="live-box"><img id="cam" alt="" style="visibility:hidden"><canvas id="hud"></canvas></div>
     <div class="cap" id="live-cap">--</div>
     <div class="cap" id="cam-note" style="margin-top:6px"></div>
-    <div class="cap" id="hud-legend" style="margin-top:6px"><label><input type="checkbox" id="hud-on" checked> HUD</label> -- <span id="hud-legend-text"></span></div>
-    <div class="cap" id="stream-link-row" style="margin-top:6px; display:none"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a> (some streams don't allow embedding)</div>
+    <div class="cap" id="hud-legend" style="margin-top:6px"><label><input type="checkbox" id="hud-on" checked> HUD</label> <span id="hud-legend-text"></span></div>
+    <div class="cap" id="stream-link-row" style="margin-top:6px; display:none"><a id="stream-link" target="_blank" rel="noopener" style="color:var(--cyan)">open on YouTube</a></div>
     <!-- what it watches: a YouTube video instead of its camera (frames are never saved) -->
     <div id="dessert-card" style="margin-top:12px">
       <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
@@ -777,12 +777,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
-    <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
+    <div class="cap"><span id="look-px">--</span></div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
   <div class="panel" id="tree-panel">
     <h2>its perception tree</h2>
-    <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
     <div id="trees"></div>
   </div>
   <div class="panel" id="field-panel" style="grid-column: 1 / -1">
@@ -794,14 +793,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
       <label><input type="checkbox" data-layer="priority"> <b style="color:#ff66cc">priority</b></label>
 </div>
-    <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; <b style="color:#9ccf7a">dotted</b> = a plant (nectar); red frame = something looming.</div>
+    <div class="cap"><span id="field-px">--</span> &middot; box: gaze &middot; <b style="color:#ff6f8a">dashed</b>: host &middot; <b style="color:#9ccf7a">dotted</b>: plant &middot; red frame: looming</div>
     <div class="cap" id="replay-clock">--</div>
     <div class="cap" id="senses-strip"></div>
   </div>
   <div class="panel" id="brain-panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. Click it to steer (Esc releases). <span id="brain-mode"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
   </div>
   <div class="panel" id="mb-panel">
     <h2>its mushroom body</h2>
@@ -819,7 +818,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       </div>
       <div class="cap" id="replay-eye-cap" style="margin-top:4px"></div>
       <canvas id="dream-map" class="px" style="margin-top:10px; display:block; margin-left:auto; margin-right:auto"></canvas>
-      <div class="cap">Paths on its place map: blue NREM, violet REM, grey awake replay; gold imagined (dreamt through its maps).</div>
+      <div class="cap">blue NREM &middot; violet REM &middot; grey awake &middot; gold dreamt</div>
     </div>
     <div class="stack" id="charts-side"></div>
   </div>
@@ -829,14 +828,12 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
-      <div class="cap">Blood from hosts at its mouth; nectar from surprise.</div>
       <div id="prey-gauge"></div>
       <canvas id="prey-trace" height="60"></canvas>
       <div id="food-gauge"></div>
       <canvas id="food-trace" height="60"></canvas>
     </div>
     <div class="section"><h2>how it moves</h2>
-      <div class="cap">Measured, not rewarded (Land 1969).</div>
       <div id="movement"></div>
     </div>
   </div>
@@ -1016,7 +1013,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const gx0 = snapL(Math.max(0, cx - cw / d.frame_w / 2)), gx1 = snapR(Math.min(1, cx + cw / d.frame_w / 2));
     const gy0 = snapT(Math.max(0, cy - ch / d.frame_h / 2)), gy1 = snapB(Math.min(1, cy + ch / d.frame_h / 2));
     ctx.strokeRect(gx0, gy0, Math.max(cellW, gx1 - gx0), Math.max(cellH, gy1 - gy0));
-    $('replay-clock').textContent = (delay != null ? `${catching ? 'catching up: ' : ''}delayed ${delay.toFixed(1)} s behind live -- gaze ${i + 1} / ${traj.length} of its latest run` : `replay: gaze ${i + 1} / ${traj.length}  (t = ${(cur / fps).toFixed(1)} s of ${((lastIdx + 1) / fps).toFixed(0)} s)`) + (ev && ev[3] > 0.18 ? '  -- APPROACH' : '');
+    $('replay-clock').textContent = (delay != null ? `delayed ${delay.toFixed(1)} s` : `replay ${(cur / fps).toFixed(1)} / ${((lastIdx + 1) / fps).toFixed(0)} s`) + (ev && ev[3] > 0.18 ? ' \u00b7 APPROACH' : '');
   }
   requestAnimationFrame(drawField);
 
@@ -1113,15 +1110,13 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const t = z.traits, mins = Math.round(z.for_s / 60);
     el.innerHTML = (z.asleep ? `<b style="color:#e0909c">asleep</b> ${mins} min` : '<b style="color:#a9bcc8">awake</b>')
       + ` &middot; sleep pressure ${(100 * z.pressure).toFixed(0)}%`
-      + (z.clock_day != null ? ` &middot; its clock: ${z.clock_day >= 0.5 ? 'day' : 'night'} (${Math.round(100 * z.clock_day)}%)` : '')
+      + (z.clock_day != null ? ` &middot; clock ${z.clock_day >= 0.5 ? 'day' : 'night'}` : '')
       + (z.dreaming ? ' &middot; <b style="color:#fff0c0">dreaming</b>' : '')
-      + ` &middot; replays ${t.awake} awake / ${t.asleep} asleep, REM ${(100 * t.rem).toFixed(0)}%, backup ${t.backup}, dream steps ${t.dream_steps}`
-      + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet')
-      + (z.recall ? ' &middot; recall on' : '')
-      + (z.plasticity ? ` &middot; distilling habits asleep: ${z.distilled}` : '')
-      + (z.maturation ? ` &middot; matured ${Math.round(100 * (z.locked || 0))}% (a synapse half-locks after ${z.maturation.toFixed(1)} nights of good lessons; surprise reopens it)` : '')
-      + (z.sleep_set ? ` &middot; teaching itself asleep: ${z.edits[0]} of ${z.edits[1]} edits kept (tests on ${z.sleep_set} looks)` : '')
-      + (z.max_scenes > 1 ? ` &middot; scene ${z.scene} of ${z.scenes} (keeps up to ${z.max_scenes})` : '')
+      + ` &middot; replays ${t.awake}/${t.asleep}, REM ${(100 * t.rem).toFixed(0)}%`
+      + (z.plasticity ? ` &middot; habits ${z.distilled}` : '')
+      + (z.maturation ? ` &middot; matured ${Math.round(100 * (z.locked || 0))}%` : '')
+      + (z.sleep_set ? ` &middot; self-edits ${z.edits[0]}/${z.edits[1]}` : '')
+      + (z.max_scenes > 1 ? ` &middot; scene ${z.scene}/${z.scenes}` : '')
       + (!z.asleep && z.woke_by ? ` &middot; woke: ${WOKE[z.woke_by] || z.woke_by}` : '')
       + (z.mismatch > 0.05 ? ` &middot; room changed ${(100 * z.mismatch).toFixed(0)}%` : '');
   }
@@ -1133,8 +1128,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     if (!r) {
       idleView(ctx, W, 16); ['replay-recon', 'replay-seen'].forEach(id => idleView($(id).getContext('2d'), W, 16));
       $('recon-cap').innerHTML = "mind's eye"; $('seen-cap').innerHTML = 'what it saw';
-      $('replay-eye-cap').textContent = !d.kc ? 'No mushroom body yet: nothing to replay until one evolves.'
-        : 'Nothing replayed lately (it replays asleep, or awake in quiet moments).';
+      $('replay-eye-cap').textContent = !d.kc ? 'no mushroom body yet' : 'nothing replayed lately';
       drawDreamMap(d); return;
     }
     const n = r.n, s = W / n;
@@ -1167,7 +1161,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     $('seen-cap').innerHTML = 'what it saw' + (seenState ? ' ' + DIM('&middot; ' + seenState) : '');
     $('recon-cap').innerHTML = ((d.sleep && d.sleep.dreaming) ? 'dream' : "mind's eye") + (r.recon ? '' : ' ' + DIM('&middot; not evolved yet'));
     const name = { nrem: 'NREM replay', rem: 'REM (recombined)', awake: 'awake replay' }[r.kind] || r.kind;
-    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago. Recalled: the parts of its eye the memory's cells listen to. Mind's eye: the picture those cells rebuild (asleep, its eye sees it: a dream). What it saw: for you only, never the organism.`;
+    $('replay-eye-cap').textContent = `${name}, ${r.age.toFixed(1)} s ago`;
     drawDreamMap(d);
   }
   // Replayed and dreamt paths on its place map (its field's grid): a small
@@ -1402,8 +1396,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     MB3.d = d; MB3.dirty = true; mbKick();
     const mode = MB3.flat ? '<b>2D</b> &middot; <a href="#" data-mb="3d">3D</a>' : '<a href="#" data-mb="2d">2D</a> &middot; <b>3D</b>';
-    cap.innerHTML = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid; grey, lost; firing cells glow phosphor green, brighter the more they have learned. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. `
-      + (MB3.flat ? '' : 'Click it to steer (drag turns, wheel or pinch zooms, hover a cell; Esc or a click outside releases). ') + `<span id="mb-mode">${mode}</span>`;
+    cap.innerHTML = `${mb.n} Kenyon cells, ${(mb.active || []).length} firing &middot; <b style="color:#78e678">food</b> <b style="color:#ff5a46">danger</b> <b style="color:#ffb066">avoided</b> <b style="color:#888">lost</b> <span id="mb-mode">${mode}</span>`;
   }
 
   // Its sense of space, rendered in 3D: the world as it reconstructs it. Its
@@ -1452,7 +1445,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const at = SP3.pov ? eye : (x, y, z) => proj(x, y, z - ZMAX / 2 - 0.5);
     let note = '';
     if (hz == null) {
-      note = 'no horizon yet: it learns its ground plane from the sizes of the hosts and plants it sees whole';
+      note = 'no horizon yet';
     } else {
       // Its ground, as its mind holds it (a 2026-09-29 panel: the surface
       // goes through feet and roots, never over heads; and it is the
@@ -1549,9 +1542,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         if (ct > 0) { ctx.fillStyle = 'rgb(255, 90, 70)'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.fillText(`contact ~${Math.max(1, Math.round(1 / ct))} looks`, gx, gy - rr - 4); }
       }
-      note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; the surface is its own terrain map, through feet and roots: flat where it has no evidence, raised or lowered where things stood bigger or smaller than their kind's line predicts; pink: hosts, green: plants, grey: other things it measures by, standing on it`
-             + (nCut ? `; dashed: ${nCut} cut by the frame's edge (measuring nothing)` : '')
-             + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));
+      note = `horizon ${Math.round(100 * hz)}% down &middot; <b style="color:#ff6f8a">hosts</b> <b style="color:#9ccf7a">plants</b> <b style="color:#a0a0aa">things</b>`
+             + (nCut ? ` &middot; dashed: cut by the frame` : '') + (sn.parallax && sn.parallax.some(v => v > 0.05) ? ' &middot; <b style="color:#7fd4ff">parallax</b>' : '');
     }
     // inset: the lines its trees read on its eye
     const N = d.receptors || 12, side = Math.min(110, H * 0.45), cell = side / N, ox = W - side - 8, oy = 8;
@@ -1570,15 +1562,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(edges ? `lines: ${edges} on its eye` : 'lines: none yet', ox, oy + side + 3);
     if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
-    $('space-cap').textContent = note + '. Seen from its own eye, as its feed shows it.';
+    $('space-cap').innerHTML = note;
     const ts = d.scores && d.scores.terrain;
-    $('space-cap').textContent += ts ? ` Its own sense of nearness (its terrain head, taught by this ground model, scored before each lesson): error ${ts.mae.toFixed(3)} +- ${ts.mae_se.toFixed(3)}, correlation ${ts.corr == null ? '--' : ts.corr.toFixed(2)} (${ts.n} looks, ${Math.round(ts.n_eff)} effective).` : '';
+    $('space-cap').innerHTML += ts ? ` &middot; felt nearness: error ${ts.mae.toFixed(3)} &plusmn; ${ts.mae_se.toFixed(3)} (n ${ts.n})` : '';
     const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
-    $('cortex-cap').innerHTML = !cx ? '' : `<b>Who it knows</b> (its visual cortex: each one by true height and colour; ${cx.individuals} so far; ${(cx.ms || 0).toFixed(1)} ms a frame): `
-      + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &middot; seen ${k.seen}&times;`
-          + (k.height != null ? ` &middot; ${k.height.toFixed(2)} camera heights tall` : '')
-          + (k.cadence != null ? ` &middot; ${k.cadence.toFixed(1)} steps/s` : '')
-          + ` &middot; last ${ago(Math.max(0, (cx.now || k.last) - k.last))} ago`).join('; ') : 'nobody yet (it first learns, from things it follows, how much one individual varies)');
+    $('cortex-cap').innerHTML = !cx ? '' : `<b>who it knows</b> (${cx.individuals}): `
+      + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &times;${k.seen}`
+          + (k.height != null ? ` ${k.height.toFixed(2)} tall` : '') + (k.cadence != null ? ` ${k.cadence.toFixed(1)} steps/s` : '')
+          + ` ${ago(Math.max(0, (cx.now || k.last) - k.last))} ago`).join(' &middot; ') : 'nobody yet');
   }
   // Its sense of space is not ours to steer: it shows what its eye sees, from
   // where its eye is (a 2026-09-29 decision) -- nothing here moves it.
@@ -1702,16 +1693,16 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     ctx.strokeStyle = shut ? '#a8c' : LOOK.eating ? '#ff5fa2' : '#ffb4a6'; ctx.lineWidth = 2; ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = '#9a6f67'; ctx.font = '11px monospace';
     ctx.fillText(shut ? 'asleep -- the gaze sees nothing' : cells ? 'its whole visual field -- retina rebuilt from the frame on screen (a reconstruction)' : 'its whole visual field -- retina at the end of its latest run', 6, 14);
-    $('look-px').textContent = `${N}x${N} receptors (the central ${C}x${C} cones, the rest rods), ${cw}x${ch} real pixels`;
-    $('field-px').textContent = `${(d.world_grid_shape || [12, 12])[1]}x${(d.world_grid_shape || [12, 12])[0]} square receptors over ${d.frame_w}x${d.frame_h} real pixels`;
+    $('look-px').textContent = `${N}x${N} receptors, ${C}x${C} cones`;
+    $('field-px').textContent = `${(d.world_grid_shape || [12, 12])[1]}x${(d.world_grid_shape || [12, 12])[0]} receptors`;
     const zoomNow = N / 64 / f;  // its lens now: receptors x pitch over the side it covers
-    $('look-scale').textContent = `${f.toFixed(2)} of the frame's height, at (${gx.toFixed(2)}, ${gy.toFixed(2)})${zoomNow > 1.01 ? `, zoomed in ${zoomNow.toFixed(1)}x` : ''}; shown ${s.toFixed(1)}x real size.`;
+    $('look-scale').textContent = `${f.toFixed(2)} of the frame at (${gx.toFixed(2)}, ${gy.toFixed(2)})${zoomNow > 1.01 ? ` \u00b7 zoom ${zoomNow.toFixed(1)}x` : ''}`;
   }
   requestAnimationFrame(drawLook);
 
   function gauge(name, v, color, note) {
     const x = Math.max(0, Math.min(1, v || 0));
-    return `<div class="gauge"><span>${name}</span><div class="track"><div class="fill" style="width:${(x * 100).toFixed(1)}%;background:${color}"></div></div><span class="v">${(v || 0).toFixed(2)}</span></div>` + (note ? `<div class="note">${note}</div>` : '');
+    return `<div class="gauge"><span>${name}</span><div class="track"><div class="fill" style="width:${(x * 100).toFixed(1)}%;background:${color}"></div></div><span class="v">${(v || 0).toFixed(2)}</span></div>` + (note && note.startsWith('=') ? `<div class="note">${note.slice(1)}</div>` : '');
   }
   function spark(id, series, color, label, band) {
     const c = $(id); if (!c) return;
@@ -1733,7 +1724,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function drawBody(d) {
     const b = d.body_now || d.body || {};
     $('gauges').innerHTML =
-      `<div class="cap" style="margin:0 0 4px">${(b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b> -- eyes shut, not eating, sampling the field slowly' : '<b style="color:var(--green)">awake</b>'}</div>` +
+      `<div class="cap" style="margin:0 0 4px">${(b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b>' : '<b style="color:var(--green)">awake</b>'}</div>` +
       gauge('blood sugar', b.energy, '#ffe2d6', 'pays for everything; ~10 min of waking burn') +
       gauge('gut', b.gut, '#e8c170', 'what it ate, digesting into blood sugar over minutes; full = cannot eat more') +
       gauge('glycogen', b.glycogen, '#6d9', '~6 h; fills first when fed, released fast for waking and bursts') +
@@ -1748,14 +1739,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       gauge('arousal', b.arousal, '#ffb4a6', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
       gauge('anaerobic debt', b.debt, '#f60', 'from bursts beyond what it can sustain; felt as fatigue, repaid over hours') +
-      `<div class="cap" style="margin-top:4px">tempo: <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes/s on average in its latest run (resting: ${d.pace_accepted ? ((d.frames_per_second || 15) / d.pace_accepted).toFixed(1) : '--'}). It can speed up or slow down 3x either way, any time -- a continuum, like a bear sluggish in winter and hyper in spring.</div>` +
+      `<div class="cap" style="margin-top:4px">tempo <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes/s (resting ${d.pace_accepted ? ((d.frames_per_second || 15) / d.pace_accepted).toFixed(1) : '--'})</div>` +
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
     spark('energy-trace', d.energy_series, '#ffe2d6', 'blood sugar (purple band: asleep)', d.sleep_series);
-    const boutNote = kind => { const bt = d.bouts && d.bouts[kind]; if (!bt) return ''; return bt.fit ? `; 1 ${kind} = looks < ${bt.fit.criterion_s.toFixed(1)} s apart` : `; ${kind} size: calibrating`; };
-    $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', 'prey in its gaze centre' + boutNote('meal'));
+    const boutNote = kind => { const bt = d.bouts && d.bouts[kind]; if (!bt) return ''; return bt.fit ? `=1 ${kind} = looks < ${bt.fit.criterion_s.toFixed(1)} s apart` : `=${kind} size: calibrating`; };
+    $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', boutNote('meal'));
     spark('prey-trace', d.prey_series, '#ff5fa2', 'prey eaten');
-    $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', 'new structure in its gaze' + boutNote('snack'));
+    $('food-gauge').innerHTML = gauge('surprise (snacks)', d.mean_food, '#c8f', boutNote('snack'));
     spark('food-trace', d.food_series, '#c8f', 'surprise');
     const m = d.movement || {};
     $('movement').innerHTML =
@@ -2121,7 +2112,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     for (const name of Object.keys(trees)) {
       const wrap = document.createElement('div');
       const s = stats && stats[name];
-      wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''} &middot; click it to steer (drag turns, wheel or pinch zooms; Esc releases)</div>`;
+      wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''}</div>`;
       const c = document.createElement('canvas'); c.style.width = '100%'; const active = steerable(c);
       wrap.appendChild(c); box.appendChild(wrap);
       const W = TW;
@@ -2149,14 +2140,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
 
   // History charts.
   const CHARTS = [
-    { id: 'c-fit', title: 'fitness', cap: 'current genome, re-scored each generation / peak ever', series: [['fitness', '#ffe2d6', r => r.best_fitness], ['peak ever', '#9a6f67', r => r.peak_fitness_seen]] },
-    { id: 'c-body', title: 'body over its runs', cap: 'mean energy and mean food per run (0..1)', fixed: [0, 1], series: [['energy', '#ffe2d6', r => r.mean_energy], ['prey', '#ff5fa2', r => r.mean_prey], ['surprise', '#c8f', r => r.mean_food]] },
-    { id: 'c-drive', title: 'homeostatic drive', cap: 'mean drive per run -- lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
-    { id: 'c-look', title: 'gaze size', cap: 'the side of its eye as a fraction of the frame height (receptors x 1/64; before the eye became a fixed mosaic: the zoom gaze at birth and its mean over each run)', fixed: [0, 0.65], series: [['at birth', '#ffb4a6', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
-    { id: 'c-pace', title: 'resting pace', cap: 'inherited resting gaze interval, every Nth frame (its temperament; the brain moves 3x either way around it)', series: [['every Nth frame', '#ffb4a6', r => r.pace]] },
-    { id: 'c-quota', title: 'CPU quota granted', cap: 'resource_handler: grows with real improvement, shrinks under system strain (%)', series: [['quota %', '#fd4', r => r.quota_pct]] },
+    { id: 'c-fit', title: 'fitness', cap: 'current / peak ever', series: [['fitness', '#ffe2d6', r => r.best_fitness], ['peak ever', '#9a6f67', r => r.peak_fitness_seen]] },
+    { id: 'c-body', title: 'body over its runs', cap: 'per run', fixed: [0, 1], series: [['energy', '#ffe2d6', r => r.mean_energy], ['prey', '#ff5fa2', r => r.mean_prey], ['surprise', '#c8f', r => r.mean_food]] },
+    { id: 'c-drive', title: 'homeostatic drive', cap: 'lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
+    { id: 'c-look', title: 'gaze size', cap: 'fraction of the frame', fixed: [0, 0.65], series: [['at birth', '#ffb4a6', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
+    { id: 'c-pace', title: 'resting pace', cap: 'every Nth frame', series: [['every Nth frame', '#ffb4a6', r => r.pace]] },
+    { id: 'c-quota', title: 'CPU quota granted', cap: '%', series: [['quota %', '#fd4', r => r.quota_pct]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#ffb4a6', r => r.tree_depth]] },
-    { id: 'c-diet', title: 'blood and nectar', cap: 'per hour: bites (blood: its protein, for eggs) and nectar sips (sugar), each on its own scale', hourly: true, dual: true, series: [['bites', '#ff5fa2', r => r.bites], ['nectar sips', '#9ccf7a', r => r.nectar_sips]] },
+    { id: 'c-diet', title: 'blood and nectar', cap: 'per hour, each on its own scale', hourly: true, dual: true, series: [['bites', '#ff5fa2', r => r.bites], ['nectar sips', '#9ccf7a', r => r.nectar_sips]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
   const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_sleep_set', 'mutate_pool', 'mutate_setpoints', 'mutate_bore', 'mutate_archetypes', 'mutate_apical', 'mutate_plasticity', 'mutate_maturation', 'mutate_colliculus', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
@@ -2332,7 +2323,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     $('stream-link-row').style.display = id ? 'block' : 'none';
     if (id) $('stream-link').href = `https://www.youtube.com/watch?v=${id}`;
     $('live-title').textContent = d && d.is_live ? 'video stream' : 'camera';
-    $('live-cap').textContent = 'What it saw, a few seconds behind live, in step with the visual field. Frames stay in RAM.';
+    $('live-cap').textContent = '';
     const running = d && d.generation !== undefined ? (d.is_live ? 'video' : 'camera') : null;
     const switching = running && (running !== want || (want === 'video' && youtubeId(d.clip) !== id));
     $('h-src').textContent = switching
@@ -2346,7 +2337,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   $('hud-on').checked = HUD.on;
   $('hud-on').addEventListener('change', e => { HUD.on = e.target.checked; try { localStorage.setItem('hud-on', HUD.on ? '1' : '0'); } catch (err) { } });
   $('hud-on').addEventListener('click', e => e.stopPropagation());
-  $('hud-legend-text').textContent = 'reticle = its gaze; red corners = hosts. Client view: /live.';
+  $('hud-legend-text').textContent = '';
   function drawHud(now) {
     requestAnimationFrame(drawHud);
     const box = $('live-box'), c = $('hud'), panel = $('live-panel');
