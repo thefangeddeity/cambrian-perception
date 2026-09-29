@@ -61,6 +61,25 @@ def load_quota_pct(default: float) -> float:
 
 
 EPISODES_PATH = STATE_DIR / "episodes.npz"
+CORTEX_PATH = STATE_DIR / "cortex.json"
+
+
+def load_cortex() -> dict | None:
+    """Its visual cortex's library of individuals (cortex.py), or None."""
+    return _read_json(CORTEX_PATH, None) if CORTEX_PATH.exists() else None
+
+
+def save_cortex(data: dict) -> None:
+    """Numbers only (heights, cadences, speeds, colour histograms): temp file + atomic replace."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    temp = CORTEX_PATH.with_name("cortex.tmp.json")
+    temp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+    for attempt in range(20):
+        try:
+            temp.replace(CORTEX_PATH)
+            return
+        except PermissionError:
+            time.sleep(0.05)
 
 
 def save_episodes(arrays: dict) -> None:

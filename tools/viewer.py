@@ -738,6 +738,7 @@ PAGE = r"""<!doctype html>
     <h2>its sense of space</h2>
     <canvas id="space"></canvas>
     <div class="cap" id="space-cap">--</div>
+    <div class="cap" id="cortex-cap"></div>
   </div>
   <div class="panel" id="tree-panel">
     <h2>its perception tree</h2>
@@ -1311,7 +1312,8 @@ PAGE = r"""<!doctype html>
   const SP3 = { yaw: -0.5, pitch: 0.45, zoom: 1, dirty: true, loop: false, drag: null, d: null };
   function drawSpace(d) {
     const c = $('space'); if (!c || !d) return;
-    const W = Math.max(300, Math.floor(c.parentElement.clientWidth - 24)), H = Math.round(Math.min(W * 0.32, 420));
+    const W = Math.max(240, Math.floor(c.parentElement.clientWidth - 24));
+    const H = Math.round(Math.min(W * ((d.frame_h && d.frame_w) ? d.frame_h / d.frame_w : 0.5625), 560));  // the stream's own shape: the two side by side
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     SP3.d = d;
     const ctx = c.getContext('2d'), sn = d.senses || {};
@@ -1397,6 +1399,8 @@ PAGE = r"""<!doctype html>
         const edge = (i, j) => { ctx.beginPath(); ctx.moveTo(c4[i][0], c4[i][1]); ctx.lineTo(c4[j][0], c4[j][1]); ctx.stroke(); };
         if (!q.cutBase) edge(0, 1); edge(1, 2); if (!q.cutTop) edge(2, 3); edge(3, 0);
         ctx.setLineDash([]);
+        const tr = ((d.cortex && d.cortex.tracks) || []).find(k => k.who != null && Math.abs(k.box[0] - q.x0) < 1e-3 && Math.abs(k.box[3] - q.y1) < 1e-3);
+        if (tr) { const m = at((g0[0] + g1[0]) / 2, top, (g0[1] + g1[1]) / 2); ctx.fillStyle = `rgb(${rgb})`; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('#' + tr.who, m[0], m[1] - 3); }
       });
       const nCut = pts.filter(q => q.cutBase || q.cutTop).length;
       note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; the surface is its own terrain map, through feet and roots: flat where it has no evidence, raised or lowered where things stood bigger or smaller than their kind's line predicts; pink: hosts, green: plants, grey: other things it measures by, standing on it`
@@ -1421,6 +1425,12 @@ PAGE = r"""<!doctype html>
     ctx.fillText(edges ? `lines: ${edges} on its eye` : 'lines: none yet', ox, oy + side + 3);
     if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
     $('space-cap').textContent = note + '. Click it to steer (drag turns, wheel or pinch zooms; Esc releases).';
+    const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
+    $('cortex-cap').innerHTML = !cx ? '' : `<b>Who it knows</b> (its visual cortex: each one by true height and colour; ${cx.individuals} so far): `
+      + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &middot; seen ${k.seen}&times;`
+          + (k.height != null ? ` &middot; ${k.height.toFixed(2)} camera heights tall` : '')
+          + (k.cadence != null ? ` &middot; ${k.cadence.toFixed(1)} steps/s` : '')
+          + ` &middot; last ${ago(Math.max(0, (cx.now || k.last) - k.last))} ago`).join('; ') : 'nobody yet (it first learns, from things it follows, how much one individual varies)');
   }
   (() => {
     const c = $('space'); if (!c) return;

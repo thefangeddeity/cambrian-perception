@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 
 from . import fovea, prey as prey_lib, sandbox
+from .cortex import Cortex
 from .field import FieldSignals
 from .metrics import HourlyMetrics
 from .mushroom import PROTO_SIDE
@@ -204,6 +205,12 @@ class LiveLife:
         self.org = self._organism(genome, body, memory, fps)
         self._episodes_saved = time.time()
         self._load_episodes()
+        try:
+            self.cortex = Cortex(sandbox.load_cortex())
+        except (TypeError, KeyError, ValueError, AttributeError) as e:
+            print(f"Its visual cortex's library couldn't be read ({e}); starting without it.")
+            self.cortex = Cortex()
+        self._last_boxes = None
         self.field = FieldSignals()
         self.last = None          # the feed's index of the last frame it lived
         self.last_time = None     # when that frame arrived
@@ -253,6 +260,15 @@ class LiveLife:
         self._stop = True
         self._thread.join(timeout=10.0)
         self._save_episodes()
+        self._save_cortex()
+
+    def _save_cortex(self) -> None:
+        with self.lock:
+            data = self.cortex.to_dict()
+        try:
+            sandbox.save_cortex(data)
+        except OSError:
+            pass
 
     def _event(self, kind: str, **data) -> None:
         """A rare event, logged as it happens (the long tail: a 2026-09-29
@@ -320,6 +336,7 @@ class LiveLife:
                 if time.time() - self._episodes_saved >= EPISODES_EVERY_S:
                     self._episodes_saved = time.time()
                     self._save_episodes()
+                    self._save_cortex()
                 if time.time() - self._written >= WRITE_EVERY_S:
                     self._write()
         except Exception as e:  # its death must not take evolution with it; the run's end reports it
@@ -352,6 +369,12 @@ class LiveLife:
                 org.feed_index = index
                 out = org.frame(grey, sig, boxes or [], colour, shift)
                 hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
+                # its visual cortex (cortex.py): boxes are held between detections; a new list is a fresh one
+                self.cortex.see(org.lived_s, grey, colour, boxes or [], org.horizon(), boxes is not self._last_boxes)
+                self._last_boxes = boxes
+                for kind, data in self.cortex.events:
+                    self._event(kind, **data)
+                self.cortex.events.clear()
                 if was_asleep and org.body.asleep < 0.5:
                     batch["sums"]["woke_" + (org.body.woke_by or "choice")] += 1
                     self._event("woke", cause=org.body.woke_by or "choice", mismatch=round(float(org.mismatch), 3))
@@ -457,6 +480,7 @@ class LiveLife:
             fps = self.org.fps
             circuits = _circuits(self.org)
             fm = None if self.field_motion is None else np.round(self.field_motion, 4).tolist()
+            cortex = self.cortex.view()
         if not shown:
             return
         first = shown[0]["i"]
@@ -476,6 +500,7 @@ class LiveLife:
             # what its wide-field motion sense is fed, per cell (not a picture: it
             # never senses per-cell brightness, only where and how much things change)
             "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
+            "cortex": cortex,
         }
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:

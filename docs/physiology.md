@@ -346,6 +346,16 @@ can afford more and bigger ones.
   slant, the occipital place area, boundary vector cells). Kept per scene
   (memory item 14); input 60 is the terrain at its gaze (born unwired; seed
   set "2026-09-29 terrain" wires it at the mutation step).
+- **Its visual cortex** (`fishbowl/cortex.py`, live organism only; a
+  2026-09-29 panel): tracks (SORT's IoU rule), each tracked thing's true
+  height and ground speed from its ground plane, its step rate (the
+  autocorrelation of the motion inside its box, Johansson; Cutting &
+  Kozlowski), and a library of individuals it has met (who, not just what),
+  matched by a chi-square test on true height and colour. How much one
+  individual varies is learned from its own tracks -- a thing it keeps its eyes
+  on is one thing (Spelke's spatiotemporal continuity) -- so it never has to be
+  told. Individuals that turn out alike merge. Not fed to its brain or charged
+  for yet; kept in `state/cortex.json`; its meetings go to the events log.
 - **Parallax** (moving cameras): with the camera's own motion undone, what is
   left of each cell's change over what changed at all (+ sensor noise): 0 for
   the scene sliding past, towards 1 for what is nearer or moving on its own.
