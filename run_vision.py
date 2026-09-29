@@ -931,6 +931,20 @@ def _unpack_scenes(packed):
     return {"current": int(packed["current"]), "library": lib}
 
 
+def memory_from_checkpoint(checkpoint: dict | None):
+    """The memory tuple (evaluate_genome's order) saved in a checkpoint, or None."""
+    if not checkpoint or not checkpoint.get("memory"):
+        return None
+    m = checkpoint["memory"]
+    return (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
+            np.array(m["var"], dtype=float),
+            np.array(m.get("learned") or [], dtype=float),
+            *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")),
+            dict(m.get("nectar") or {}),
+            _unpack_proto(m.get("proto")),
+            _unpack_scenes(m.get("scenes")))
+
+
 def _for_evaluation(memory):
     """Memory as the children are scored from, without the imagery prototypes
     (megabytes each, and a child's run needs only their price, not them)."""
@@ -1166,16 +1180,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         return out
 
     # Surprise memory persists too (NaN = never seen, stored as null).
-    memory_now = None
-    if checkpoint and checkpoint.get("memory"):
-        m = checkpoint["memory"]
-        memory_now = (np.array([[np.nan if x is None else x for x in row] for row in m["mean"]], dtype=float),
-                      np.array(m["var"], dtype=float),
-                      np.array(m.get("learned") or [], dtype=float),
-                      *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")),
-                      dict(m.get("nectar") or {}),
-                      _unpack_proto(m.get("proto")),
-                      _unpack_scenes(m.get("scenes")))
+    memory_now = memory_from_checkpoint(checkpoint)
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen

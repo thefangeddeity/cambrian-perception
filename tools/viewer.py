@@ -2105,6 +2105,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path in ("/organism/info", "/organism/checkpoint", "/organism/episodes"):
+            # For tools/fleet.py (breeding across the fleet): what this host
+            # is, and its organism of record -- genome, body, memory and its
+            # episodes' Kenyon-cell codes. Numbers only, never frames.
+            import platform, socket
+            if self.path == "/organism/info":
+                body = json.dumps({"hostname": socket.gethostname(), "platform": sys.platform, "machine": platform.machine(),
+                                   "state_dir": str(STATE_DIR), "has_checkpoint": (STATE_DIR / "checkpoint.json").exists()}).encode("utf-8")
+                ctype = "application/json"
+            else:
+                path = STATE_DIR / ("checkpoint.json" if self.path.endswith("checkpoint") else "episodes.npz")
+                body = _read_shared(path)
+                ctype = "application/json" if path.suffix == ".json" else "application/octet-stream"
+            if body is None:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif self.path == "/metrics":
             # The hourly metrics (fishbowl/metrics.py): numbers only, the last three days.
             recs = _tail_jsonl(STATE_DIR / "metrics.jsonl", max_lines=72) if (STATE_DIR / "metrics.jsonl").exists() else []
