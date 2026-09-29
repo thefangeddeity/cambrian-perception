@@ -28,8 +28,10 @@ Usage:
 """
 
 import argparse
+import html
 import json
 import os
+import socket
 import subprocess
 import threading
 import time
@@ -245,6 +247,9 @@ def _history_summary(records: list[dict]) -> dict:
 # (/live): its gaze drawn as a fighter jet's target lock, with the ID of what
 # it is on. Self-contained on purpose -- it is the piece a livecam server's
 # CV module takes over (where LOCK, "eating", becomes "take a snapshot").
+# The tab's name: this host, then CP (cambrian-perception) -- several hosts' tabs side by side
+HOST_NAME = html.escape(socket.gethostname().split(".")[0] or "cambrian")
+
 LOCK_HUD_JS = r"""
   // ---- One clock for the visual field, the real picture and the target lock ----
   // Its gaze runs over a snapshot of the newest frames, refreshed every few
@@ -593,7 +598,7 @@ LOCK_HUD_JS = r"""
 # run, replayed). The viewer ("/") is the operators' view with its insides.
 LIVE_PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Live view</title>
+<title>__HOST__ | CP</title>
 <style>
   html, body { margin: 0; height: 100%; background: #05080c; color: #f0d6cf; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
   #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
@@ -634,7 +639,7 @@ PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cambrian-perception</title>
+<title>__HOST__ | CP</title>
 <style>
   :root { --bg:#0b0706; --panel:#130b0a; --line:#2b1714; --text:#f0d6cf; --dim:#9a6f67; --cyan:#ffb4a6; --green:#ffe2d6; --orange:#ff7a45; --red:#ff3b28; --yellow:#ffb066; --violet:#e0909c; --pink:#ff6f8a; --magenta:#ff4f6f; }
   * { box-sizing: border-box; }
@@ -2297,14 +2302,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
-            body = PAGE.encode("utf-8")
+            body = PAGE.replace("__HOST__", HOST_NAME, 1).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/live" or self.path.startswith("/live?"):
-            body = LIVE_PAGE.encode("utf-8")
+            body = LIVE_PAGE.replace("__HOST__", HOST_NAME, 1).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

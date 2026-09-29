@@ -750,6 +750,22 @@ def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict
     return evaluate_genome(g, _WORKER["frames"], meta["ws"], quota_pct, body, fps, meta["prey"], memory, _WORKER["colour"], sec_per_mac)
 
 
+def _worker_below_the_body() -> None:
+    """A worker runs one step below the organism's own process: the living
+    organism (its live actor, in the main process) is real time, evolution is
+    background -- on a busy host the scheduler serves the body first, and
+    evolution gets what is left (Windows: idle class under the service's
+    below-normal; elsewhere: 5 more niceness)."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00000040)  # IDLE_PRIORITY_CLASS
+        else:
+            os.nice(5)
+    except (OSError, AttributeError):
+        pass
+
+
 class _Workers:
     """The worker pool and the snapshot it is sharing."""
 
@@ -761,7 +777,8 @@ class _Workers:
             os.environ.setdefault(var, "1")
         # forkserver where the platform has it (Linux, macOS); spawn on Windows.
         method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
-        self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=n, mp_context=multiprocessing.get_context(method))
+        self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=n, mp_context=multiprocessing.get_context(method),
+                                                           initializer=_worker_below_the_body)
         self.world, self.meta, self.shm = None, None, []
         import atexit
         atexit.register(self.close)  # however the run ends, its shared frames are released
