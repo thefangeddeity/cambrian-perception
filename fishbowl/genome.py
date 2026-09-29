@@ -57,7 +57,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
-            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation")
+            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain")
 STABILIZER_SIGMA = 0.1
 MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
@@ -234,6 +234,7 @@ class Genome:
         archetype_classes: list | None = None,
         plasticity: float = 0.0,
         maturation: float = 0.0,
+        felt_terrain: int = 0,
         colliculus: list | None = None,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
@@ -279,6 +280,9 @@ class Genome:
         # Maturation (organism.py): how many nights of good lessons half-lock a
         # synapse its sleep distills into; born 0, never locking.
         self.maturation = float(np.clip(maturation, 0.0, MATURATION_MAX))
+        # Its terrain head (organism.py): taught by its ground model, a sense of
+        # nearness from its own eye. Born 0 (none).
+        self.felt_terrain = int(bool(felt_terrain))
         # Its collicular priority map's weights (organism.COLLICULAR_FEATURES), born 0.
         self.colliculus = ([float(w) for w in (colliculus or [])] + [0.0] * 6)[:6]
         # Its fuel set points (state.py), inherited, born at the rulebook's
@@ -372,6 +376,7 @@ class Genome:
             list(self.archetype_classes),
             self.plasticity,
             self.maturation,
+            self.felt_terrain,
             list(self.colliculus),
             self.mobilize,
             self.store,
@@ -602,6 +607,9 @@ class Genome:
             return "brain", choice
         if choice == "mutate_apical":  # its pyramidal units' coincidence gain, stepped like a trait
             self.brain.apical = float(self.brain.apical + rng.gauss(0.0, TRAIT_SIGMA))
+            return "brain", choice
+        if choice == "mutate_felt_terrain":  # gained or lost, like its other senses
+            self.felt_terrain = 1 - self.felt_terrain
             return "brain", choice
         if choice == "mutate_maturation":  # born log-uniformly in 1 - 30 nights, then stepped as rates are
             old = self.maturation
@@ -854,6 +862,7 @@ class Genome:
             "archetype_classes": list(self.archetype_classes),
             "plasticity": self.plasticity,
             "maturation": self.maturation,
+            "felt_terrain": self.felt_terrain,
             "colliculus": list(self.colliculus),
             "mobilize": self.mobilize,
             "store": self.store,
@@ -930,6 +939,7 @@ class Genome:
             archetype_classes=data.get("archetype_classes"),
             plasticity=float(data.get("plasticity", 0.0)),
             maturation=float(data.get("maturation", 0.0)),
+            felt_terrain=int(data.get("felt_terrain", 0)),
             colliculus=data.get("colliculus"),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),

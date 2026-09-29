@@ -31,7 +31,7 @@ import numpy as np
 from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
                          PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT,
-                         NEARNESS_INPUT)
+                         NEARNESS_INPUT, FELT_NEARNESS_INPUT)
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -431,6 +431,53 @@ MATURATION_KEEP = 3650  # nights of lessons kept at most (maturation's safety ca
 GROUND_COLS = 7  # n, sum y, sum h, sum y^2, sum y*h; then m, sum of squared residuals (against the fit then)
 
 
+class _Running:
+    """A running mean (Welford)."""
+
+    def __init__(self):
+        self.n, self.mean = 0, 0.0
+
+    def add(self, x: float) -> None:
+        self.n += 1
+        self.mean += (x - self.mean) / self.n
+
+
+class _Prequential:
+    """Predictions scored before they are learned from: mean absolute error, its
+    standard error corrected for autocorrelation (AR(1): n_eff = n (1 - r) / (1 + r)),
+    and the prediction-target correlation."""
+
+    def __init__(self):
+        self.n = 0
+        self.sa = self.saa = 0.0           # absolute errors
+        self.sp = self.st = self.spp = self.stt = self.spt = 0.0
+        self.last_e = None
+        self.se1 = self.se0 = 0.0          # lag-1 products and squares of centred errors (running)
+
+    def add(self, pred: float, target: float) -> None:
+        e = abs(pred - target)
+        self.n += 1
+        self.sa += e; self.saa += e * e
+        self.sp += pred; self.st += target; self.spp += pred * pred; self.stt += target * target; self.spt += pred * target
+        if self.last_e is not None:
+            m = self.sa / self.n
+            self.se1 += (e - m) * (self.last_e - m)
+            self.se0 += (e - m) ** 2
+        self.last_e = e
+
+    def report(self) -> dict | None:
+        if self.n < 3:
+            return None
+        n, mae = self.n, self.sa / self.n
+        var = max(0.0, self.saa / n - mae * mae)
+        r = max(-0.99, min(0.99, self.se1 / self.se0)) if self.se0 > 0 else 0.0
+        n_eff = max(1.0, n * (1 - r) / (1 + r))
+        vp, vt = self.spp / n - (self.sp / n) ** 2, self.stt / n - (self.st / n) ** 2
+        corr = (self.spt / n - (self.sp / n) * (self.st / n)) / math.sqrt(vp * vt) if vp > 1e-12 and vt > 1e-12 else None
+        return {"n": n, "n_eff": round(n_eff, 1), "mae": round(mae, 4), "mae_se": round(math.sqrt(var / n_eff), 4),
+                "corr": None if corr is None else round(corr, 3)}
+
+
 def _ground_shape(a) -> np.ndarray:
     """Ground sums at the current shape (older memories had no plant row or residual columns)."""
     a = np.zeros((0, GROUND_COLS)) if a is None or len(a) == 0 else np.atleast_2d(np.array(a, dtype=float))
@@ -495,6 +542,20 @@ class Organism:
         # been lately (Nader's reconsolidation -- a memory recalled into a
         # world that no longer fits it opens up again).
         self.maturation = float(getattr(g, "maturation", 0.0))
+        # Its terrain head (a 2026-09-29 panel): taught at each look by its
+        # ground model's nearness at its gaze -- the lesson and the look share
+        # one gaze, so their locations match by construction -- each lesson
+        # weighted by how sure the teacher is (its precision against its
+        # running mean, at most 1). What it learns is a nearness it feels from
+        # its own eye (input 62), there when the teacher is silent.
+        self.felt_terrain = int(getattr(g, "felt_terrain", 0))
+        self.horizon_precision = 0.0
+        self._precision_mean = _Running()
+        self.felt_nearness = 0.0
+        # Its prequential scores (Dawid 1984; a 2026-09-29 panel): every head
+        # scored on a look before it learns from it -- out-of-sample by
+        # construction. For its model card (run_vision.py) and its export.
+        self.scores = {"terrain": _Prequential(), "archetypes": _Prequential()}
         self.lessons = None     # per output synapse (weights, then biases), when it matures
         self._night = False
         self._tonight = 0         # lessons distilled this night
@@ -808,12 +869,14 @@ class Organism:
         self.last_kc = kc_active
         self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
         self.danger_value = float(np.clip(self.mb.danger(kc_active), -1.0, 1.0)) if self.aversive_rate > 0.0 else 0.0
-        head_vals = np.clip(self.mb.head_values(kc_active), -1.0, 1.0) if self.n_heads else np.zeros(4)
+        head_vals = np.clip(self.mb.head_values(kc_active), -1.0, 1.0) if self.n_heads else np.zeros(4)  # the archetype rows only
         head_vals[self.n_heads:] = 0.0
-        head_macs = 2 * self.n_heads * len(kc_active)  # reading them now, and teaching them below
+        head_macs = 2 * (self.n_heads + self.felt_terrain) * len(kc_active)  # reading them now, and teaching them below
         ground_near, horizon = self._ground_sense(state.cy)
         terrain = self.terrain_at(state.cx, state.cy) if not was_asleep else 0.0
         nearness = self._nearness(state.cx, state.cy, (boxes or []) + (plants or []) + self.things) if not was_asleep else 0.0
+        felt = float(np.clip(self.mb.terrain_value(kc_active), 0.0, 1.0)) if self.felt_terrain else 0.0
+        self.felt_nearness = felt
         self.last_nearness = nearness
         cell_p = self._cell(state.cx, state.cy)
         par = sig["parallax"] if not was_asleep else None
@@ -863,7 +926,7 @@ class Organism:
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
-                tuple(head_vals), coll, terrain, nearness,
+                tuple(head_vals), coll, terrain, nearness, felt,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -979,7 +1042,16 @@ class Organism:
                     hx, hy = state.half_extents(self.aspect)
                     targets = np.array([prey_lib.prey_in_window([b for b in seen if int(b[0]) == c], state.cx, state.cy, hx, hy)
                                         for c in self.head_classes])
+                    before = self.mb.head_values(kc_active)
+                    for k in range(self.n_heads):  # scored before it learns (prequential)
+                        self.scores["archetypes"].add(float(before[k]), float(targets[k]))
                     self.mb.learn_heads(kc_active, targets, self.learning_rate, self.n_heads)
+                if self.felt_terrain and self.horizon() is not None and self.horizon_precision > 0.0:
+                    # its terrain head, taught by its ground model's nearness at this gaze
+                    self._precision_mean.add(self.horizon_precision)
+                    weight = min(1.0, self.horizon_precision / max(1e-12, self._precision_mean.mean))
+                    self.scores["terrain"].add(self.mb.terrain_value(kc_active), nearness)
+                    self.mb.learn_terrain(kc_active, nearness, self.learning_rate * weight)
                 self._remember((kc_active.copy(), reward, cell), abs(err),
                                (self.feed_index, state.cx, state.cy, state.extent))
             if boxes or plants or self.things:
@@ -1304,6 +1376,7 @@ class Organism:
         tau2 = max(0.0, (q - (len(th) - 1)) / c) if c > 0 else 0.0
         w = 1.0 / (np.array(var) + tau2)
         est, wsum = float((w * th).sum()), float(w.sum())
+        self.horizon_precision = wsum  # how sure its ground model is (1 / the pooled horizon's variance)
         return float(np.clip(est / wsum, -1.0, 1.0)) if wsum else None
 
     def _ground_sense(self, cy: float) -> tuple[float, float]:
@@ -1653,7 +1726,7 @@ class Organism:
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
                                                                          + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
-                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT))
+                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT))
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

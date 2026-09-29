@@ -206,10 +206,36 @@ def seed_maturation_nights(g, rng: random.Random) -> list[str]:
     return []
 
 
+def seed_felt_terrain(g, rng: random.Random) -> list[str]:
+    """Its terrain head (2026-09-29): switched on; its input wired at the brain's mutation step."""
+    from fishbowl.controller import FELT_NEARNESS_INPUT
+    done = []
+    if not g.felt_terrain:
+        g.felt_terrain = 1
+        done.append("felt terrain on")
+    w = g.brain.weights_ih
+    if FELT_NEARNESS_INPUT < w.shape[1] and not w[:, FELT_NEARNESS_INPUT].any():
+        w[:, FELT_NEARNESS_INPUT] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+        done.append("felt nearness input wired")
+    return done
+
+
+def seed_kenyon_cells(g, rng: random.Random) -> list[str]:
+    """Its mushroom body, if it has none (2026-09-29: random founders were born
+    with none, and the "everything" set missed it): a random walk of three of
+    its own growth steps from one step, 64 - 256 Kenyon cells; priced as ever."""
+    from fishbowl import genome as G
+    if g.kc == 0:
+        g.kc = G.KC_STEP * (1 + sum(rng.random() < 0.5 for _ in range(3)))
+        return [f"{g.kc} Kenyon cells"]
+    return []
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
-             "2026-09-29 maturation": seed_maturation, "2026-09-29 maturation in nights": seed_maturation_nights}
+             "2026-09-29 maturation": seed_maturation, "2026-09-29 maturation in nights": seed_maturation_nights,
+             "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain}
 
 
 def main() -> int:

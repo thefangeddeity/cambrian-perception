@@ -99,6 +99,7 @@ def _carry(old: Organism, new: Organism) -> None:
         new.brain.weights_ho, new.brain.bias_o = old.brain.weights_ho.copy(), old.brain.bias_o.copy()
         new.lessons = None if old.lessons is None else old.lessons.copy()  # its locks with the weights they hold
     new.night_lessons, new._tonight, new._night = list(old.night_lessons), old._tonight, old._night
+    new.scores, new._precision_mean = old.scores, old._precision_mean  # its prequential record goes on with its mushroom body
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
     new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
@@ -187,7 +188,7 @@ def _circuits(org: Organism) -> dict:
     out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(), "terrain": org.terrain_view(),
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
-                     "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "camera_moving": bool(org.cam_moving),
+                     "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "felt_nearness": round(float(org.felt_nearness), 3), "camera_moving": bool(org.cam_moving),
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
                      "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]
@@ -601,6 +602,7 @@ class LiveLife:
             fm = None if self.field_motion is None else np.round(self.field_motion, 4).tolist()
             cortex = self.cortex.view()
             timing = {k: round(v, 2) for k, v in self.timing.items()}
+            scores = {k: v.report() for k, v in self.org.scores.items()}
         if not shown:
             return
         first = shown[0]["i"]
@@ -620,7 +622,7 @@ class LiveLife:
             # what its wide-field motion sense is fed, per cell (not a picture: it
             # never senses per-cell brightness, only where and how much things change)
             "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
-            "cortex": cortex, "timing_ms": timing,
+            "cortex": cortex, "timing_ms": timing, "scores": scores,
             "oxygen": {"stage": self.stage, "shed": list(SHED[:self.stage]), "behind_s": round(self._latency, 2),
                        "load": round((timing["field"] + timing["organism"] + timing["cortex"]) * max(1.0, fps) / 1000.0, 2),
                        "dropped": self.dropped},

@@ -56,6 +56,7 @@ def macs(n_kc: int) -> int:
 
 
 MAX_HEADS = 4  # archetype heads at most (their inputs are fixed slots): a structural bound
+TERRAIN_ROW = MAX_HEADS  # the terrain head: one more readout, after them (organism.py)
 
 
 class MushroomBody:
@@ -81,10 +82,10 @@ class MushroomBody:
         # three-factor rule to predict one detector class in its gaze -- which
         # class is inherited and evolves. Categories grounded by a teacher.
         h = np.asarray(heads, dtype=float) if heads is not None and len(heads) else np.zeros((0, 0))
-        self.heads = np.zeros((MAX_HEADS, self.n_kc))
+        self.heads = np.zeros((MAX_HEADS + 1, self.n_kc))  # + its terrain head
         if h.ndim == 2 and h.size:
             m = min(self.n_kc, h.shape[1])
-            self.heads[:min(MAX_HEADS, h.shape[0]), :m] = h[:MAX_HEADS, :m]
+            self.heads[:min(MAX_HEADS + 1, h.shape[0]), :m] = h[:MAX_HEADS + 1, :m]
         self.k = max(1, int(round(KC_ACTIVE * self.n_kc))) if self.n_kc else 0
 
     def active(self, look: np.ndarray, n: int, live: int | None = None) -> np.ndarray:
@@ -124,7 +125,17 @@ class MushroomBody:
         return self.proto[active].mean(axis=0) if len(active) else None
 
     def head_values(self, active: np.ndarray) -> np.ndarray:
-        return self.heads[:, active].mean(axis=1) if len(active) else np.zeros(MAX_HEADS)
+        """Its archetype heads' values (the first MAX_HEADS rows)."""
+        return self.heads[:MAX_HEADS, active].mean(axis=1) if len(active) else np.zeros(MAX_HEADS)
+
+    def terrain_value(self, active: np.ndarray) -> float:
+        """Its terrain head: how near it feels what it looks at is, from its own eye's code."""
+        return float(self.heads[TERRAIN_ROW, active].mean()) if len(active) else 0.0
+
+    def learn_terrain(self, active: np.ndarray, target: float, rate: float) -> None:
+        """The three-factor rule toward the teacher's nearness (rate already weighted by the teacher's confidence)."""
+        if len(active) and rate > 0.0:
+            self.heads[TERRAIN_ROW, active] += rate * (target - self.terrain_value(active))
 
     def learn_heads(self, active: np.ndarray, targets: np.ndarray, rate: float, n: int) -> None:
         """The three-factor rule for the first n heads, toward their targets."""

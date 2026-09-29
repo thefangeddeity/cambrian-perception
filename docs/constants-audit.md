@@ -257,6 +257,14 @@ yardsticks are found.
 | `CIRC_SHIFT_RATE` | 1 h of phase a day at most | S | human phase-response curves (Czeisler) |
 | the gate's thresholds | today's SLEEP_ONSET/END at the clock's day | -- | reused |
 
+### Terrain head and validation (2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| lesson weight cap | 1 | B | no lesson counts more than a full-rate one |
+| effective n | n (1 - r) / (1 + r) | S | AR(1) correction |
+| seeded Kenyon cells | 64 x (1 + three coin-flip steps) | S | the Dennett compromise: its own growth steps, at random |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

@@ -36,6 +36,46 @@ from .video_source import DEFAULT_MAX_DIM, SLOW_SOURCE_FPS
 LIVING = {"person", "human", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe"}
 
 
+def _unb64(d):
+    import base64
+    if not d:
+        return None
+    return np.frombuffer(base64.b64decode(d["f16"]), dtype=np.float16).astype(float).reshape(d["shape"])
+
+
+def apply_learned(org, learned: dict | None) -> list[str]:
+    """Its model card's frozen learned parts (run_vision._learned_parts) into a
+    body built from the same genome: its mushroom body's readouts (when its
+    code -- size and seed -- is the one they were learned on), its heads
+    (archetypes, terrain) and its distilled output layer. Returns what it took."""
+    took = []
+    if not learned or org is None:
+        return took
+    mb = org.mb
+    if learned.get("n_kc") == mb.n_kc and learned.get("kc_seed") == int(getattr(org.g, "kc_seed", 0)):
+        food = _unb64(learned.get("food"))
+        if food is not None and food.shape == mb.weights.shape:
+            mb.weights[:] = food; took.append("food")
+        danger = _unb64(learned.get("danger"))
+        if danger is not None and getattr(mb, "danger_weights", None) is not None and danger.shape == mb.danger_weights.shape:
+            mb.danger_weights[:] = danger; took.append("danger")
+        heads = _unb64(learned.get("heads"))
+        if heads is not None and heads.shape[1] == mb.n_kc:
+            n = len(learned.get("head_classes") or [])
+            mb.heads[:n] = heads[:n]
+            if learned.get("terrain_head") and heads.shape[0] > n:
+                mb.heads[-1] = heads[n]; took.append("terrain head")
+            took.append(f"{n} archetype heads")
+    d = learned.get("distilled")
+    if d:
+        w, b = _unb64(d["weights_ho"]), _unb64(d["bias_o"])
+        if org.brain is org.g.brain:
+            org.brain = org.g.brain.clone()
+        if w.shape == org.brain.weights_ho.shape and b.shape == org.brain.bias_o.shape:
+            org.brain.weights_ho, org.brain.bias_o = w, b; took.append("distilled habits")
+    return took
+
+
 def load_champion(*paths) -> dict | None:
     """The first readable champion file: {"genome": ..., "bouts": ..., ...}."""
     for p in paths:
@@ -78,6 +118,7 @@ class LiveActor:
 
     def __init__(self, champion: dict, order: str = "bgr", colour: bool = True):
         self.genome = G.Genome.from_dict(champion["genome"])
+        self.learned = champion.get("learned")  # its model card's frozen parts, applied to its body when it's built
         self.champion_bouts = (champion.get("bouts") or {}).get("meal", {}).get("fit")
         self.order = order
         self.colour = colour
@@ -99,10 +140,12 @@ class LiveActor:
         (a brain transplant, not a new animal)."""
         self.genome = G.Genome.from_dict(champion["genome"])
         self.champion_bouts = (champion.get("bouts") or {}).get("meal", {}).get("fit")
+        self.learned = champion.get("learned")
         if self.org is not None:
             old = self.org
             self.org = Organism(self.genome, body=old.body.to_dict(), memory=(old.memory, old.variance, old.mb.weights, old.place, old.people_day, old.people_night),
                                 fps=old.fps, colour=self.colour, prey=True)
+            apply_learned(self.org, self.learned)
 
     # ---- actions on meals (the snapshot-ready hook) ---------------------------
     def on_meal_start(self, action) -> None:
@@ -142,6 +185,7 @@ class LiveActor:
         fps = camera_fps / stride
         if self.org is None:
             self.org = Organism(self.genome, fps=fps, colour=self.colour, prey=True)
+            apply_learned(self.org, self.learned)
         self.org.fps = fps
         self.field.fps = fps
         boxes = [[lbl, float(c), x0, y0, x1, y1] for lbl, c, x0, y0, x1, y1 in detections

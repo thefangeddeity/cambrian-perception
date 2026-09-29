@@ -381,6 +381,19 @@ can afford more and bigger ones.
   is still off (replay backup, dream steps, colour, any unwired input, and
   receptor leaves where a tree reads only constants -- a tree that never reads
   its eye can never grow a line).
+- **Its terrain head, its model card, the lite export** (2026-09-29): a
+  mushroom-body readout (gene `felt_terrain`, born off) taught at each look by
+  its ground model's nearness at its gaze -- lesson and look share one gaze, so
+  locations match by construction -- each lesson weighted by the teacher's
+  precision against its running mean (at most 1). Its estimate is input 62,
+  there when the teacher is silent. Every head is scored prequentially (before
+  it learns from a look; Dawid): mean error +- SE with the AR(1) effective n,
+  and correlation. `champion.json` is its model card: genome, rules and code
+  version (source fingerprints), frozen learned parts (mushroom body readouts,
+  heads, distilled output layer), those scores, and fitness at adoption and on
+  later snapshots. `tools/export_lite.py` turns it into the light CV module's
+  bundle (refusing one without scores); `fishbowl/live.py` applies the learned
+  parts. The perception tree has no held-out score yet, and the card says so.
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

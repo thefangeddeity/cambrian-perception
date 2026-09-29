@@ -1315,10 +1315,29 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
     print(f"Parent's real fitness on this run's frames: {best_fitness:.4f} (peak ever: {peak_fitness_seen:.4f})")
 
+    # Its model card (a 2026-09-29 panel; Gelman): the champion with what it
+    # learned, how well each teacher-free part agrees with its teacher out of
+    # sample, and under which rules -- scores, not verdicts: each downstream
+    # module sets its own bar. Out-of-sample fitness: the champion scored on
+    # the snapshots after the one it won on.
+    card = {"adopted_fitness": None, "adopted_world": None, "oos": [0, 0.0, 0.0]}  # n, mean, M2
+    life = None  # its live body, once it starts (below)
+
     def _publish_champion() -> None:
+        org = life.org if life is not None else None
+        with (life.lock if life is not None else contextlib.nullcontext()):
+            learned = _learned_parts(org)
+            scores = {k: v.report() for k, v in org.scores.items()} if org is not None else {}
+        n, mean, m2 = card["oos"]
+        scores["perception_tree"] = None  # graded only in evolution's runs; its sleep test set chooses its edits: no held-out score yet
         sandbox.save_champion({"genome": genome.to_dict(), "bouts": _bouts(), "generation": box.generation,
                                "host": socket.gethostname(), "saved_at": time.time(),
-                               "frames_per_second": round(world.fps, 2)})
+                               "frames_per_second": round(world.fps, 2),
+                               "rules_version": RULES_VERSION, "code_version": CODE_VERSION,
+                               "learned": learned, "scores": scores,
+                               "fitness": {"at_adoption": card["adopted_fitness"],
+                                           "out_of_sample": None if n < 2 else {"n": n, "mean": round(mean, 4),
+                                                                                "se": round(math.sqrt(m2 / (n - 1) / n), 4)}}})
 
     _publish_champion()
 
@@ -1384,7 +1403,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     def _metrics_flush():
         return metrics.flush(world.fps, {
             "memory_mb": _memory_account(life.org if life is not None else None, feed),
-            "generation": box.generation, "watching": clip_path,
+            "generation": box.generation, "watching": clip_path, "rules_version": RULES_VERSION,
             "pump": round(genome.pump, 3), "metabolism": round(genome.metabolism, 3), "pace": genome.pace,
             "kc": genome.kc, "receptors": genome.receptors, "zoom": round(genome.zoom, 3),
             "vigilance": round(genome.vigilance, 3), "quota_pct": quota_pct,
@@ -1576,6 +1595,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                     print(f"Worker failed ({type(e).__name__}); scoring the parent here.")
         if parent_fitness is None:
             parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_eval, world.colour, host_rate)
+        if card["adopted_world"] is not None and world is not card["adopted_world"] and math.isfinite(parent_fitness):
+            n, mean, m2 = card["oos"]  # the champion on a snapshot it didn't win on
+            n += 1; d = parent_fitness - mean; mean += d / n; m2 += d * (parent_fitness - mean)
+            card["oos"] = [n, mean, m2]
         if futures is not None:
             results = []
             for (c, _, _), fut in zip(children, futures):
@@ -1625,9 +1648,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             genome = candidate
             best_fitness = candidate_fitness
             margin = max(0.005, margin * 0.995)
-            _publish_champion()
             if life is not None:
                 life.adopt(genome)  # the living body takes the new genome: a brain transplant
+            card["adopted_fitness"], card["adopted_world"], card["oos"] = round(candidate_fitness, 4), world, [0, 0.0, 0.0]
+            _publish_champion()
         elif both_finite:
             # Keep best_fitness in sync with reality even on a reject
             # -- it's the PARENT's own freshly-scored real fitness now,
@@ -1889,6 +1913,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             )
         if box.generation % 100 == 0 or time.time() - saved_at >= CHECKPOINT_EVERY_S:
             _save()
+            if time.time() - saved_at >= CHECKPOINT_EVERY_S:
+                _publish_champion()  # its card, with the scores so far
             saved_at = time.time()
 
     if life is not None:
@@ -1959,6 +1985,49 @@ def _memory_account(org, feed) -> dict:
         with feed._lock:
             out["frames"] = nbytes(list(feed._buf)) / 1048576.0
     return {k: (None if v is None else round(v, 1)) for k, v in out.items()}
+
+
+def _fingerprint(paths) -> str:
+    """A short fingerprint of source files (their bytes, in path order)."""
+    import hashlib
+    h = hashlib.sha1()
+    for p in sorted(paths):
+        h.update(p.name.encode()); h.update(p.read_bytes())
+    return h.hexdigest()[:12]
+
+
+_HERE = Path(__file__).resolve().parent
+# The rules version (a 2026-09-29 panel; the rule-version tag voted earlier):
+# the organism's physics is fishbowl/'s source -- fitness and scores are only
+# comparable under the same rules. The code version adds the search loop.
+RULES_VERSION = _fingerprint(list((_HERE / "fishbowl").glob("*.py")))
+CODE_VERSION = _fingerprint(list((_HERE / "fishbowl").glob("*.py")) + [_HERE / "run_vision.py"])
+
+
+def _b64(a) -> dict:
+    """An array, compact: float16 bytes, base64, with its shape."""
+    import base64
+    a = np.asarray(a, dtype=np.float16)
+    return {"shape": list(a.shape), "f16": base64.b64encode(a.tobytes()).decode("ascii")}
+
+
+def _learned_parts(org) -> dict | None:
+    """What its body has learned that runs from its own eye with no teacher (its
+    model card's frozen parts): its mushroom body's code (size, seed), its food
+    and danger readouts, its archetype heads (taught by the detector) and its
+    terrain head (taught by its ground model), and its distilled output layer."""
+    if org is None:
+        return None
+    mb = org.mb
+    rows = list(range(org.n_heads)) + ([len(mb.heads) - 1] if org.felt_terrain else [])
+    out = {"n_kc": mb.n_kc, "kc_seed": int(getattr(org.g, "kc_seed", 0)),
+           "food": _b64(mb.weights), "heads": _b64(mb.heads[rows]) if rows else None,
+           "head_classes": [int(c) for c in org.head_classes[:org.n_heads]], "terrain_head": bool(org.felt_terrain)}
+    if getattr(mb, "danger_weights", None) is not None:
+        out["danger"] = _b64(mb.danger_weights)
+    if org.plasticity > 0.0 and org.brain is not org.g.brain:
+        out["distilled"] = {"weights_ho": _b64(org.brain.weights_ho), "bias_o": _b64(org.brain.bias_o)}
+    return out
 
 
 def _sd_notify(message: str) -> None:

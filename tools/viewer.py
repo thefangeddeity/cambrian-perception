@@ -1019,6 +1019,7 @@ PAGE = r"""<!doctype html>
                    s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
                    s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet',
                    d.oxygen && d.oxygen.stage ? `<b style="color:#ff6f8a">short of oxygen</b>: shed ${d.oxygen.shed.join(', ')} (${d.oxygen.behind_s.toFixed(1)} s behind)` : '',
+                   s.felt_nearness ? `it feels: ${s.felt_nearness >= 0.67 ? 'near' : s.felt_nearness >= 0.33 ? 'mid' : 'far'} (${s.felt_nearness.toFixed(2)})` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
     if (s.archetypes && s.archetypes.length) parts.push('sees ' + s.archetypes.map(([n, v]) => `${n} ${bar(v)}`).join(' '));
     el.innerHTML = 'Senses: ' + parts.join(' &middot; ');
@@ -1518,6 +1519,8 @@ PAGE = r"""<!doctype html>
     ctx.fillText(edges ? `lines: ${edges} on its eye` : 'lines: none yet', ox, oy + side + 3);
     if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
     $('space-cap').textContent = note + '. Seen from its own eye, as its feed shows it.';
+    const ts = d.scores && d.scores.terrain;
+    $('space-cap').textContent += ts ? ` Its own sense of nearness (its terrain head, taught by this ground model, scored before each lesson): error ${ts.mae.toFixed(3)} +- ${ts.mae_se.toFixed(3)}, correlation ${ts.corr == null ? '--' : ts.corr.toFixed(2)} (${ts.n} looks, ${Math.round(ts.n_eff)} effective).` : '';
     const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
     $('cortex-cap').innerHTML = !cx ? '' : `<b>Who it knows</b> (its visual cortex: each one by true height and colour; ${cx.individuals} so far; ${(cx.ms || 0).toFixed(1)} ms a frame): `
       + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &middot; seen ${k.seen}&times;`
