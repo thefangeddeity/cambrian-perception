@@ -1420,6 +1420,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                     _stream_failed(dessert)
                 break
             seen_total = total
+        # Short of oxygen, its body sheds evolution first (fishbowl/livelife.py
+        # SHED): the next generation waits until it breathes again -- at most a
+        # minute, so a host that is always short still evolves, slowly.
+        if life is not None:
+            waited = time.time()
+            while life.stage >= 1 and life.error is None and not stop["now"] and time.time() - waited < 60.0:
+                time.sleep(0.5)
         if life is not None:
             if life.error:
                 print(f"Its live body failed ({life.error}); the survivors carry its body for the rest of this run.")

@@ -39,6 +39,15 @@ from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENC
                        Organism, kc_macs)
 from .state import EMPTY_G, LEGACY_UNIT
 
+# Oxygen (a 2026-09-29 panel; the diving reflex and brain sparing -- Scholander,
+# Ramirez; under hypoxia an animal shuts down its periphery, growth and
+# reproduction first, to keep its brain in oxygen): when its live body falls
+# behind the world, it sheds what it can live without, one stage at a time,
+# to keep its cognition in the present -- its brain, gaze and senses are
+# never shed. Its "oxygen" is how far behind live it is, whatever the cause
+# (load, heat throttling, a host short of memory).
+PRESENT_S = 3.0  # Poppel's subjective present: behind more than this, it is no longer living now
+SHED = ("evolution", "cortex", "expansion", "stale frames")  # in the order it lets them go (and back in reverse)
 EPISODES_EVERY_S = 600.0  # its episodes and sleep test set go to disk this often, and when it stops
 KEEP = 150            # frames shown to the viewer (~20 s of kept frames): enough for its replay delay
 WRITE_EVERY_S = 1.0   # how often the viewer's file is rewritten (it is in RAM where the host has /dev/shm)
@@ -212,6 +221,9 @@ class LiveLife:
             self.cortex = Cortex()
         self._last_boxes = None
         self.timing = {"field": 0.0, "organism": 0.0, "cortex": 0.0, "backlog": 0.0}
+        self.stage = 0              # how much it has shed (SHED[:stage]); run_vision pauses evolution at 1
+        self._stage_changed = time.time()
+        self._latency = 0.0
         self.field = FieldSignals()
         self.last = None          # the feed's index of the last frame it lived
         self.last_time = None     # when that frame arrived
@@ -344,6 +356,8 @@ class LiveLife:
             self.error = repr(e)
 
     def _live(self, items: list) -> None:
+        if self.stage >= SHED.index("stale frames") + 1 and len(items) > 1:
+            items = items[-1:]  # the stale ones go unseen: the present matters, not the backlog
         fps = max(1.0, self.feed.frames_per_second() or 15.0)
         batch = {"eating": [], "asleep": [], "alarm": [], "trajectory": [], "swat_acts": [],
                  "sums": collections.Counter()}
@@ -376,7 +390,8 @@ class LiveLife:
                 hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 # its visual cortex (cortex.py): boxes are held between detections; a new list is a fresh one
                 c0 = time.perf_counter()
-                self.cortex.see(org.lived_s, grey, colour, boxes or [], org.horizon(), boxes is not self._last_boxes)
+                if self.stage < SHED.index("cortex") + 1:
+                    self.cortex.see(org.lived_s, grey, colour, boxes or [], org.horizon(), boxes is not self._last_boxes)
                 self.cortex.ms += 0.02 * (1000.0 * (time.perf_counter() - c0) - self.cortex.ms)  # what it costs, per frame
                 # where each frame's time goes (the plumbing's own budget: 1 / fps)
                 for k, v in (("field", t_b - t_a), ("organism", t_d - t_c), ("cortex", time.perf_counter() - c0)):
@@ -441,8 +456,30 @@ class LiveLife:
             batch["sums"]["edits_tried"] += org.edits_tried - tried0
             batch["sums"]["edits_kept"] += org.edits_kept - kept0
             batch["pace"] = float(org.last_interval)
+            self._breathe(items[-1][4])
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)
+
+    def _breathe(self, arrived: float) -> None:
+        """Its oxygen: behind the present by more than PRESENT_S, it sheds the
+        next function (one stage per PRESENT_S, so each has time to act);
+        well inside it (a third) with its work under half its frame's time,
+        it takes the last one back."""
+        now = time.time()
+        self._latency = now - arrived
+        load = (self.timing["field"] + self.timing["organism"] + self.timing["cortex"]) * max(1.0, self.org.fps) / 1000.0
+        if now - self._stage_changed < PRESENT_S:
+            return
+        if self._latency > PRESENT_S and self.stage < len(SHED):
+            self.stage += 1
+            self._stage_changed = now
+            self.field.expansion = self.stage < SHED.index("expansion") + 1
+            self._event("hypoxic: shed " + SHED[self.stage - 1], behind_s=round(self._latency, 1), load=round(load, 2))
+        elif self._latency < PRESENT_S / 3 and load < 0.5 and self.stage > 0:
+            self.stage -= 1
+            self._stage_changed = now
+            self.field.expansion = self.stage < SHED.index("expansion") + 1
+            self._event("breathing again: restored " + SHED[self.stage], behind_s=round(self._latency, 1), load=round(load, 2))
 
     def _competences(self, org: Organism, boxes: list, sums) -> None:
         """What the panel asked the week to measure (observation only), per
@@ -518,6 +555,7 @@ class LiveLife:
             # never senses per-cell brightness, only where and how much things change)
             "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
             "cortex": cortex, "timing_ms": timing,
+            "oxygen": {"stage": self.stage, "shed": list(SHED[:self.stage]), "behind_s": round(self._latency, 2)},
         }
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:

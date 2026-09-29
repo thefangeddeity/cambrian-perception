@@ -381,6 +381,16 @@ can afford more and bigger ones.
   is still off (replay backup, dream steps, colour, any unwired input, and
   receptor leaves where a tree reads only constants -- a tree that never reads
   its eye can never grow a line).
+- **Oxygen** (2026-09-29; the diving reflex and brain sparing -- Scholander,
+  Ramirez): when its live body falls more than Poppel's ~3 s subjective
+  present behind the world (whatever the cause: load, heat throttling, a host
+  short of memory), it sheds what it can live without, one stage every 3 s:
+  evolution first (the next generation waits, at most a minute -- growth and
+  reproduction go first under hypoxia), then its visual cortex, then its
+  expansion measurement, then stale frames (only the newest is lived). Its
+  brain, gaze and senses are never shed. Back within a third of the present,
+  with its work under half a frame's time, it takes them back in reverse.
+  Logged as events; shown in the senses strip.
 - **Walking cameras** (2026-09-29): a camera walking forward shifts the frame
   hardly at all -- the image flows out of its centre (Gibson) -- so it read as
   still, and parallax never switched on (on a 24/7 walking stream: moving in

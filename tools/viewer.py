@@ -1003,6 +1003,7 @@ PAGE = r"""<!doctype html>
     const parts = [`pace ${s.pace_s.toFixed(2)} s${s.missed ? ' <b style="color:#ff6f8a">missed</b>' : ''}`, `unsure ${bar(s.uncertainty)}`,
                    s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
                    s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet',
+                   d.oxygen && d.oxygen.stage ? `<b style="color:#ff6f8a">short of oxygen</b>: shed ${d.oxygen.shed.join(', ')} (${d.oxygen.behind_s.toFixed(1)} s behind)` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
     if (s.archetypes && s.archetypes.length) parts.push('sees ' + s.archetypes.map(([n, v]) => `${n} ${bar(v)}`).join(' '));
     el.innerHTML = 'Senses: ' + parts.join(' &middot; ');

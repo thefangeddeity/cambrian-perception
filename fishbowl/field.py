@@ -31,6 +31,7 @@ class FieldSignals:
         self.prev_area = self.prev_growth = 0.0
         self.t = 0
         self.prev_small = None
+        self.expansion = True  # its expansion measurement (shed first among its senses when short of oxygen)
         self.window = None
         self.last_vector = None
         self.fps = 15.0            # the host sets its frame rate (the mismatch background adapts in seconds)
@@ -74,7 +75,7 @@ class FieldSignals:
             if self.window is None or self.window.shape != small.shape:
                 self.window = cv2.createHanningWindow(size, cv2.CV_32F)
             shift = org.global_shift(self.prev_small.copy(), small.copy(), self.window)  # copies: phase correlation windows its inputs in place
-            shift = (shift[0], shift[1], org.global_scale(self.prev_small, small))
+            shift = (shift[0], shift[1], org.global_scale(self.prev_small, small) if self.expansion else 0.0)
         parallax = org.parallax_map(self.prev_small, small, shift, shape)
         self.prev_small = small
         self.t += 1
