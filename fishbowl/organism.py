@@ -810,7 +810,7 @@ class Organism:
         self._roll_look += roll
         if self.compass:
             self.heading = (self.heading + yaw) % (2 * math.pi)
-        self.cam_moving = camera_moves(self.cam_shift + (self.cam_scale,), shift_size(frame.shape)[::-1])
+        self.cam_moving = camera_moves(self.cam_shift + (self.cam_scale, roll), shift_size(frame.shape)[::-1])
         if self.k == 0:
             if len(self.scenes) > self.max_scenes:  # a smaller library now: keep the most recent
                 keep = sorted(range(len(self.scenes)), key=lambda i: self.scenes[i].get("last", 0.0))[-self.max_scenes:]
