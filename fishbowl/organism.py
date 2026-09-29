@@ -297,7 +297,7 @@ NECTAR_CROP = 1.0         # a full plant, in gut-fulls
 NECTAR_REFILL_S = 3 * 3600.0
 
 # What a host passes each frame about the whole field (sig): the keys below.
-SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light", "mismatch", "mismatch_cx", "mismatch_cy")
+SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light", "mismatch", "mismatch_cx", "mismatch_cy", "structure")
 
 
 class Organism:
@@ -362,6 +362,23 @@ class Organism:
         # brain gets what that episode held and where it happened. An inverted
         # index (cell -> episodes), paid per stored cell compared.
         self.recall = bool(getattr(g, "recall", 0))
+        # Scenes (a 2026-09-28 panel; hippocampal remapping, O'Keefe & Moser):
+        # a library of places it has lived in, each with its own maps (food,
+        # values, where people are expected, the surprise memory, the plants'
+        # crops) and its layout (the field's structure, adapting over
+        # LIGHT_SLOW_S). Each look it correlates the field's structure with
+        # the scene it is in; while that is significant (the standard 5% test
+        # on the field's effective number of cells, Bretherton et al. 1999) it stays -- someone
+        # walking in hardly moves it. When it isn't, it goes to the stored
+        # scene that matches best, if one does significantly, or starts a new
+        # one (the least recently visited is forgotten when the library is
+        # full). Born 1: one scene, never swapped. Matching costs a multiply-
+        # add per cell per stored scene per look.
+        self.max_scenes = int(getattr(g, "scenes", 1))
+        lib = memory[10] if memory is not None and len(memory) > 10 and memory[10] else None
+        self.scenes = [dict(s) for s in lib["library"]] if lib else []
+        self.scene = int(lib["current"]) if lib else 0
+        self.scene_switches = 0
         self._index, self._indexed, self._index_of = {}, 0, None
         self.recalled = None   # the episode recalled this look (index), or None
         self.recalls = 0       # looks that recalled something, this life
@@ -458,6 +475,11 @@ class Organism:
         shift from the previous frame (for the stabilizer).
         """
         if self.k == 0:
+            if len(self.scenes) > self.max_scenes:  # a smaller library now: keep the most recent
+                keep = sorted(range(len(self.scenes)), key=lambda i: self.scenes[i].get("last", 0.0))[-self.max_scenes:]
+                cur = self.scenes[self.scene] if self.scene < len(self.scenes) else None
+                self.scenes = [self.scenes[i] for i in sorted(keep)]
+                self.scene = next((i for i, s in enumerate(self.scenes) if s is cur), 0)
             self.aspect = frame.shape[1] / max(1, frame.shape[0])
             self.frame_h = frame.shape[0]
             self.field = field_shape(frame.shape[0], frame.shape[1])
@@ -563,6 +585,7 @@ class Organism:
         self.danger_value = float(np.clip(self.mb.danger(kc_active), -1.0, 1.0)) if self.aversive_rate > 0.0 else 0.0
         cell = self._cell(state.cx, state.cy)
         place_dx, place_dy, place_value = self._place_sense(state.cx, state.cy)
+        scene_macs = self._place_in(sig["structure"], self.last_interval / max(1.0, self.fps))
         self.intruder = self._intruder(boxes, body.daylight, self.last_interval / max(1.0, self.fps))
         recalled = recalled_dx = recalled_dy = 0.0
         recall_macs = 0
@@ -582,7 +605,7 @@ class Organism:
                                    not was_asleep and not boxes and not body.big_change(loom, periph_motion, self.vigilance))
         if was_asleep and body.sleep_clock > SLEEP_SETTLE_S:
             replay_macs += self._dream()
-        replay_macs += recall_macs
+        replay_macs += recall_macs + scene_macs
         if (self.sec_per_mac and self.last_out is not None
                 and self.sec_per_mac * (brain.macs() + replay_macs) > self.last_interval / max(1.0, self.fps)):
             out = self.last_out  # still thinking: this look is missed
@@ -729,6 +752,101 @@ class Organism:
         grid = look.reshape(n, n).copy()
         grid[:m, :] = grid[-m:, :] = grid[:, :m] = grid[:, -m:] = 0.0
         return grid.reshape(-1)
+
+    SCENE_MAPS = ("place", "people_day", "people_night", "value_map", "memory", "variance")
+
+    def _place_in(self, structure, seconds: float) -> int:
+        """Which scene it is in (see __init__); returns the multiply-adds spent."""
+        if self.max_scenes <= 1:
+            return 0
+        s = np.asarray(structure, dtype=float)
+        if float(s.std()) <= NOISE_FLOOR:  # no structure (a blank or black frame): nothing to place
+            return len(s)
+        if not self.scenes:  # its first scene: where it is now
+            self.scenes, self.scene = [{"gist": s.copy(), "last": self.lived_s}], 0
+            return len(s)
+
+        grid = self.field if self.field and self.field[0] * self.field[1] == len(s) else (1, len(s))
+
+        def lag1(v):  # neighbour autocorrelation over the field's grid (rows and columns)
+            m = v.reshape(grid) - v.mean()
+            num = float((m[:, 1:] * m[:, :-1]).sum() + (m[1:, :] * m[:-1, :]).sum())
+            den = float((m * m).sum()) * (m[:, 1:].size + m[1:, :].size) / m.size
+            return num / den if den > 0 else 0.0
+        rho_s = lag1(s)
+
+        def match(g):
+            """Its correlation with a scene's layout, and whether that beats chance: the
+            standard 5% test on the effective number of cells (neighbours are alike:
+            Bretherton et al. 1999, N_eff = N (1 - ra rb) / (1 + ra rb))."""
+            if g.shape != s.shape:
+                return 0.0, False
+            a, b = s - s.mean(), g - g.mean()
+            d = math.sqrt(float((a * a).sum() * (b * b).sum()))
+            r = float((a * b).sum() / d) if d > 0 else 0.0
+            rr = max(0.0, rho_s * lag1(g))
+            n_eff = max(3.0, len(s) * (1.0 - rr) / (1.0 + rr))
+            return r, r > 1.96 / math.sqrt(n_eff)
+
+        def corr(g):
+            r, sig = match(g)
+            return r if sig else -1.0
+        line = -1.0
+        here = corr(self.scenes[self.scene]["gist"])
+        macs = len(s)
+        if here <= line:
+            rs = [corr(sc["gist"]) if i != self.scene else -1.0 for i, sc in enumerate(self.scenes)]
+            macs += len(s) * (len(self.scenes) - 1)
+            best = int(np.argmax(rs)) if rs else 0
+            self._stash()
+            if rs and rs[best] > line:
+                self.scene = best
+                self._unstash()
+            else:
+                if len(self.scenes) >= self.max_scenes:  # forget the least recently visited
+                    old = min(range(len(self.scenes)), key=lambda i: self.scenes[i].get("last", 0.0))
+                    del self.scenes[old]
+                self.scenes.append({"gist": s.copy(), "last": self.lived_s})
+                self.scene = len(self.scenes) - 1
+                self._fresh_maps()
+            self.scene_switches += 1
+        sc = self.scenes[self.scene]
+        a = 1.0 - math.exp(-max(0.0, seconds) / LIGHT_SLOW_S)
+        sc["gist"] = sc["gist"] + a * (s - sc["gist"]) if sc["gist"].shape == s.shape else s.copy()
+        sc["last"] = self.lived_s
+        return macs
+
+    def _stash(self) -> None:
+        """The scene it is leaving keeps its maps."""
+        sc = self.scenes[self.scene]
+        for name in self.SCENE_MAPS:
+            a = getattr(self, name)
+            sc[name] = None if a is None else np.array(a, copy=True)
+        sc["nectar"] = dict(self.nectar)
+
+    def _unstash(self) -> None:
+        """Back in a stored scene: its maps again."""
+        sc = self.scenes[self.scene]
+        for name in self.SCENE_MAPS:
+            if sc.get(name) is not None:
+                setattr(self, name, np.array(sc[name], copy=True))
+        self.nectar = dict(sc.get("nectar") or {})
+
+    def _fresh_maps(self) -> None:
+        """A new place: nothing learned about it yet."""
+        for name in ("place", "people_day", "people_night", "value_map"):
+            a = getattr(self, name)
+            if a is not None:
+                setattr(self, name, np.zeros_like(a))
+        self.memory, self.variance = new_memory()
+        self.nectar = {}
+
+    def library(self) -> dict | None:
+        """Its scene library, for memory (item 11): the current scene's maps stashed first."""
+        if not self.scenes:
+            return None
+        self._stash()
+        return {"current": self.scene, "library": [dict(s) for s in self.scenes]}
 
     def _recall(self, code) -> tuple[int | None, int]:
         """Pattern completion: the episode whose code overlaps this one most,

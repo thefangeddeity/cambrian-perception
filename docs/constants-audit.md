@@ -94,6 +94,8 @@ yardsticks are found.
 | `MISMATCH_TAU_S` | = `LIGHT_SLOW_S` (1200 s) | P | the field mismatch's model of the room adapts over its day/night sense's slow timescale (reused, not new); a cell mismatches beyond `SURPRISE_SIGMAS` x its own learned variation, floored at `NOISE_FLOOR` (the snack memory's rule), the area is read with `EXPANSION_GAIN` and wakes at `WAKE_LOOM` (the same kind of reading: an area differing from a background) |
 | `NECTAR_OIV7` | Open Images' "Plant" node, 12 classes | S | the detector's own published class hierarchy (bbox_labels_600_hierarchy.json, /m/05s2s), not a pick |
 | `FLOWER_EVERY_S` | 30 s | B | plants don't move; the flower detector's CPU budget (under ~1% of a core on Tanzania; 2026-09-28 infrastructure review) |
+| scene match | r > 1.96 / sqrt(N_eff), N_eff = N (1 - ra rb) / (1 + ra rb) | S | the 5% test with Bretherton et al. (1999)'s effective sample size for autocorrelated fields |
+| `MAX_SCENES` | 64 | B | a safety bound; matching's price limits the library |
 | `SLEEP_ONSET_*`, `SLEEP_END_*`, `NIGHT_LIGHT`, `DAY_LIGHT` | 0.15/0.45, 0.01/0.04, 0.15/0.5 | **G** | Borbely's two thresholds; published threshold values are for humans in normalised units, not yet mapped |
 
 ### fishbowl/fovea.py, retina.py (the eye)

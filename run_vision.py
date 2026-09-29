@@ -569,7 +569,7 @@ def evaluate_genome(
         # Memory carried to the next generation: surprise, the mushroom body's
         # learning, the place map and where people are expected (day, night).
         "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night, org.mb.danger_weights,
-                    org.value_map, dict(org.nectar), org.mb.proto),
+                    org.value_map, dict(org.nectar), org.mb.proto, org.library()),
         # Per frame: its alarm (the warning) and the intruder sense, for the viewer.
         "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
         "replays": dict(org.replays),
@@ -846,6 +846,7 @@ class World:
             ws["expansion"] = reflexes.expansion_score(wv)
             ws["motion_cx"], ws["motion_cy"] = _peripheral_motion_centroid(wv, self.field_shape)
             ws["field_light"] = np.asarray(wv).mean(axis=1)
+            ws["structure"] = np.asarray(wv, dtype=float) - np.asarray(wv, dtype=float).mean(axis=1, keepdims=True)
             ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"] = reflexes.mismatch_score(
                 wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S, SURPRISE_SIGMAS, NOISE_FLOOR)
             ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
@@ -896,12 +897,40 @@ def _unpack_proto(packed):
     return q.astype(np.float32) / 255.0
 
 
+def _pack_scenes(lib) -> dict | None:
+    """Its scene library for the checkpoint: each scene's layout and maps (NaN, never seen, as null)."""
+    if not lib:
+        return None
+    def arr(a):
+        return None if a is None else [[None if not np.isfinite(x) else round(float(x), 5) for x in row]
+                                       for row in np.atleast_2d(np.asarray(a, dtype=float))]
+    return {"current": int(lib["current"]),
+            "library": [{**{k: arr(s.get(k)) for k in ("gist", "place", "people_day", "people_night", "value_map", "memory", "variance")},
+                         "gist_shape": list(np.shape(s["gist"])), "last": float(s.get("last", 0.0)),
+                         "nectar": {k: round(float(v), 4) for k, v in (s.get("nectar") or {}).items()}}
+                        for s in lib["library"]]}
+
+
+def _unpack_scenes(packed):
+    if not packed:
+        return None
+    def arr(a):
+        return None if a is None else np.array([[np.nan if x is None else x for x in row] for row in a], dtype=float)
+    lib = []
+    for s in packed["library"]:
+        sc = {k: arr(s.get(k)) for k in ("place", "people_day", "people_night", "value_map", "memory", "variance")}
+        sc["gist"] = arr(s["gist"]).reshape(s.get("gist_shape") or -1)
+        sc["last"], sc["nectar"] = float(s.get("last", 0.0)), dict(s.get("nectar") or {})
+        lib.append(sc)
+    return {"current": int(packed["current"]), "library": lib}
+
+
 def _for_evaluation(memory):
     """Memory as the children are scored from, without the imagery prototypes
     (megabytes each, and a child's run needs only their price, not them)."""
     if memory is None or len(memory) <= 9:
         return memory
-    return tuple(memory[:9]) + (None,)
+    return tuple(memory[:9]) + (None,) + tuple(memory[10:])
 
 
 def _stream_failed(dessert: dict | None) -> None:
@@ -1138,7 +1167,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                       np.array(m.get("learned") or [], dtype=float),
                       *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")),
                       dict(m.get("nectar") or {}),
-                      _unpack_proto(m.get("proto")))
+                      _unpack_proto(m.get("proto")),
+                      _unpack_scenes(m.get("scenes")))
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
@@ -1172,7 +1202,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                           if len(memory_now) > i and memory_now[i] is not None},
                        # the plants' standing crops, as it has lived them (item 9)
                        "nectar": {k: round(float(v), 4) for k, v in memory_now[8].items()} if len(memory_now) > 8 and memory_now[8] else {},
-                       "proto": _pack_proto(memory_now[9]) if len(memory_now) > 9 else None}
+                       "proto": _pack_proto(memory_now[9]) if len(memory_now) > 9 else None,
+                       "scenes": _pack_scenes(memory_now[10]) if len(memory_now) > 10 else None}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })

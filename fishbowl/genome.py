@@ -56,8 +56,9 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
-            "mutate_imagery", "mutate_recall")
+            "mutate_imagery", "mutate_recall", "mutate_scenes")
 STABILIZER_SIGMA = 0.1
+MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
 # The feeding pump has no biological bounds: its upkeep and its intake set
 # its limits, and log-normal steps can shrink it toward a nip without ever
 # reaching zero. These only keep the float sane (numerical guards).
@@ -203,6 +204,7 @@ class Genome:
         plant_sense: int = 0,
         imagery: int = 0,
         recall: int = 0,
+        scenes: int = 1,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -230,6 +232,8 @@ class Genome:
         # Recall (pattern completion over its own episodes): born off; costs
         # a multiply-add per stored cell it compares.
         self.recall = int(np.clip(recall, 0, 1))
+        # Scenes it can keep (a scene library; born 1: one scene, as before).
+        self.scenes = int(np.clip(scenes, 1, MAX_SCENES))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -308,6 +312,7 @@ class Genome:
             self.plant_sense,
             self.imagery,
             self.recall,
+            self.scenes,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -482,6 +487,10 @@ class Genome:
         if choice == "mutate_recall":
             self.recall = 1 - self.recall
             return "brain", choice
+        if choice == "mutate_scenes":
+            old = self.scenes
+            self.scenes = int(np.clip(old + rng.choice((-1, 1)), 1, MAX_SCENES))
+            return "brain", (choice if self.scenes != old else "noop_inapplicable")
         if choice == "mutate_plant_sense":
             old = self.plant_sense
             self.plant_sense = int(np.clip(old + rng.choice((-1, 1)), 0, 2))
@@ -685,6 +694,7 @@ class Genome:
             "plant_sense": self.plant_sense,
             "imagery": self.imagery,
             "recall": self.recall,
+            "scenes": self.scenes,
         }
 
     @staticmethod
@@ -751,6 +761,7 @@ class Genome:
             plant_sense=int(data.get("plant_sense", 0)),
             imagery=int(data.get("imagery", 0)),
             recall=int(data.get("recall", 0)),
+            scenes=int(data.get("scenes", 1)),
         )
 
 

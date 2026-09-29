@@ -75,5 +75,6 @@ class FieldSignals:
         self.prev_small = small
         self.t += 1
         sig = {"expansion": expansion, "motion_energy": motion, "motion_cx": mcx, "motion_cy": mcy,
-               "field_light": float(v.mean()), "mismatch": mismatch, "mismatch_cx": mmx, "mismatch_cy": mmy}
+               "field_light": float(v.mean()), "mismatch": mismatch, "mismatch_cx": mmx, "mismatch_cy": mmy,
+               "structure": v - float(v.mean())}
         return sig, shift

@@ -230,6 +230,20 @@ Sleep replays experience:
   (an inverted index from each Kenyon cell to its episodes), so remembering
   more costs more. Recalls are counted hourly.
 
+- **Scenes** (inherited, born 1; a 2026-09-28 panel on hippocampal
+  remapping, O'Keefe & Moser): a library of the places it has lived in. Each
+  scene has its layout (the field's structure, adapting over ~20 min) and its
+  own maps: food, dreamt values, where people are expected, the surprise
+  memory, the plants' crops. Each look it correlates the field's structure
+  with the scene it is in. While the match is significant it stays: someone
+  walking in hardly changes the layout. When it isn't, it goes to the stored
+  scene that matches best, if one does, or starts a new one; a full library
+  forgets the scene it visited least recently. "Significant" is the standard
+  5% test on the field's effective number of cells, since neighbouring cells
+  are alike (Bretherton et al. 1999). A blank frame is never placed. Matching
+  costs a multiply-add per cell per stored scene per look. Born 1: one scene,
+  never swapped, as before. Scene switches are counted hourly.
+
 - **Imagery, and seeing its dreams** (inherited, born off): each Kenyon cell
   learns a prototype, the average of what its eye saw (on a 16×16 grid
   relative to the eye) when it fired: a way back from memory to the eye, like

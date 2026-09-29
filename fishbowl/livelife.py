@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import collections
+import copy
 import json
 import os
 import threading
@@ -47,7 +48,7 @@ def memory_of(org: Organism) -> tuple:
         return None if a is None else np.array(a, dtype=float, copy=True)
     return (c(org.memory), c(org.variance), c(org.mb.weights), c(org.place), c(org.people_day),
             c(org.people_night), c(org.mb.danger_weights), c(org.value_map), dict(org.nectar),
-            np.array(org.mb.proto, copy=True))
+            np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()))
 
 
 def _carry(old: Organism, new: Organism) -> None:
@@ -153,6 +154,7 @@ def _circuits(org: Organism) -> dict:
                     "dreaming": bool(org.dreaming), "imagery": bool(org.imagery),
                     "mismatch": round(float(org.mismatch), 3), "woke_by": b.woke_by,
                     "recall": bool(org.recall), "recalled": org.recalled,
+                    "scene": org.scene + 1 if org.scenes else 1, "scenes": max(1, len(org.scenes)), "max_scenes": org.max_scenes,
                     "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
                                "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}
     fps = max(1.0, org.fps)
@@ -242,6 +244,7 @@ class LiveLife:
             self.field.fps = fps
             missed0 = org.missed
             replays0, seq0, dreams0, sips0, recalls0 = dict(org.replays), org.seq, org.dreams, org.sips, org.recalls
+            switches0 = org.scene_switches
             img0 = list(org.imagery_sums)
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
                 prev_v = self.field.last_vector
@@ -292,6 +295,7 @@ class LiveLife:
             batch["sums"]["replay_sequences"] += org.seq - seq0
             batch["sums"]["dreams"] += org.dreams - dreams0
             batch["sums"]["recalls"] += org.recalls - recalls0
+            batch["sums"]["scene_switches"] += org.scene_switches - switches0
             batch["pace"] = float(org.last_interval)
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)
