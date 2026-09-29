@@ -227,6 +227,7 @@ class LiveLife:
             print(f"Its visual cortex's library couldn't be read ({e}); starting without it.")
             self.cortex = Cortex()
         self._last_boxes = None
+        self.lived_at = time.time()
         self.timing = {"field": 0.0, "organism": 0.0, "cortex": 0.0, "backlog": 0.0}
         self.stage = 0              # how much it has shed (SHED[:stage]); run_vision pauses evolution at 1
         self._stage_changed = time.time()
@@ -266,6 +267,17 @@ class LiveLife:
             _carry(old, new)
             self.org = new
             self.adoptions += 1
+
+    def switch_feed(self, feed, epoch: int) -> None:
+        """Another stream chosen: its body goes on living, on the new feed (a
+        new place: its field starts afresh; its scene library decides the rest)."""
+        with self.lock:
+            self.feed, self.epoch = feed, epoch
+            self.last, self.last_time = None, None
+            self.shown.clear()
+            self.field = FieldSignals()
+            self.field_motion = None
+            self._last_boxes = None
 
     def set_prices(self, quota_pct: float, sec_per_mac: float) -> None:
         with self.lock:
@@ -486,6 +498,7 @@ class LiveLife:
                 if org.swats > swats0:
                     batch["swat_acts"].append(j)
                 self.last, self.last_time = index, arrived
+                self.lived_at = time.time()  # its watchdog's sign of life
             missed = org.missed - missed0
             batch["sums"]["sips"] += org.sips - sips0
             for key, now_v, then_v in zip(("img_n", "img_sx", "img_sy", "img_sxx", "img_syy", "img_sxy"), org.imagery_sums, img0):

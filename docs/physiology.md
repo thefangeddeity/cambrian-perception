@@ -407,6 +407,14 @@ can afford more and bigger ones.
   doesn't go dumb: each night locks loosen by how wrong its predictions have
   been lately (reconsolidation). On a test, a skill's synapses locked to 0.71
   while unused ones stayed at 0; one night at 60% surprise loosened them to 0.60.
+- **One long process, its watchdog, streams switched in place** (2026-09-29):
+  no hourly bound (a stream's expiring address is re-resolved by the feed);
+  checkpoints every 10 min; its own watchdog thread ends it (for its supervisor
+  to restart) when its body lives no frame for the feed's stall line (30 s)
+  while frames arrive, or its main loop makes no progress for its longest wait
+  (600 s) plus a generation -- and under systemd feeds WatchdogSec=30. Another
+  stream chosen is opened beside the old one and its body moves onto it; only
+  camera <-> stream still restarts (the camera suite's handover).
 - **Living in the present, and oxygen** (2026-09-29 panels): its present is
   its own look interval; a frame older than that when it gets to it isn't
   lived, only the newest is (freshness over completeness: it never queues a

@@ -1445,7 +1445,7 @@ PAGE = r"""<!doctype html>
       // the mesh reads its map -- already blended in its mind (neighbouring
       // cells share evidence: the ground is continuous) -- each node back to
       // the frame (depth z at frame row hz + (1 - hz) / z), read bilinearly
-      const NU = MOBILE ? 16 : 24, NZ = MOBILE ? 10 : 16, cells = [];
+      const NU = MOBILE ? 24 : 48, NZ = MOBILE ? 16 : 32, cells = [];  // the drawing's squares, finer than its map (which is its own, coarse)
       terr.forEach((t, k) => { if (t) cells.push([0, 0, t[0] * HCAM]); });
       const cellE = (r, c) => { r = Math.max(0, Math.min(rows - 1, r)); c = Math.max(0, Math.min(cols - 1, c)); const t = terr[r * cols + c]; return t ? t[0] * HCAM : 0; };
       const groundAt = (x, z) => {
@@ -2600,6 +2600,10 @@ class Handler(BaseHTTPRequestHandler):
             ok = True
         elif url:
             ok, error = _check_live_url(url)
+            try:
+                was_stream = bool(json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8")).get("url"))
+            except (OSError, ValueError):
+                was_stream = False
             if ok:
                 # Dessert: a deadline after which the organism goes
                 # back to its camera by itself (run_vision.py _dessert).
@@ -2615,7 +2619,9 @@ class Handler(BaseHTTPRequestHandler):
             # Elsewhere (Windows, macOS: tools/cambrian_service.py) there is
             # nothing to call: the organism checks the choice every
             # generation and restarts itself onto it.
-            if sys.platform.startswith("linux"):
+            # From one stream to another it switches in place (run_vision.py):
+            # no restart. To or from its camera, the camera suite needs one.
+            if sys.platform.startswith("linux") and not (url and was_stream):
                 try:
                     subprocess.run(
                         ["systemctl", "restart", "--no-ask-password", "cambrian-perception.service"],

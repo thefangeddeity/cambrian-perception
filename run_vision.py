@@ -48,6 +48,7 @@ for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
 import random
 import signal
 import socket
+import threading
 import subprocess
 import time
 import sys
@@ -901,7 +902,13 @@ STALL_CADENCES = 3
 # A web stream arrives in segments a few seconds apart (YouTube live: ~2-5 s),
 # so it gets at least a few missed reloads' worth before it counts as stalled.
 STREAM_STALL_MIN_S = 30.0
-CHECKPOINT_EVERY_S = 600.0  # as its episodes (livelife.EPISODES_EVERY_S): a crash loses at most this much
+CHECKPOINT_EVERY_S = 600.0
+# Its watchdog (a 2026-09-29 panel; Poettering): alive only while (a) its body
+# lives a frame within the feed's own stall line whenever frames are arriving,
+# and (b) its main loop progresses within its own longest wait (a worker's
+# result, the feed's fill) plus the last generation's length. Else it exits and
+# its supervisor starts it again; under systemd the same verdict feeds WatchdogSec.
+WATCHDOG_MAIN_S = 600.0  # as its episodes (livelife.EPISODES_EVERY_S): a crash loses at most this much
 # ...or sooner, once the snapshot is older than this or three generations,
 # whichever is longer: on a slow host its gaze stays close to live (and a
 # dead feed is noticed) without spending most of its time refreshing.
@@ -1086,6 +1093,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # Dessert overrides the camera until its deadline; then this run
     # exits and systemd restarts it back on the camera.
     home_source = source
+    watchdog = _Watchdog()
     # A stale stop request must not stop a new run (it is checked from here on,
     # while the feed fills and every generation).
     sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
@@ -1424,11 +1432,44 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if dessert is None and chosen is not None and _is_device(home_source):
             print("Dessert chosen -- restarting onto it.")
             break
-        if dessert is not None and (chosen.get("url"), chosen.get("until")) != (dessert.get("url"), dessert.get("until")):
-            print("A different video chosen -- restarting onto it.")
-            break
+        if dessert is not None and chosen.get("url") == dessert.get("url") and chosen.get("until") != dessert.get("until"):
+            dessert = chosen  # only its deadline changed
+        elif dessert is not None and chosen.get("url") != dessert.get("url"):
+            # Another stream: switched in place (a 2026-09-29 panel) -- the new
+            # feed fills beside the old one, then its body moves onto it.
+            switched = None
+            try:
+                print(f"Another stream chosen: {chosen['url']} -- switching in place.")
+                new_url = chosen["url"]
+                new_epoch = int(time.time())
+                new_feed = video_source.LiveFeed(_resolve_live_url(new_url), detector=detector if detector.available else None,
+                                                 frames_dir=frames_dir if use_frames else None, epoch=new_epoch,
+                                                 resolve=lambda u=new_url: _resolve_live_url(u))
+                deadline = time.time() + WATCHDOG_MAIN_S
+                while not new_feed.wait_for(600, timeout=2.0) and time.time() < deadline and not stop["now"]:
+                    watchdog.tick()
+                if new_feed.wait_for(600, timeout=0.5):
+                    switched = new_feed
+                else:
+                    new_feed.close()
+            except Exception as e:
+                print(f"The new stream couldn't be opened ({e}).")
+            if switched is None:
+                print("Restarting onto it instead.")
+                break
+            old, feed, feed_epoch, clip_path, dessert = feed, switched, new_epoch, new_url, chosen
+            if life is not None:
+                life.switch_feed(feed, feed_epoch)
+            watchdog.feed = feed
+            old.close()
+            world_time, last_new_frame, seen_total = 0.0, time.time(), -1
+            sandbox.source_opened()
+            print(f"Now watching {clip_path}.")
         box.generation += 1
         gen_seconds, gen_started = time.time() - gen_started, time.time()
+        watchdog.tick(gen_seconds)
+        if not watchdog.armed:
+            watchdog.life, watchdog.feed, watchdog.armed = life, feed, True
         if box.generation % 50 == 0:
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
             price_quota = quota_pct
@@ -1918,6 +1959,59 @@ def _memory_account(org, feed) -> dict:
         with feed._lock:
             out["frames"] = nbytes(list(feed._buf)) / 1048576.0
     return {k: (None if v is None else round(v, 1)) for k, v in out.items()}
+
+
+def _sd_notify(message: str) -> None:
+    """systemd's notify protocol (a datagram to $NOTIFY_SOCKET); nothing elsewhere."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr or not hasattr(socket, "AF_UNIX"):
+        return
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as s:
+            s.connect("\0" + addr[1:] if addr.startswith("@") else addr)
+            s.sendall(message.encode("utf-8"))
+    except OSError:
+        pass
+
+
+class _Watchdog:
+    """Its own watchdog thread: see WATCHDOG_MAIN_S. Armed once it lives (the
+    first generation); until then it only tells systemd the process is up."""
+
+    def __init__(self):
+        self.progress, self.gen_seconds, self.armed = time.time(), 0.0, False
+        self.life, self.feed = None, None
+        self._total, self._total_at = None, time.time()
+        interval = float(os.environ.get("WATCHDOG_USEC", 0)) / 2e6 or STREAM_STALL_MIN_S / 2
+        threading.Thread(target=self._run, args=(interval,), name="Watchdog", daemon=True).start()
+
+    def tick(self, gen_seconds: float | None = None) -> None:
+        self.progress = time.time()
+        if gen_seconds is not None:
+            self.gen_seconds = gen_seconds
+
+    def _verdict(self) -> str | None:
+        now = time.time()
+        if now - self.progress > WATCHDOG_MAIN_S + self.gen_seconds:
+            return f"its main loop made no progress for {now - self.progress:.0f} s"
+        life, feed = self.life, self.feed
+        if life is not None and life.error is None and feed is not None:
+            if feed.total != self._total:
+                self._total, self._total_at = feed.total, now
+            arriving = now - self._total_at < STREAM_STALL_MIN_S
+            if arriving and now - life.lived_at > STREAM_STALL_MIN_S:
+                return f"its body lived no frame for {now - life.lived_at:.0f} s while frames arrived"
+        return None
+
+    def _run(self, interval: float) -> None:
+        while True:
+            time.sleep(interval)
+            why = self._verdict() if self.armed else None
+            if why is None:
+                _sd_notify("WATCHDOG=1")
+                continue
+            print(f"Watchdog: {why} -- ending, so its supervisor starts it again.", flush=True)
+            os._exit(3)
 
 
 def _body_at_full_speed() -> None:

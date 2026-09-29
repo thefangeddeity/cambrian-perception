@@ -26,7 +26,12 @@ Delegate=yes
 # the host's RAM less that line). This MemoryMax guards only until its first run.
 MemoryMax=1536M
 
-# Restart=always is the actual point: run_vision.py is deliberately a
+# # Its watchdog (run_vision.py _Watchdog): it tells systemd it is alive only
+# while its body lives and its main loop progresses; silent this long (the
+# feed's own stall line), systemd ends it and starts it again.
+WatchdogSec=30
+NotifyAccess=main
+Restart=always is the actual point: run_vision.py is deliberately a
 # BOUNDED process per invocation (--seconds above), never an unbounded
 # loop -- systemd is what turns a bounded process into something that
 # can genuinely run for years, resuming from state/checkpoint.json
