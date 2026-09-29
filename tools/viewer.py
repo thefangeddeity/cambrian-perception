@@ -1348,17 +1348,17 @@ PAGE = r"""<!doctype html>
         const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
         pts.push({ kind, x: g0[0], z: g0[1], hgt: (y1 - y0) * g0[1] * 1.6, x0, x1, y1, conf, cutBase, cutTop });
       }));
-      // the mesh reads its map: each node, back to the frame (depth z at frame
-      // row hz + (1 - hz) / z), blends the cells with evidence near it (in
-      // cell units; SIGMA is display, not model), falling back to the plane
-      const SIGMA = 0.8, NU = 24, NZ = 16, cells = [];
-      terr.forEach((t, k) => { if (t) cells.push([k % cols + 0.5, Math.floor(k / cols) + 0.5, t[0] * HCAM, t[1]]); });
+      // the mesh reads its map -- already blended in its mind (neighbouring
+      // cells share evidence: the ground is continuous) -- each node back to
+      // the frame (depth z at frame row hz + (1 - hz) / z), read bilinearly
+      const NU = 24, NZ = 16, cells = [];
+      terr.forEach((t, k) => { if (t) cells.push([0, 0, t[0] * HCAM]); });
+      const cellE = (r, c) => { r = Math.max(0, Math.min(rows - 1, r)); c = Math.max(0, Math.min(cols - 1, c)); const t = terr[r * cols + c]; return t ? t[0] * HCAM : 0; };
       const groundAt = (x, z) => {
         if (!cells.length) return 0;
-        const fy = hz + (1 - hz) / z, fx = x / (1.6 * z) + 0.5, cx = fx * cols, cy = fy * rows;
-        let sw = 0, se = 0;
-        for (const [ux, uy, e, w] of cells) { const k = Math.min(1, w) * Math.exp(-((cx - ux) ** 2 + (cy - uy) ** 2) / (2 * SIGMA * SIGMA)); sw += k; se += k * e; }
-        return se / Math.max(1, sw);
+        const fy = hz + (1 - hz) / z, fx = x / (1.6 * z) + 0.5, u = fx * cols - 0.5, v = fy * rows - 0.5;
+        const c0 = Math.floor(u), r0 = Math.floor(v), du = u - c0, dv = v - r0;
+        return (1 - dv) * ((1 - du) * cellE(r0, c0) + du * cellE(r0, c0 + 1)) + dv * ((1 - du) * cellE(r0 + 1, c0) + du * cellE(r0 + 1, c0 + 1));
       };
       const sticks = cells.map(q => ({ elev: q[2] }));
       const big = Math.max(1e-6, ...sticks.map(q => Math.abs(q.elev)));

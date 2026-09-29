@@ -1133,21 +1133,35 @@ class Organism:
             self.terrain = np.zeros((n, 2))
         return self.terrain.reshape(self.place.shape + (2,))
 
-    def terrain_at(self, cx: float, cy: float) -> float:
-        """The ground's rise (+) or fall (-) at a point, in camera heights: 0 where it has no evidence."""
-        t, cell = self._terrain_map(), self._cell(cx, cy)
-        if t is None or not self._in_map(cell):
-            return 0.0
-        w, s = t[cell]
-        return float(s / max(1.0, w))  # shrunk toward the flat plane until a cell has evidence
-
-    def terrain_view(self):
-        """Its terrain map, per cell (rise in camera heights, evidence weight), for the viewer."""
+    def _terrain_blend(self):
+        """Its terrain as it sees it: the ground is continuous (Grimson's
+        surface interpolation from sparse depth; Marr's 2.5D sketch), so each
+        cell's estimate blends its neighbours' evidence (a Gaussian one cell
+        wide: the map's own resolution), shrunk toward the flat plane where
+        evidence is thin -- one measurement alone counts as it did in its cell.
+        Evidence outside the field is none (zeros, not mirrored)."""
         t = self._terrain_map()
         if t is None:
+            return None, None
+        bw = cv2.GaussianBlur(t[..., 0].astype(np.float32), (0, 0), 1.0, borderType=cv2.BORDER_CONSTANT)
+        bs = cv2.GaussianBlur(t[..., 1].astype(np.float32), (0, 0), 1.0, borderType=cv2.BORDER_CONSTANT)
+        k0 = 1.0 / (2.0 * math.pi)  # the kernel's own centre: one measurement's weight in its cell
+        return bs / np.maximum(k0, bw), bw
+
+    def terrain_at(self, cx: float, cy: float) -> float:
+        """The ground's rise (+) or fall (-) at a point, in camera heights: 0 where it has no evidence near."""
+        e, _ = self._terrain_blend()
+        cell = self._cell(cx, cy)
+        if e is None or not self._in_map(cell):
+            return 0.0
+        return float(e[cell])
+
+    def terrain_view(self):
+        """Its terrain as it sees it, per cell (rise in camera heights, evidence nearby), for the viewer."""
+        e, bw = self._terrain_blend()
+        if e is None:
             return None
-        w, s = t[..., 0].ravel(), t[..., 1].ravel()
-        return [[round(float(si / wi), 3), round(float(wi), 2)] if wi > 0 else None for wi, si in zip(w, s)]
+        return [[round(float(v), 3), round(float(w), 2)] if w > 1e-3 else None for v, w in zip(e.ravel(), bw.ravel())]
 
     def ground_fits(self) -> dict:
         """Each measuring class's line (height = a y + b), for the viewer."""
