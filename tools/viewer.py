@@ -1520,10 +1520,10 @@ PAGE = r"""<!doctype html>
   // a node; it drifts for 20 s after a touch, then is still.
   const TREE3 = {};
   const PLANE_COL = ['255,226,214', '154,111,103', '255,95,162', '120,160,255'];
-  function coneLayout(root) {
+  function coneLayout(root, half) {
     const pts = [], links = [];
     const leaves = n => n.children && n.children.length ? n.children.reduce((t, c) => t + leaves(c), 0) : 1;
-    let maxK = 1;
+    let maxK = Math.max(1, half || 1);  // its whole eye, receptors either side of the centre
     (function scan(n) { if (n.kind === 'cell') maxK = Math.max(maxK, Math.abs(n.kx) + 1, Math.abs(n.ky) + 1); (n.children || []).forEach(scan); })(root);
     let depthMax = 0;
     (function place(n, x, y, z, r, depth, parent) {
@@ -1559,7 +1559,7 @@ PAGE = r"""<!doctype html>
       const y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, w = F / (F + z2);
       return [W / 2 + x1 * scale * w, H / 2 + y2 * scale * w, z2, w];
     };
-    // the retina: a faint grid of the receptors the tree can reach
+    // the retina: a faint grid, a line per receptor
     const k = L.maxK, g = 0.9;
     ctx.strokeStyle = 'rgba(52,68,85,0.55)'; ctx.lineWidth = 1;
     for (let i = -k; i <= k; i++) {
@@ -1611,7 +1611,7 @@ PAGE = r"""<!doctype html>
   }
   function renderTrees(trees, stats, limits) {
     const box = $('trees');
-    const key = JSON.stringify(trees);
+    const N = (D && D.receptors) || 12, key = N + JSON.stringify(trees);
     if (box.dataset.key === key) return;  // unchanged: keep the view as it is
     box.dataset.key = key; box.innerHTML = '';
     for (const name of Object.keys(trees)) {
@@ -1623,7 +1623,7 @@ PAGE = r"""<!doctype html>
       const W = Math.max(300, Math.floor(box.clientWidth || 600));
       c.width = W; c.height = Math.round(W * quadAspect());
       const old = TREE3[name] || {};
-      const T = TREE3[name] = { canvas: c, lay: coneLayout(trees[name]), yaw: old.yaw ?? 0.5, pitch: old.pitch ?? 0.35, zoom: old.zoom ?? 1,
+      const T = TREE3[name] = { canvas: c, lay: coneLayout(trees[name], N / 2), yaw: old.yaw ?? 0.5, pitch: old.pitch ?? 0.35, zoom: old.zoom ?? 1,
                                 vyaw: 0, touched: performance.now() - 4000, hover: null, drag: null, loop: false, dirty: true, P: [] };
       const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
       const touch = () => { T.touched = performance.now(); T.dirty = true; treeKick(name); };
