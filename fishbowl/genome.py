@@ -56,8 +56,9 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
-            "mutate_imagery", "mutate_recall", "mutate_scenes")
+            "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set")
 STABILIZER_SIGMA = 0.1
+MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
 # The feeding pump has no biological bounds: its upkeep and its intake set
 # its limits, and log-normal steps can shrink it toward a nip without ever
@@ -151,6 +152,22 @@ def _random_small_tree(rng: random.Random, n_vars: int, max_depth: int = 2, n_si
     return blocks.Node(kind="op", op=op, children=children)
 
 
+def edit_tree(tree: blocks.Node, rng: random.Random, n_vars: int, receptors: int,
+              max_nodes: int, max_depth: int) -> blocks.Node | None:
+    """One small edit to a copy of a tree -- the operators evolution uses
+    (sleep programming: the organism trying edits to its own tree). None if
+    the edit didn't apply."""
+    holder = object.__new__(Genome)
+    holder.trees, holder.n_vars, holder.receptors = {"t": copy.deepcopy(tree)}, n_vars, receptors
+    kind = rng.choice(("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mutate_pool"))
+    if kind == "grow":
+        ok = holder._grow(rng, "t", max_nodes, max_depth)[0]
+    else:
+        ok = {"mutate_const": holder._mutate_const, "mutate_op": holder._mutate_op, "shrink": holder._shrink,
+              "reroll_subtree": holder._reroll_subtree, "mutate_pool": holder._mutate_pool}[kind](rng, "t")
+    return holder.trees["t"] if ok else None
+
+
 def _become(target: blocks.Node, other: blocks.Node) -> None:
     """Turns target into other in place (its parent keeps pointing at it)."""
     target.kind, target.op, target.children = other.kind, other.op, other.children
@@ -205,6 +222,7 @@ class Genome:
         imagery: int = 0,
         recall: int = 0,
         scenes: int = 1,
+        sleep_set: int = 0,
     ):
         self.trees = trees
         self.mutation_weights = mutation_weights
@@ -234,6 +252,9 @@ class Genome:
         self.recall = int(np.clip(recall, 0, 1))
         # Scenes it can keep (a scene library; born 1: one scene, as before).
         self.scenes = int(np.clip(scenes, 1, MAX_SCENES))
+        # Sleep programming (born 0: off): how many of its waking looks it keeps
+        # to test its own tree edits against while it sleeps.
+        self.sleep_set = int(np.clip(sleep_set, 0, MAX_SLEEP_SET))
         self.brain = brain if brain is not None else MosquitoBrain.random(random.Random(0))
         self.pace = int(pace)
         self.colour_channels = int(colour_channels)
@@ -313,6 +334,7 @@ class Genome:
             self.imagery,
             self.recall,
             self.scenes,
+            self.sleep_set,
         )
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
@@ -340,6 +362,23 @@ class Genome:
             return False
         node = rng.choice(consts)
         node.value = float(np.clip(node.value + rng.gauss(0.0, 0.5), -blocks.MAX_CONST, blocks.MAX_CONST))
+        return True
+
+    def _mutate_pool(self, rng: random.Random, channel: str) -> bool:
+        """A receptor leaf becomes a pooled 3x3 patch around it; a pool widens
+        or narrows by a ring (narrowed to nothing, it is one receptor again)."""
+        leaves = [n for n in self._all_nodes(channel) if n.kind in ("cell", "pool")]
+        if not leaves:
+            return False
+        node = rng.choice(leaves)
+        if node.kind == "cell":
+            node.kind, node.value = "pool", 1.0
+        else:
+            r = int(node.value) + rng.choice((-1, 1))
+            if r <= 0:
+                node.kind, node.value = "cell", 0.0
+            else:
+                node.value = float(min(r, max(1, self.receptors // 2)))
         return True
 
     def _mutate_op(self, rng: random.Random, channel: str) -> bool:
@@ -487,6 +526,11 @@ class Genome:
         if choice == "mutate_recall":
             self.recall = 1 - self.recall
             return "brain", choice
+        if choice == "mutate_sleep_set":
+            old = self.sleep_set  # doubling or halving: 0 <-> 16 <-> 32 ...
+            self.sleep_set = (16 if rng.random() < 0.5 else 0) if old == 0 else \
+                int(np.clip(old * 2 if rng.random() < 0.5 else (old // 2 if old > 16 else 0), 0, MAX_SLEEP_SET))
+            return "brain", (choice if self.sleep_set != old else "noop_inapplicable")
         if choice == "mutate_scenes":
             old = self.scenes
             self.scenes = int(np.clip(old + rng.choice((-1, 1)), 1, MAX_SCENES))
@@ -589,6 +633,7 @@ class Genome:
                 "mutate_op": lambda: self._mutate_op(rng, channel),
                 "shrink": lambda: self._shrink(rng, channel),
                 "reroll_subtree": lambda: self._reroll_subtree(rng, channel),
+                "mutate_pool": lambda: self._mutate_pool(rng, channel),
             }[choice]()
             hit_ceiling = False
 
@@ -695,6 +740,7 @@ class Genome:
             "imagery": self.imagery,
             "recall": self.recall,
             "scenes": self.scenes,
+            "sleep_set": self.sleep_set,
         }
 
     @staticmethod
@@ -762,6 +808,7 @@ class Genome:
             imagery=int(data.get("imagery", 0)),
             recall=int(data.get("recall", 0)),
             scenes=int(data.get("scenes", 1)),
+            sleep_set=int(data.get("sleep_set", 0)),
         )
 
 

@@ -1014,6 +1014,7 @@ PAGE = r"""<!doctype html>
       + ` &middot; replays ${t.awake} awake / ${t.asleep} asleep, REM ${(100 * t.rem).toFixed(0)}%, backup ${t.backup}, dream steps ${t.dream_steps}`
       + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet')
       + (z.recall ? ' &middot; recall on' : '')
+      + (z.sleep_set ? ` &middot; teaching itself asleep: ${z.edits[0]} of ${z.edits[1]} edits kept (tests on ${z.sleep_set} looks)` : '')
       + (z.max_scenes > 1 ? ` &middot; scene ${z.scene} of ${z.scenes} (keeps up to ${z.max_scenes})` : '')
       + (!z.asleep && z.woke_by ? ` &middot; woke: ${WOKE[z.woke_by] || z.woke_by}` : '')
       + (z.mismatch > 0.05 ? ` &middot; room changed ${(100 * z.mismatch).toFixed(0)}%` : '');
@@ -1513,7 +1514,7 @@ PAGE = r"""<!doctype html>
 
   // Trees (every tree the genome has).
   const PLANE_NAMES = ['now', 'prev', 'rg', 'by'];
-  function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'cell' ? `${PLANE_NAMES[n.index] || 'p' + n.index}(${n.kx},${n.ky})` : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
+  function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'cell' ? `${PLANE_NAMES[n.index] || 'p' + n.index}(${n.kx},${n.ky})` : n.kind === 'pool' ? `${PLANE_NAMES[n.index] || 'p' + n.index}[${n.kx},${n.ky}]±${Math.round(n.value)}` : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
   // Its perception trees in 3D: a cone tree (Robertson, Mackinlay & Card
   // 1991) -- each node's children on a circle below it -- growing down onto
   // its eye: a leaf that reads a receptor plugs into the retina grid at the
@@ -1526,7 +1527,7 @@ PAGE = r"""<!doctype html>
     const pts = [], links = [];
     const leaves = n => n.children && n.children.length ? n.children.reduce((t, c) => t + leaves(c), 0) : 1;
     let maxK = Math.max(1, half || 1);  // its whole eye, receptors either side of the centre
-    (function scan(n) { if (n.kind === 'cell') maxK = Math.max(maxK, Math.abs(n.kx) + 1, Math.abs(n.ky) + 1); (n.children || []).forEach(scan); })(root);
+    (function scan(n) { if (n.kind === 'cell' || n.kind === 'pool') maxK = Math.max(maxK, Math.abs(n.kx) + 1, Math.abs(n.ky) + 1); (n.children || []).forEach(scan); })(root);
     let depthMax = 0;
     (function place(n, x, y, z, r, depth, parent) {
       const idx = pts.length;
@@ -1545,7 +1546,7 @@ PAGE = r"""<!doctype html>
     })(root, 0, 0, 0, 0.55, 0, null);
     // receptor leaves drop onto the retina plane below the deepest level
     const floor = 0.34 * (depthMax + 1);
-    pts.forEach(q => { if (q.n.kind === 'cell') { q.retina = true; q.x = 0.9 * (q.n.kx + 0.5) / maxK; q.z = 0.9 * (q.n.ky + 0.5) / maxK; q.y = floor; } });
+    pts.forEach(q => { if (q.n.kind === 'cell' || q.n.kind === 'pool') { q.retina = true; q.x = 0.9 * (q.n.kx + 0.5) / maxK; q.z = 0.9 * (q.n.ky + 0.5) / maxK; q.y = floor; } });
     const mid = floor / 2;
     pts.forEach(q => { q.y -= mid; });
     return { pts, links, floor: floor - mid, maxK };
@@ -1584,7 +1585,10 @@ PAGE = r"""<!doctype html>
     P.map((q, i) => [q, i]).sort((x, y) => y[0].d - x[0].d).forEach(([q, i]) => {
       const op = q.n.kind === 'op', r = (q.retina ? 5 : op ? 15 : 12) * q.w * Math.sqrt(T.zoom);
       ctx.globalAlpha = q.fog;
-      if (q.retina) { ctx.fillStyle = `rgb(${PLANE_COL[q.n.index] || '200,200,200'})`; ctx.fillRect(q.sx - r, q.sy - r / 2, 2 * r, r); }
+      if (q.retina) {  // a receptor (a pool: its whole patch, flat on the retina)
+        const k2 = q.n.kind === 'pool' ? 2 * Math.round(q.n.value) + 1 : 1;
+        ctx.fillStyle = `rgba(${PLANE_COL[q.n.index] || '200,200,200'},${q.n.kind === 'pool' ? 0.55 : 1})`; ctx.fillRect(q.sx - r * k2, q.sy - r * k2 / 2, 2 * r * k2, r * k2);
+      }
       else { ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#ffe2d6' : '#ffb4a6'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(q.sx, q.sy, r, 0, 7); ctx.fill(); ctx.stroke(); }
       if (!many || i === hov || op) {
         ctx.fillStyle = q.retina ? `rgb(${PLANE_COL[q.n.index] || '200,200,200'})` : '#cfe3f0';
@@ -1658,8 +1662,8 @@ PAGE = r"""<!doctype html>
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#ffe2d6', r => r.accepted_delta]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', mutate_imagery: '#fff0c0', mutate_recall: '#ffd8a0', mutate_scenes: '#a0e0ff', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_sleep_set', 'mutate_pool', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', mutate_imagery: '#fff0c0', mutate_recall: '#ffd8a0', mutate_scenes: '#a0e0ff', mutate_sleep_set: '#d0b0ff', mutate_pool: '#ffc070', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     // the mutation chart spans its whole row, with a line per kind (their names are long and many)
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"${ch.mutations ? ' style="grid-column: 1 / -1"' : ''}><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +

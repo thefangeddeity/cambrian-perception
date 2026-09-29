@@ -77,6 +77,9 @@ class Node:
         (kx right, ky down; the receptor at kx = 0 is the one just right of
         the centre line). A tree keeps working when its eye grows or shrinks
         a ring; a position its eye doesn't have (yet, or any more) reads 0;
+      - a pooled patch (kind="pool"): the mean of the receptors within
+        value (a radius: 1 = 3x3, 2 = 5x5 ...) of a position, on one plane --
+        a receptive field in one block (a 2026-09-28 panel: Wagner, Land);
       - a constant (kind="const", value=a float already clamped to
         [-MAX_CONST, MAX_CONST] at construction time -- not at eval time,
         so a mutation can never smuggle in an unbounded value).
@@ -115,6 +118,14 @@ class Node:
                 if 0 <= ix < n and 0 <= iy < n:
                     return retina[:, self.index, iy, ix]
             return np.zeros(inputs.shape[0])
+        if self.kind == "pool":
+            if retina is not None and self.index < retina.shape[1]:
+                n, r = retina.shape[2], max(0, int(self.value))
+                ix, iy = self.kx + n // 2, self.ky + n // 2
+                x0, x1, y0, y1 = max(0, ix - r), min(n, ix + r + 1), max(0, iy - r), min(n, iy + r + 1)
+                if x0 < x1 and y0 < y1:
+                    return retina[:, self.index, y0:y1, x0:x1].reshape(retina.shape[0], -1).mean(axis=1)
+            return np.zeros(inputs.shape[0])
         if self.kind == "const":
             return np.full(inputs.shape[0], self.value)
         arity, fn = OPS[self.op]
@@ -132,9 +143,14 @@ class Node:
             "kind": self.kind, "index": self.index, "value": self.value,
             "op": self.op, "children": [c.to_dict() for c in self.children],
         }
-        if self.kind == "cell":
+        if self.kind in ("cell", "pool"):
             d["kx"], d["ky"] = self.kx, self.ky
         return d
+
+    def macs(self) -> int:
+        """Its arithmetic per evaluation: a step per node, plus each receptor a pool averages."""
+        own = (2 * max(0, int(self.value)) + 1) ** 2 if self.kind == "pool" else 1
+        return own + sum(c.macs() for c in self.children)
 
     @staticmethod
     def from_dict(data: dict) -> "Node":

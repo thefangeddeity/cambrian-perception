@@ -21,7 +21,9 @@ colour, loops, stabilizing and sensing prey, the prey sense itself, and the
 whole-field helpers (where motion is, the frame's global shift).
 """
 
+import copy
 import math
+import random
 
 import cv2
 import numpy as np
@@ -362,6 +364,18 @@ class Organism:
         # brain gets what that episode held and where it happened. An inverted
         # index (cell -> episodes), paid per stored cell compared.
         self.recall = bool(getattr(g, "recall", 0))
+        # Its perception tree, its own for this life (sleep programming may
+        # edit it; a 2026-09-28 panel -- Dennett's Popperian step, the Baldwin
+        # effect: what it learns dies with it, lineages that can learn win).
+        # The tree now pays for its arithmetic like the brain: a step per node
+        # plus each receptor a pool averages (Sterling & Laughlin).
+        self.tree = copy.deepcopy(g.trees["response"]) if "response" in getattr(g, "trees", {}) else None
+        self.tree_macs = self.tree.macs() if self.tree is not None else 0
+        self.sleep_set = int(getattr(g, "sleep_set", 0))
+        self.test_set: list = []   # a uniform sample of its waking looks: (retina planes, plain inputs, teacher's label)
+        self.test_seen = 0         # waking looks offered to the sample (Vitter's Algorithm R)
+        self.edits_tried = self.edits_kept = 0
+        self.rng_edit = np.random.default_rng(int(getattr(g, "kc_seed", 0) or 0) + 7919)
         # Scenes (a 2026-09-28 panel; hippocampal remapping, O'Keefe & Moser):
         # a library of places it has lived in, each with its own maps (food,
         # values, where people are expected, the surprise memory, the plants'
@@ -605,6 +619,7 @@ class Organism:
                                    not was_asleep and not boxes and not body.big_change(loom, periph_motion, self.vigilance))
         if was_asleep and body.sleep_clock > SLEEP_SETTLE_S:
             replay_macs += self._dream()
+            replay_macs += self._sleep_program()
         replay_macs += recall_macs + scene_macs
         if (self.sec_per_mac and self.last_out is not None
                 and self.sec_per_mac * (brain.macs() + replay_macs) > self.last_interval / max(1.0, self.fps)):
@@ -642,7 +657,17 @@ class Organism:
         for c in range(len(col) // self.n_cells):
             planes[0, 2 + c] = col[c * self.n_cells:(c + 1) * self.n_cells].reshape(n, n)
         plain = np.concatenate([[self.prev_dx, self.prev_dy], brain.tree_view()])[None, :]
-        response = float(g.evaluate("response", plain, planes)[0])
+        response = float(self.tree.evaluate(plain, planes)[0]) if self.tree is not None else float(g.evaluate("response", plain, planes)[0])
+        if self.sleep_set and not was_asleep:  # its sleep test set: a uniform sample of its waking looks
+            label = prey_lib.prey_in_window(boxes, state.cx, state.cy, *state.half_extents(self.aspect))
+            self.test_seen += 1
+            item = (planes.copy(), plain.copy(), float(label))
+            if len(self.test_set) < self.sleep_set:
+                self.test_set.append(item)
+            else:
+                j = int(self.rng_edit.integers(self.test_seen))
+                if j < self.sleep_set:
+                    self.test_set[j] = item
         # The perception tree's output reaches the brain next gaze; the tree
         # is also graded by its teacher (run_vision.TEACHER_WEIGHT).
         self.prev_response = float(np.tanh(response)) if math.isfinite(response) else 0.0
@@ -752,6 +777,36 @@ class Organism:
         grid = look.reshape(n, n).copy()
         grid[:m, :] = grid[-m:, :] = grid[:, :m] = grid[:, -m:] = 0.0
         return grid.reshape(-1)
+
+    def _sleep_program(self) -> int:
+        """One trial edit to its own tree, tested on its sample of waking looks
+        against the teacher's labels; kept if it predicts them better. Returns
+        the multiply-adds spent (both trees over the sample)."""
+        if not self.sleep_set or self.tree is None:
+            return 0
+        n = self.state.n
+        items = [t for t in self.test_set if t[0].shape[-1] == n]
+        if len(items) < 2:
+            return 0
+        from .genome import edit_tree
+        from .sandbox import Limits
+        lim = Limits()
+        rnd = random.Random(int(self.rng_edit.integers(1 << 30)))
+        cand = edit_tree(self.tree, rnd, getattr(self.g, "n_vars", 3), getattr(self.g, "receptors", n),
+                         lim.max_tree_nodes, lim.max_tree_depth)
+        if cand is None:
+            return 0
+        planes = np.concatenate([t[0] for t in items]); plain = np.concatenate([t[1] for t in items])
+        y = np.array([t[2] for t in items])
+        def err(tree):
+            out = np.tanh(np.nan_to_num(tree.evaluate(plain, planes)))
+            return float(np.mean((0.5 * (1.0 + out) - y) ** 2))
+        cand_macs = cand.macs()
+        self.edits_tried += 1
+        if err(cand) < err(self.tree):
+            self.tree, self.tree_macs = cand, cand_macs
+            self.edits_kept += 1
+        return (self.tree_macs + cand_macs) * len(items)
 
     SCENE_MAPS = ("place", "people_day", "people_night", "value_map", "memory", "variance")
 
@@ -1038,7 +1093,8 @@ class Organism:
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS)
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
-                                 + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)) / REFERENCE_MACS) * self.scarcity,
+                                 + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)
+                                                 + (0 if asleep else self.tree_macs)) / REFERENCE_MACS) * self.scarcity,
                     dt=p["interval"], pace=p["interval"], dt_seconds=p["interval"] / max(1.0, self.fps),
                     field_light=p["field_light"])
         cleared = body.take_cleared()

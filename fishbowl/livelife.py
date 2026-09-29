@@ -72,6 +72,14 @@ def _carry(old: Organism, new: Organism) -> None:
     new.last_replay, new.dreaming = old.last_replay, old.dreaming
     new.nectar, new.sips = old.nectar, old.sips
     new.episode_meta, new.imagery_sums = old.episode_meta, old.imagery_sums
+    # what it taught itself asleep survives a transplant that left its tree alone
+    if old.tree is not None and old.g.trees.get("response") is not None and new.g.trees.get("response") is not None \
+            and old.g.trees["response"].to_dict() == new.g.trees["response"].to_dict():
+        new.tree, new.tree_macs = old.tree, old.tree_macs
+    new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
+    if len(new.test_set) > new.sleep_set:
+        new.test_set = new.test_set[:new.sleep_set]
+    new.edits_tried, new.edits_kept = old.edits_tried, old.edits_kept
     if ob.hidden.shape == nb.hidden.shape:
         nb.hidden = ob.hidden.copy()
         if len(ob.layer_hidden) == len(nb.layer_hidden):
@@ -154,6 +162,7 @@ def _circuits(org: Organism) -> dict:
                     "dreaming": bool(org.dreaming), "imagery": bool(org.imagery),
                     "mismatch": round(float(org.mismatch), 3), "woke_by": b.woke_by,
                     "recall": bool(org.recall), "recalled": org.recalled,
+                    "sleep_set": org.sleep_set, "edits": [org.edits_kept, org.edits_tried],
                     "scene": org.scene + 1 if org.scenes else 1, "scenes": max(1, len(org.scenes)), "max_scenes": org.max_scenes,
                     "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
                                "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}
@@ -245,6 +254,7 @@ class LiveLife:
             missed0 = org.missed
             replays0, seq0, dreams0, sips0, recalls0 = dict(org.replays), org.seq, org.dreams, org.sips, org.recalls
             switches0 = org.scene_switches
+            tried0, kept0 = org.edits_tried, org.edits_kept
             img0 = list(org.imagery_sums)
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
                 prev_v = self.field.last_vector
@@ -296,6 +306,8 @@ class LiveLife:
             batch["sums"]["dreams"] += org.dreams - dreams0
             batch["sums"]["recalls"] += org.recalls - recalls0
             batch["sums"]["scene_switches"] += org.scene_switches - switches0
+            batch["sums"]["edits_tried"] += org.edits_tried - tried0
+            batch["sums"]["edits_kept"] += org.edits_kept - kept0
             batch["pace"] = float(org.last_interval)
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)

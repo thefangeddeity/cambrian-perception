@@ -244,6 +244,19 @@ Sleep replays experience:
   costs a multiply-add per cell per stored scene per look. Born 1: one scene,
   never swapped, as before. Scene switches are counted hourly.
 
+- **Teaching itself asleep (sleep programming)** (inherited, born off; a
+  2026-09-28 panel: Dennett's Popperian creature, Friston's structure
+  learning in sleep, the Baldwin effect). It keeps a uniform sample of its
+  waking looks (Vitter's Algorithm R): each look's retina and the teacher's
+  label. How many it keeps is inherited (`sleep_set`: 0, 16, 32 ... doubling).
+  Asleep and settled, it tries one edit to its own perception tree per look,
+  with the same operators evolution uses, and keeps the edit if the tree
+  then predicts the teacher better on that sample. It pays for both trees
+  over the sample. What it teaches itself lasts this life only (a transplant
+  that leaves its tree alone keeps it); lineages that can learn are what
+  evolution favours. On a synthetic test, 400 sleeping edits cut its error
+  against the teacher sixfold.
+
 - **Imagery, and seeing its dreams** (inherited, born off): each Kenyon cell
   learns a prototype, the average of what its eye saw (on a 16×16 grid
   relative to the eye) when it fired: a way back from memory to the eye, like
@@ -255,3 +268,12 @@ Sleep replays experience:
 
 It can also replay awake, in quiet moments. How much of each is inherited,
 starting at 0.
+
+## The perception tree pays for itself
+
+The tree now pays for its arithmetic like the brain does (a 2026-09-28
+panel, Sterling & Laughlin): a step per node per look, plus each receptor a
+`pool` averages. Before this, a 1000-node tree ran free. `pool` is a block
+that averages a square patch of receptors on one plane: a receptive field in
+a single block, so evolution (and sleep programming) can find one in a
+single step instead of chaining a dozen adds (Wagner, Land).
