@@ -80,6 +80,10 @@ class Node:
       - a pooled patch (kind="pool"): the mean of the receptors within
         value (a radius: 1 = 3x3, 2 = 5x5 ...) of a position, on one plane --
         a receptive field in one block (a 2026-09-28 panel: Wagner, Land);
+      - an oriented pool (kind="edge"): the same patch split by a line through
+        its centre at `angle` (radians); the mean of one side minus the mean of
+        the other -- an edge detector at that orientation, as V1's simple
+        cells and insects' oriented cells are (a 2026-09-29 panel);
       - a constant (kind="const", value=a float already clamped to
         [-MAX_CONST, MAX_CONST] at construction time -- not at eval time,
         so a mutation can never smuggle in an unbounded value).
@@ -93,6 +97,7 @@ class Node:
     children: list["Node"] = field(default_factory=list)
     kx: int = 0
     ky: int = 0
+    angle: float = 0.0  # an oriented pool's orientation (radians)
 
     def node_count(self) -> int:
         return 1 + sum(child.node_count() for child in self.children)
@@ -126,6 +131,19 @@ class Node:
                 if x0 < x1 and y0 < y1:
                     return retina[:, self.index, y0:y1, x0:x1].reshape(retina.shape[0], -1).mean(axis=1)
             return np.zeros(inputs.shape[0])
+        if self.kind == "edge":
+            if retina is not None and self.index < retina.shape[1]:
+                n, r = retina.shape[2], max(1, int(self.value))
+                ix, iy = self.kx + n // 2, self.ky + n // 2
+                x0, x1, y0, y1 = max(0, ix - r), min(n, ix + r + 1), max(0, iy - r), min(n, iy + r + 1)
+                if x0 < x1 and y0 < y1:
+                    ys, xs = np.mgrid[y0 - iy:y1 - iy, x0 - ix:x1 - ix]
+                    side = xs * np.cos(self.angle) + ys * np.sin(self.angle)
+                    pos, neg = side > 1e-9, side < -1e-9
+                    if pos.any() and neg.any():
+                        patch = retina[:, self.index, y0:y1, x0:x1]
+                        return patch[:, pos].mean(axis=1) - patch[:, neg].mean(axis=1)
+            return np.zeros(inputs.shape[0])
         if self.kind == "const":
             return np.full(inputs.shape[0], self.value)
         arity, fn = OPS[self.op]
@@ -143,13 +161,15 @@ class Node:
             "kind": self.kind, "index": self.index, "value": self.value,
             "op": self.op, "children": [c.to_dict() for c in self.children],
         }
-        if self.kind in ("cell", "pool"):
+        if self.kind in ("cell", "pool", "edge"):
             d["kx"], d["ky"] = self.kx, self.ky
+        if self.kind == "edge":
+            d["angle"] = round(float(self.angle), 4)
         return d
 
     def macs(self) -> int:
         """Its arithmetic per evaluation: a step per node, plus each receptor a pool averages."""
-        own = (2 * max(0, int(self.value)) + 1) ** 2 if self.kind == "pool" else 1
+        own = (2 * max(0 if self.kind == "pool" else 1, int(self.value)) + 1) ** 2 if self.kind in ("pool", "edge") else 1
         return own + sum(c.macs() for c in self.children)
 
     @staticmethod
@@ -158,5 +178,5 @@ class Node:
             kind=data["kind"], index=data.get("index", 0),
             value=data.get("value", 0.0), op=data.get("op", ""),
             children=[Node.from_dict(c) for c in data.get("children", [])],
-            kx=int(data.get("kx", 0)), ky=int(data.get("ky", 0)),
+            kx=int(data.get("kx", 0)), ky=int(data.get("ky", 0)), angle=float(data.get("angle", 0.0)),
         )

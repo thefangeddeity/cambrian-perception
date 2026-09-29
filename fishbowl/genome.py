@@ -172,7 +172,7 @@ def edit_tree(tree: blocks.Node, rng: random.Random, n_vars: int, receptors: int
 def _become(target: blocks.Node, other: blocks.Node) -> None:
     """Turns target into other in place (its parent keeps pointing at it)."""
     target.kind, target.op, target.children = other.kind, other.op, other.children
-    target.index, target.value, target.kx, target.ky = other.index, other.value, other.kx, other.ky
+    target.index, target.value, target.kx, target.ky, target.angle = other.index, other.value, other.kx, other.ky, other.angle
 
 
 def random_genome(rng: random.Random, n_vars: int = 3, channels: tuple[str, ...] = DEFAULT_CHANNELS,
@@ -381,19 +381,36 @@ class Genome:
 
     def _mutate_pool(self, rng: random.Random, channel: str) -> bool:
         """A receptor leaf becomes a pooled 3x3 patch around it; a pool widens
-        or narrows by a ring (narrowed to nothing, it is one receptor again)."""
-        leaves = [n for n in self._all_nodes(channel) if n.kind in ("cell", "pool")]
+        or narrows by a ring (narrowed to nothing, it is one receptor again),
+        or becomes oriented (an edge detector at a random angle); an oriented
+        pool turns (by a constant's mutation step, 0.5 rad), widens or narrows,
+        or loses its orientation."""
+        leaves = [n for n in self._all_nodes(channel) if n.kind in ("cell", "pool", "edge")]
         if not leaves:
             return False
         node = rng.choice(leaves)
+        ring = lambda: int(node.value) + rng.choice((-1, 1))  # noqa: E731
+        cap = max(1, self.receptors // 2)
         if node.kind == "cell":
             node.kind, node.value = "pool", 1.0
-        else:
-            r = int(node.value) + rng.choice((-1, 1))
-            if r <= 0:
-                node.kind, node.value = "cell", 0.0
+        elif node.kind == "pool":
+            if rng.random() < 0.5:
+                node.kind, node.angle = "edge", rng.uniform(0.0, math.pi)
+                node.value = float(max(1, int(node.value)))
             else:
-                node.value = float(min(r, max(1, self.receptors // 2)))
+                r = ring()
+                if r <= 0:
+                    node.kind, node.value = "cell", 0.0
+                else:
+                    node.value = float(min(r, cap))
+        else:
+            what = rng.choice(("turn", "ring", "unorient"))
+            if what == "turn":
+                node.angle = float((node.angle + rng.gauss(0.0, 0.5)) % math.pi)
+            elif what == "ring":
+                node.value = float(min(max(1, ring()), cap))
+            else:
+                node.kind = "pool"
         return True
 
     def _mutate_op(self, rng: random.Random, channel: str) -> bool:

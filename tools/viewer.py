@@ -1682,7 +1682,7 @@ PAGE = r"""<!doctype html>
 
   // Trees (every tree the genome has).
   const PLANE_NAMES = ['now', 'prev', 'rg', 'by'];
-  function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'cell' ? `${PLANE_NAMES[n.index] || 'p' + n.index}(${n.kx},${n.ky})` : n.kind === 'pool' ? `${PLANE_NAMES[n.index] || 'p' + n.index}[${n.kx},${n.ky}]±${Math.round(n.value)}` : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
+  function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'cell' ? `${PLANE_NAMES[n.index] || 'p' + n.index}(${n.kx},${n.ky})` : n.kind === 'pool' ? `${PLANE_NAMES[n.index] || 'p' + n.index}[${n.kx},${n.ky}]±${Math.round(n.value)}` : n.kind === 'edge' ? `${PLANE_NAMES[n.index] || 'p' + n.index}/${Math.round((n.angle || 0) * 180 / Math.PI)}°[${n.kx},${n.ky}]±${Math.round(n.value)}` : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
   // Its perception trees in 3D: a cone tree (Robertson, Mackinlay & Card
   // 1991) -- each node's children on a circle below it -- growing down onto
   // its eye: a leaf that reads a receptor plugs into the retina grid at the
@@ -1695,7 +1695,7 @@ PAGE = r"""<!doctype html>
     const pts = [], links = [];
     const leaves = n => n.children && n.children.length ? n.children.reduce((t, c) => t + leaves(c), 0) : 1;
     let maxK = Math.max(1, half || 1);  // its whole eye, receptors either side of the centre
-    (function scan(n) { if (n.kind === 'cell' || n.kind === 'pool') maxK = Math.max(maxK, Math.abs(n.kx) + 1, Math.abs(n.ky) + 1); (n.children || []).forEach(scan); })(root);
+    (function scan(n) { if (n.kind === 'cell' || n.kind === 'pool' || n.kind === 'edge') maxK = Math.max(maxK, Math.abs(n.kx) + 1, Math.abs(n.ky) + 1); (n.children || []).forEach(scan); })(root);
     let depthMax = 0;
     (function place(n, x, y, z, r, depth, parent) {
       const idx = pts.length;
@@ -1714,7 +1714,7 @@ PAGE = r"""<!doctype html>
     })(root, 0, 0, 0, 0.55, 0, null);
     // receptor leaves drop onto the retina plane below the deepest level
     const floor = 0.34 * (depthMax + 1);
-    pts.forEach(q => { if (q.n.kind === 'cell' || q.n.kind === 'pool') { q.retina = true; q.x = 0.9 * (q.n.kx + 0.5) / maxK; q.z = 0.9 * (q.n.ky + 0.5) / maxK; q.y = floor; } });
+    pts.forEach(q => { if (q.n.kind === 'cell' || q.n.kind === 'pool' || q.n.kind === 'edge') { q.retina = true; q.x = 0.9 * (q.n.kx + 0.5) / maxK; q.z = 0.9 * (q.n.ky + 0.5) / maxK; q.y = floor; } });
     const mid = floor / 2;
     pts.forEach(q => { q.y -= mid; });
     return { pts, links, floor: floor - mid, maxK };
@@ -1759,8 +1759,13 @@ PAGE = r"""<!doctype html>
       const op = q.n.kind === 'op', r = (q.retina ? 5 : op ? 15 : 12) * q.w * Math.sqrt(T.zoom);
       ctx.globalAlpha = q.fog;
       if (q.retina) {  // a receptor (a pool: its whole patch, flat on the retina)
-        const k2 = q.n.kind === 'pool' ? 2 * Math.round(q.n.value) + 1 : 1;
-        ctx.fillStyle = `rgba(${PLANE_COL[q.n.index] || '200,200,200'},${q.n.kind === 'pool' ? 0.55 : 1})`; ctx.fillRect(q.sx - r * k2, q.sy - r * k2 / 2, 2 * r * k2, r * k2);
+        const k2 = q.n.kind === 'pool' || q.n.kind === 'edge' ? 2 * Math.round(q.n.value) + 1 : 1;
+        ctx.fillStyle = `rgba(${PLANE_COL[q.n.index] || '200,200,200'},${k2 > 1 ? 0.55 : 1})`; ctx.fillRect(q.sx - r * k2, q.sy - r * k2 / 2, 2 * r * k2, r * k2);
+        if (q.n.kind === 'edge') {  // its orientation: the line that splits its patch
+          const a = q.n.angle || 0, L = r * k2;
+          ctx.strokeStyle = `rgb(${PLANE_COL[q.n.index] || '200,200,200'})`; ctx.lineWidth = 1.5; ctx.beginPath();
+          ctx.moveTo(q.sx - L * Math.sin(a), q.sy + L * Math.cos(a) / 2); ctx.lineTo(q.sx + L * Math.sin(a), q.sy - L * Math.cos(a) / 2); ctx.stroke();
+        }
       }
       else { ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#ffe2d6' : '#ffb4a6'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(q.sx, q.sy, r, 0, 7); ctx.fill(); ctx.stroke(); }
       if (!many || i === hov || op) {
