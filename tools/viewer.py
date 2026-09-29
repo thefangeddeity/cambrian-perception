@@ -671,6 +671,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   * { box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 16px 20px 40px; }
   header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 22px; margin-bottom: 14px; }
+  .chips { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 22px; }
   h1 { font-size: 17px; font-weight: normal; color: var(--green); margin: 0; }
   .chip { color: var(--dim); } .chip b { color: var(--cyan); font-weight: normal; }
   h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--cyan); margin: 0 0 4px; font-weight: normal; }
@@ -727,20 +728,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
 <header>
   <h1>cambrian-perception</h1>
   <span class="chip">generation <b id="h-gen">--</b></span>
-  <span class="chip">fitness <b id="h-fit">--</b></span>
-  <span class="chip">peak ever <b id="h-peak">--</b></span>
-  <span class="chip">watching <b id="h-src">--</b></span>
-  <span class="chip">gaze size <b id="h-look">--</b></span>
-  <span class="chip">pace <b id="h-pace">--</b></span>
-  <span class="chip">colour <b id="h-colour">--</b></span>
-  <span class="chip">stabilizer <b id="h-stab">--</b></span>
-  <span class="chip">zoom lens <b id="h-zoom">--</b></span>
-  <span class="chip">metabolism <b id="h-metab">--</b></span>
-  <span class="chip" title="its feeding pump: seconds of waking life each second on a host buys">pump <b id="h-pump">--</b></span>
-  <span class="chip">vigilance <b id="h-vigil">--</b></span>
-  <span class="chip">replay <b id="h-replay">--</b></span>
-  <span class="chip">prey sense <b id="h-prey">--</b></span>
-  <span class="chip">CPU quota <b id="h-quota">--</b></span>
   <span class="chip" id="h-stale"></span>
 </header>
 
@@ -861,6 +848,26 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead field, corner / edge</td><td>Long stretches of nothing; its gaze centre in a corner or on an edge.</td></tr>
     <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores, movement cost</td><td>Measured, not scored.</td></tr>
   </table>
+</div>
+
+<div class="panel" style="margin-top:16px" id="vitals-panel">
+  <h2>genome and host</h2>
+  <div class="chips">
+  <span class="chip">fitness <b id="h-fit">--</b></span>
+  <span class="chip">peak ever <b id="h-peak">--</b></span>
+  <span class="chip">watching <b id="h-src">--</b></span>
+  <span class="chip">gaze size <b id="h-look">--</b></span>
+  <span class="chip">pace <b id="h-pace">--</b></span>
+  <span class="chip">colour <b id="h-colour">--</b></span>
+  <span class="chip">stabilizer <b id="h-stab">--</b></span>
+  <span class="chip">zoom lens <b id="h-zoom">--</b></span>
+  <span class="chip">metabolism <b id="h-metab">--</b></span>
+  <span class="chip" title="its feeding pump: seconds of waking life each second on a host buys">pump <b id="h-pump">--</b></span>
+  <span class="chip">vigilance <b id="h-vigil">--</b></span>
+  <span class="chip">replay <b id="h-replay">--</b></span>
+  <span class="chip">prey sense <b id="h-prey">--</b></span>
+  <span class="chip">CPU quota <b id="h-quota">--</b></span>
+  </div>
 </div>
 
 <script>
@@ -2665,7 +2672,7 @@ def main() -> int:
 
     global PAGE
     if _livecam_installed():  # checked once, at start
-        PAGE = PAGE.replace('<span class="chip" id="h-stale">', SUITE_CHIP + '<span class="chip" id="h-stale">', 1)
+        PAGE = PAGE.replace('<span class="chip">CPU quota', SUITE_CHIP + '<span class="chip">CPU quota', 1)
     server = QuietHTTPServer((args.host, args.port), Handler)
     print(f"Viewer running at http://{args.host}:{args.port}/ (polls {LIVE_STATUS_PATH})")
     try:

@@ -104,3 +104,9 @@ peak ever), its body per run, its homeostatic drive (lower is healthier), gaze
 size, resting pace (every Nth frame), the CPU quota the resource handler
 grants (grows with real improvement, shrinks under strain), perception tree
 size, blood and nectar per hour, and which kinds of change evolution accepted.
+
+**Genome and host** (the last card). Its fitness and peak ever, what it is
+watching, its inherited traits (gaze size, resting pace, colour, stabilizer,
+zoom lens, metabolism, feeding pump, vigilance, replay, prey sense), the CPU
+quota its host grants, and whether the livecam is off while it runs.
+
