@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 71  # ... + terrain at its gaze + how near what it looks at is + how near it feels it is + how soon it will reach it + turning, tilting, heading sin/cos + its speed, acceleration, place value; 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
+BASE_INPUTS = 72  # ... + how much of its view rides with it + terrain at its gaze + how near what it looks at is + how near it feels it is + how soon it will reach it + turning, tilting, heading sin/cos + its speed, acceleration, place value; 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
@@ -91,6 +91,7 @@ ARCHETYPE_INPUTS = (53, 54, 55, 56)
 COLLICULUS_INPUTS = (57, 58, 59)  # where its collicular priority map's winner is, and how strong (organism.py)  # its archetype heads: mushroom-body readouts taught by the detector's classes
 TURN_INPUT, TILT_INPUT = 64, 65  # its vestibular sense: yaw and roll per look, in its half field of view (organism.py)
 EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT = 68, 69, 70  # its entorhinal map (entorhinal.py)
+RIDING_INPUT = 71  # the share of its view that is its local frame, riding with it (organism.py)
 HEADING_INPUTS = (66, 67)  # its compass (head direction): sin, cos of its heading
 CONTACT_INPUT = 63  # how soon what it looks at will reach it (Lee's tau, in its own looks; organism.py)
 FELT_NEARNESS_INPUT = 62  # its terrain head's own estimate of nearness, from its eye (organism.py): a sense that needs no teacher
@@ -257,6 +258,7 @@ class MosquitoBrain:
         ego_speed=0.0,
         acceleration=0.0,
         map_value=0.0,
+        riding=0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -290,6 +292,7 @@ class MosquitoBrain:
             turning, tilting,  # its vestibular sense
             *heading,  # its compass
             ego_speed, acceleration, map_value,  # its speed cells, its otolith, what this place on its map has been worth
+            riding,  # how much of its view rides with it (its local frame)
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):

@@ -63,7 +63,7 @@ def memory_of(org: Organism) -> tuple:
         return None if a is None else np.array(a, dtype=float, copy=True)
     return (c(org.memory), c(org.variance), c(org.mb.weights), c(org.place), c(org.people_day),
             c(org.people_night), c(org.mb.danger_weights), c(org.value_map), dict(org.nectar),
-            np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()), c(org.ground), c(org.mb.heads), c(org.terrain))
+            np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()), c(org.ground), c(org.mb.heads), c(org.terrain), c(org.frame_map))
 
 
 def _carry(old: Organism, new: Organism) -> None:
@@ -198,6 +198,7 @@ def _circuits(org: Organism) -> dict:
                      "speed": round(float(org.ec.speed), 3) if org.ec is not None else None,
                      "acceleration": round(float(org.ec.acceleration), 3) if org.ec is not None else None,
                      "place_value": round(float(org.ec.value()), 3) if org.ec is not None else None, "camera_moving": bool(org.cam_moving),
+                     "riding": round(float(org.riding), 3), "local_frame": None if org.local is None else [int(x) for x in org.local],
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
                      "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]

@@ -1049,6 +1049,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
                    s.speed != null && Math.abs(s.speed) > 0.01 ? `moving ${s.speed.toFixed(2)} eye-heights/s` : '',
                    s.acceleration != null && Math.abs(s.acceleration) > 0.05 ? (s.acceleration > 0 ? 'starting' : 'stopping') : '',
                    s.place_value != null && Math.abs(s.place_value) > 0.01 ? `this place: ${s.place_value.toFixed(2)}` : '',
+                   s.riding ? `riding: ${Math.round(100 * s.riding)}% of its view` : '',
                    s.contact ? `<b style="color:#ff6f8a">approaching</b>: contact in ~${Math.max(1, Math.round(1 / s.contact))} looks` : '',
                    s.felt_nearness ? `it feels: ${s.felt_nearness >= 0.67 ? 'near' : s.felt_nearness >= 0.33 ? 'mid' : 'far'} (${s.felt_nearness.toFixed(2)})` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
@@ -1535,6 +1536,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
           ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.stroke(); ctx.restore();
         }
       }
+      // its local frame (what rides with it: a cab, a bonnet), shaded where its eye sees it
+      if (SP3.pov && sn.local_frame && sn.local_frame.length === rows * cols) {
+        ctx.fillStyle = 'rgba(70, 76, 88, 0.55)';
+        sn.local_frame.forEach((v, k) => { if (v) ctx.fillRect(Math.floor((k % cols) * W / cols), Math.floor(Math.floor(k / cols) * H / rows), Math.ceil(W / cols), Math.ceil(H / rows)); });
+      }
       // its gaze: a reticle where it looks (from its eye, a frame point is a screen point), the ring
       // tightening as something approaches (tau); beside it the nearness its ground model teaches and the one it feels
       if (SP3.pov && d.fovea_cx != null) {
@@ -1553,7 +1559,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
           ctx.fillText(`contact ~${Math.max(1, Math.round(1 / ct))} looks`, gx, gy - rr - 4); }
       }
       note = `horizon ${Math.round(100 * hz)}% down &middot; <b style="color:#ff6f8a">hosts</b> <b style="color:#9ccf7a">plants</b> <b style="color:#a0a0aa">things</b>`
-             + (nCut ? ` &middot; dashed: cut by the frame` : '') + (sn.parallax && sn.parallax.some(v => v > 0.05) ? ' &middot; <b style="color:#7fd4ff">parallax</b>' : '');
+             + (nCut ? ` &middot; dashed: cut by the frame` : '') + (sn.parallax && sn.parallax.some(v => v > 0.05) ? ' &middot; <b style="color:#7fd4ff">parallax</b>' : '')
+             + (sn.local_frame && sn.local_frame.some(Boolean) ? ' &middot; <b style="color:#8a92a2">rides with it</b>' : '');
     }
     // its path (path integration: speed x heading), top left; north up = its first heading; its facing now as a tick
     const path = d.path;

@@ -433,6 +433,27 @@ can afford more and bigger ones.
   still 0, moving 0.28 eye-heights/s, +0.33 at a start and -0.29 at a stop, 3.9
   eye-heights straight ahead. Next (proposed): boundary vector cells (Burgess),
   a successor representation (Stachenfeld).
+- **Its frames of reference** (2026-09-29; Galileo's ship; Jeffery, Burgess,
+  Wolpert): it tells what rides with it (a tram's cab, a bonnet, the glass)
+  from the world it moves through, the way a passenger does. It learns this while
+  it moves and remembers it when it stops. On each frame where it moves, each
+  corner of its ego-motion fit that the world's motion should have moved at least a
+  pixel votes. A corner that stayed put votes local frame; one that moved with
+  the world (within RANSAC's pixel) votes world; one that moved some other way
+  votes nothing. Votes are counted per field cell, one map a life (its body is
+  the same in every place), and forgotten at its room model's rate
+  (`MISMATCH_TAU_S`) in seconds of moving only, so a stop forgets nothing. A
+  cell is its local frame when its still votes beat half at the standard 5%
+  test. Tau ignores corners there (what rides with it can't approach it), its
+  colliculus gives them no pull, and the share of its view that rides with it
+  is a sense (riding, input 71; seeded). Monocular: a second eye would add one
+  more cue, weighed by its reliability. Known limit: on a long straight run,
+  far scenery near the focus of expansion barely moves and can look as if it
+  rides along, as the moon seems to follow a car. Turns vote it back to the world. The map
+  is memory item 15. Tested on a synthetic ride with a still dashboard band:
+  its corners vote local (mean height 0.91 of the frame; the band starts at
+  0.75), the world's vote world, nothing votes once stopped; the band's cells
+  are marked (riding 13%) and still marked 200 frames after the stop.
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

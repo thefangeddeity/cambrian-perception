@@ -283,6 +283,15 @@ yardsticks are found.
 | grid cells per module | 16 | B | |
 | place cells | 128, 7 inputs each, 5% firing | S | as its Kenyon cells (7 inputs, ~5%) |
 
+### Its frames of reference (fishbowl/organism.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| a vote | the world's fit predicts >= 1 px; still < 1 px, or with the world within 1 px | S | RANSAC's own reprojection threshold, as its ego-motion |
+| forgetting | `MISMATCH_TAU_S`, in seconds moving only | S | its slow model of the room's rate; still, it forgets nothing |
+| local frame | still votes beat half at the 5% test (z > 1.96) | S | a binomial share against 1/2 |
+| one map a life | not per scene | P | its body is the same in every place (Jeffery) |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

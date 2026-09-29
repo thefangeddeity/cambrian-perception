@@ -578,7 +578,8 @@ def evaluate_genome(
         # Memory carried to the next generation: surprise, the mushroom body's
         # learning, the place map and where people are expected (day, night).
         "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night, org.mb.danger_weights,
-                    org.value_map, dict(org.nectar), org.mb.proto, org.library(), org.ground, org.mb.heads, org.terrain),
+                    org.value_map, dict(org.nectar), org.mb.proto, org.library(), org.ground, org.mb.heads, org.terrain,
+                    org.frame_map),
         # Per frame: its alarm (the warning) and the intruder sense, for the viewer.
         "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
         "replays": dict(org.replays),
@@ -956,7 +957,10 @@ class World:
             ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"], ws["mismatch_map"] = reflexes.mismatch_score(
                 wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S, SURPRISE_SIGMAS, NOISE_FLOOR)
             ws["shift_r"] = np.zeros(len(self.frames[::pace]))
-            ws["shift_x"], ws["shift_y"], ws["shift_s"] = _global_shifts(self.frames[::pace], None, ws["shift_r"])
+            votes = []
+            ws["shift_x"], ws["shift_y"], ws["shift_s"] = _global_shifts(self.frames[::pace], None, ws["shift_r"], votes)
+            ws["frame_votes"] = np.empty(len(votes), dtype=object)  # ragged: each frame's own corners
+            ws["frame_votes"][:] = votes
             dv = np.abs(np.diff(np.asarray(wv, dtype=float), axis=0))
             ws["motion_map"] = np.clip(np.vstack([np.zeros((1, dv.shape[1])), dv]) * PERIPH_MOTION_GAIN, 0.0, 1.0) if len(wv) > 1 \
                 else np.zeros((len(wv), np.asarray(wv).shape[-1]))
@@ -1019,6 +1023,7 @@ def _pack_scenes(lib) -> dict | None:
             "library": [{**{k: arr(s.get(k)) for k in ("gist", "place", "people_day", "people_night", "value_map", "memory", "variance", "ground", "terrain")},
                          "gist_shape": list(np.shape(s["gist"])), "last": float(s.get("last", 0.0)),
                          "heading": None if s.get("heading") is None else round(float(s["heading"]), 5),
+                         "position": None if s.get("position") is None else [round(float(v), 4) for v in s["position"]],
                          "nectar": {k: round(float(v), 4) for k, v in (s.get("nectar") or {}).items()}}
                         for s in lib["library"]]}
 
@@ -1035,6 +1040,8 @@ def _unpack_scenes(packed):
         sc["last"], sc["nectar"] = float(s.get("last", 0.0)), dict(s.get("nectar") or {})
         if s.get("heading") is not None:
             sc["heading"] = float(s["heading"])
+        if s.get("position") is not None:
+            sc["position"] = [float(v) for v in s["position"]]
         lib.append(sc)
     return {"current": int(packed["current"]), "library": lib}
 
@@ -1075,7 +1082,8 @@ def memory_from_checkpoint(checkpoint: dict | None):
             _unpack_scenes(m.get("scenes")),
             np.array(m["ground"], dtype=float) if m.get("ground") else None,
             np.array(m["heads"], dtype=float) if m.get("heads") else None,
-            np.array(m["terrain"], dtype=float) if m.get("terrain") else None)
+            np.array(m["terrain"], dtype=float) if m.get("terrain") else None,
+            np.array(m["frames"], dtype=float) if m.get("frames") else None)
 
 
 def _for_evaluation(memory):
@@ -1375,7 +1383,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                        "scenes": _pack_scenes(memory_now[10]) if len(memory_now) > 10 else None,
                        "ground": np.round(memory_now[11], 5).tolist() if len(memory_now) > 11 and memory_now[11] is not None else None,
                        "heads": np.round(memory_now[12], 5).tolist() if len(memory_now) > 12 and memory_now[12] is not None else None,
-                       "terrain": np.round(memory_now[13], 5).tolist() if len(memory_now) > 13 and memory_now[13] is not None else None}
+                       "terrain": np.round(memory_now[13], 5).tolist() if len(memory_now) > 13 and memory_now[13] is not None else None,
+                       # its frames of reference: still and world votes per field cell (item 15)
+                       "frames": np.round(memory_now[14], 3).tolist() if len(memory_now) > 14 and memory_now[14] is not None else None}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })

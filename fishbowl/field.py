@@ -73,12 +73,13 @@ class FieldSignals:
         size = org.shift_size(grey.shape)
         small = cv2.resize(grey, size, interpolation=cv2.INTER_AREA).astype(np.float32)
         shift = (0.0, 0.0)
+        votes = []
         if self.prev_small is not None and self.prev_small.shape == small.shape:
             if self.window is None or self.window.shape != small.shape:
                 self.window = cv2.createHanningWindow(size, cv2.CV_32F)
             shift = org.global_shift(self.prev_small.copy(), small.copy(), self.window)  # copies: phase correlation windows its inputs in place
             rl = []
-            raw = org.global_scale(self.prev_small, small, None, rl) if self.expansion else 0.0
+            raw = org.global_scale(self.prev_small, small, None, rl, votes) if self.expansion else 0.0
             roll_raw = rl[0] if rl else 0.0
             shift = (shift[0], shift[1], org.replicated(raw, self._last_scale), org.replicated(roll_raw, self._last_roll))
             self._last_scale, self._last_roll = raw, roll_raw
@@ -87,5 +88,6 @@ class FieldSignals:
         self.t += 1
         sig = {"expansion": expansion, "motion_energy": motion, "motion_cx": mcx, "motion_cy": mcy,
                "field_light": float(v.mean()), "mismatch": mismatch, "mismatch_cx": mmx, "mismatch_cy": mmy,
-               "structure": v - float(v.mean()), "parallax": parallax, "motion_map": motion_map, "mismatch_map": mismatch_map}
+               "structure": v - float(v.mean()), "parallax": parallax, "motion_map": motion_map, "mismatch_map": mismatch_map,
+               "frame_votes": votes[0] if votes else None}
         return sig, shift

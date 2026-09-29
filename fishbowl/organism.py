@@ -280,7 +280,8 @@ def _similarity(a: np.ndarray, b: np.ndarray):
     return float(np.log(k)), math.sqrt(sigma2 / max(spread, 1e-9)) / k, inl, m
 
 
-def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | None = None, roll: list | None = None) -> float:
+def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | None = None, roll: list | None = None,
+                 votes: list | None = None) -> float:
     """The whole frame's expansion between two small frames (log scale; + when
     the camera walks forward -- Gibson's outflow of forward locomotion): corner
     features tracked from one to the other (Lucas-Kanade), a similarity
@@ -290,8 +291,18 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
     cab, a car's bonnet -- that still part travels with the camera, and the
     world's motion is what the rest agree on. An expansion counts when it is
     beyond twice its standard error (the fit's own precision), and within
-    SHIFT_MAX, as the shift is."""
+    SHIFT_MAX, as the shift is.
+
+    votes (its frames of reference; a 2026-09-29 panel -- Galileo's ship,
+    Jeffery, Burgess): each tracked corner where the world's fitted motion
+    should have moved it at least a pixel says which frame it belongs to --
+    it stayed put (its local frame: the cab rides with it), or it moved as the
+    world did (within RANSAC's own pixel). What moved some other way (moving on
+    its own) says nothing. Appended as (x, y, +1 local / -1 world), frame
+    fractions."""
     a, b = prev_small.astype(np.uint8), cur_small.astype(np.uint8)
+    if votes is not None:
+        votes.append(None)
     p0 = cv2.goodFeaturesToTrack(a, maxCorners=100, qualityLevel=0.01, minDistance=5)
     if p0 is None or len(p0) < 8:
         if roll is not None:
@@ -318,6 +329,14 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
         world = _similarity(pa[~inl], pb[~inl])
         if world is not None:
             s, se, m = world[0], world[1], world[3]
+    if votes is not None:
+        expect = pa @ m[:, :2].T + m[:, 2]
+        should = np.hypot(*(expect - pa).T) >= 1.0
+        moved = np.hypot(*(pb - pa).T)
+        off = np.hypot(*(pb - expect).T)
+        v = np.where(should & (moved < 1.0) & (off >= 1.0), 1.0, np.where(should & (off < 1.0) & (moved >= 1.0), -1.0, 0.0))
+        h, w = prev_small.shape[:2]
+        votes[-1] = np.column_stack([pa[:, 0] / w, pa[:, 1] / h, v])[v != 0.0].astype(np.float32)
     if roll is not None:
         # its roll: the camera's rotation about its view (+ clockwise), the
         # opposite of the world's on screen; for a similarity its error equals
@@ -386,7 +405,8 @@ def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, sh
     return out
 
 
-def global_shifts(frames: list[np.ndarray], tracks: list | None = None, rolls: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def global_shifts(frames: list[np.ndarray], tracks: list | None = None, rolls: np.ndarray | None = None,
+                  votes: list | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The whole frame's shift (and expansion) from frame k-1 to frame k, for a recording."""
     n = len(frames)
     sx, sy, ss = np.zeros(n), np.zeros(n), np.zeros(n)
@@ -397,12 +417,17 @@ def global_shifts(frames: list[np.ndarray], tracks: list | None = None, rolls: n
     prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
     if tracks is not None:
         tracks.append(None)
+    if votes is not None:
+        votes.append(None)
     for k in range(1, n):
         cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
         sx[k], sy[k] = global_shift(prev.copy(), cur.copy(), window)  # copies: phase correlation windows its inputs in place
         keep = [] if tracks is not None else None
         rl = [] if rolls is not None else None
-        ss[k] = global_scale(prev, cur, keep, rl)
+        vt = [] if votes is not None else None
+        ss[k] = global_scale(prev, cur, keep, rl, vt)
+        if votes is not None:
+            votes.append(vt[0] if vt else None)
         if rolls is not None:
             rolls[k] = rl[0] if rl else 0.0
         if tracks is not None:
@@ -648,6 +673,20 @@ class Organism:
         # plane's own: early vision, no gene. Kept per scene (item 14).
         t_mem = memory[13] if memory is not None and len(memory) > 13 else None
         self.terrain = np.array(t_mem, dtype=float) if t_mem is not None and len(t_mem) else None
+        # Its frames of reference (a 2026-09-29 panel -- Galileo's ship, Jeffery,
+        # Burgess, Wolpert): per field cell, how often a corner there stayed put
+        # while the world moved (its local frame: the cab, the bonnet, the
+        # glass) and how often one moved with the world -- (2, cells) counts,
+        # voted only while it moves (global_scale), and remembered while it is
+        # still: it learns the frames moving and keeps them stopped. One map a
+        # life, not per scene: its body is the same in every place. Forgotten
+        # at its slow model of the room's rate (MISMATCH_TAU_S), in seconds
+        # moving only. A cell is its local frame when its share of still votes
+        # beats a half at the standard 5% test. Early vision, no gene (item 15).
+        f_mem = memory[14] if memory is not None and len(memory) > 14 else None
+        self.frame_map = np.array(f_mem, dtype=float) if f_mem is not None and len(f_mem) else None
+        self.local = None      # its local-frame cells at its latest look (bool per cell)
+        self.riding = 0.0      # the share of its view that rides with it
         self.things: list = []
         self.last_nearness = 0.0
         self.colliculus = np.array(getattr(g, "colliculus", [0.0] * 6), dtype=float)
@@ -830,6 +869,8 @@ class Organism:
                 a = getattr(self, name)
                 if a is None or a.shape != self.field:
                     setattr(self, name, np.zeros(self.field))
+        if self.cam_moving and self.field:
+            self._vote_frames(sig)
         if self.slowness > 0.0:  # slow photoreceptors: its gaze sees the frames low-passed
             a = 1.0 - math.exp(-REFERENCE_GAZES_PER_S / (max(1.0, self.fps) * self.slowness))
             f = frame.astype(np.float32)
@@ -937,6 +978,8 @@ class Organism:
         nearness = self._nearness(state.cx, state.cy, (boxes or []) + (plants or []) + self.things) if not was_asleep else 0.0
         felt = float(np.clip(self.mb.terrain_value(kc_active), 0.0, 1.0)) if self.felt_terrain else 0.0
         self.felt_nearness = felt
+        self.local = self.local_frame()
+        self.riding = float(self.local.mean()) if self.local is not None else 0.0
         contact, contact_macs = self._contact(frame, state) if not was_asleep else (0.0, 0)
         head_macs += contact_macs
         # what its body felt turning and tilting since its last look, in its half field of view
@@ -945,12 +988,12 @@ class Organism:
         self.tilting = float(np.clip(self._roll_look / half_fov, -1.0, 1.0))
         self._yaw_look = self._roll_look = 0.0
         heading = (math.sin(self.heading), math.cos(self.heading)) if self.compass else (0.0, 0.0)
-        ego_speed = acceleration = place_value = 0.0
+        ego_speed = acceleration = map_value = 0.0
         if self.ec is not None:
             self._hz_cache = self.horizon()
             ego_speed, acceleration = self.ec.look()
             self.ec.places(self.scene)
-            place_value = float(np.clip(self.ec.value(), -1.0, 1.0))
+            map_value = float(np.clip(self.ec.value(), -1.0, 1.0))
             head_macs += self.ec.macs()
         self.last_nearness = nearness
         cell_p = self._cell(state.cx, state.cy)
@@ -1002,7 +1045,7 @@ class Organism:
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
                 tuple(head_vals), coll, terrain, nearness, felt, contact, self.turning, self.tilting, heading,
-                ego_speed, acceleration, place_value,
+                ego_speed, acceleration, map_value, self.riding,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1349,6 +1392,8 @@ class Organism:
                     size[k] = max(size[k], float(conf) * min(1.0, (x1 - x0) * (y1 - y0) * n))  # 1 = a box a cell big or more
         feats = np.stack([cells("motion_map"), cells("mismatch_map"), cells("parallax"), host, size, plant])
         s = self.colliculus @ feats
+        if self.local is not None and len(self.local) == n:  # what rides with it doesn't pull its gaze
+            s = np.where(self.local, np.minimum(s, 0.0), s)
         self.priority_map = s
         k = int(np.argmax(s))
         if s[k] <= 0.0:
@@ -1548,6 +1593,8 @@ class Organism:
         mask = np.zeros_like(small)
         mask[int(max(0.0, prev[2] - hy) * h):int(min(1.0, prev[2] + hy) * h) + 1,
              int(max(0.0, prev[1] - hx) * w):int(min(1.0, prev[1] + hx) * w) + 1] = 255
+        if self.local is not None and self.local.any():  # what rides with it can't approach it
+            mask[cv2.resize(self.local.reshape(self.field).astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0] = 0
         p0 = cv2.goodFeaturesToTrack(prev[0], maxCorners=40, qualityLevel=0.01, minDistance=3, mask=mask)
         if p0 is None or len(p0) < 8:
             self._last_local_s = 0.0
@@ -1694,6 +1741,33 @@ class Organism:
         best = len(hits) - 1 - int(np.argmax(hits[::-1]))
         chance = len(code) * len(eps[best][0]) / max(1, self.mb.n_kc)
         return (best if hits[best] > chance else None), macs
+
+    def _vote_frames(self, sig) -> None:
+        """This frame's corners vote on its frames of reference (see __init__)."""
+        try:
+            votes = sig["frame_votes"]
+        except (KeyError, IndexError, TypeError):
+            return
+        rows, cols = self.field
+        n = rows * cols
+        if self.frame_map is None or self.frame_map.shape != (2, n):
+            self.frame_map = np.zeros((2, n))
+        self.frame_map *= math.exp(-1.0 / max(1.0, self.fps) / MISMATCH_TAU_S)
+        if votes is None or not len(votes):
+            return
+        v = np.asarray(votes, dtype=float)
+        k = np.clip((v[:, 1] * rows).astype(int), 0, rows - 1) * cols + np.clip((v[:, 0] * cols).astype(int), 0, cols - 1)
+        np.add.at(self.frame_map[0], k[v[:, 2] > 0], 1.0)
+        np.add.at(self.frame_map[1], k[v[:, 2] < 0], 1.0)
+
+    def local_frame(self):
+        """Its local-frame cells (bool per field cell), or None before it has
+        moved: a cell's still votes beat half of its votes at the standard 5%
+        test (a binomial share against 1/2, normal approximation)."""
+        if self.frame_map is None or not getattr(self, "field", None) or self.frame_map.shape[1] != self.field[0] * self.field[1]:
+            return None
+        still, world = self.frame_map
+        return (still - world) > 1.96 * np.sqrt(still + world)
 
     def _cell(self, x: float, y: float):
         """The whole field's grid cell (row, col) at a point of the frame."""
