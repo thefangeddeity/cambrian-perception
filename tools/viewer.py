@@ -653,6 +653,7 @@ PAGE = r"""<!doctype html>
   .video16x9 canvas { pointer-events: none; }
   .quad > .panel > canvas, .quad > .panel > .video16x9 { margin-bottom: 8px; }
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  #left-stack { align-self: start; }  /* its own height, so charts can fill the rest beside the body */
   .quad { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
   .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
