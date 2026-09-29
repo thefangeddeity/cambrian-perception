@@ -1091,10 +1091,13 @@ PAGE = r"""<!doctype html>
   }
   // Replayed and dreamt paths on its place map (its field's grid): a small
   // square per place, joined in order; each kind its own colour; fading over 3 s.
+  const DM = { extra: 0 };  // extra height the place map takes to fill the left column
   function drawDreamMap(d) {
     const c = $('dream-map'); if (!c) return;
     const m = d.maps, shape = (m && m.shape) || d.world_grid_shape || [9, 16], [rows, cols] = shape;
-    const W = Math.max(160, Math.round(c.parentElement.clientWidth * 0.6)), H = Math.round(W * rows / cols);  // its grid is coarse: it needn't be big
+    // its grid is coarse, so it starts small -- and grows into any space left beside the body card (balanceSide)
+    const PW = c.parentElement.clientWidth, base = Math.max(160, Math.round(PW * 0.6));
+    const W = Math.min(PW, Math.round((base * rows / cols + DM.extra) * cols / rows)), H = Math.round(W * rows / cols);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d'), cw = W / cols, ch = H / rows;
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
@@ -1858,6 +1861,7 @@ PAGE = r"""<!doctype html>
     const side = $('charts-side'), main = $('charts'), body = $('body-panel'), left = $('left-stack'), quad = document.querySelector('.quad');
     if (!side || !main || !body || !left || !quad) return;
     const panelOf = id => { const c = $(id); return c && c.closest('.panel'); };
+    DM.extra = 0; if (D) drawDreamMap(D);
     [...side.children].forEach(el => main.appendChild(el));  // all back, then in their order
     CHARTS.forEach(ch => { const pn = panelOf(ch.id); if (pn) main.appendChild(pn); });
     if (getComputedStyle(quad).gridTemplateColumns.split(' ').length < 2 || document.body.classList.contains('has-max')) return;
@@ -1865,6 +1869,9 @@ PAGE = r"""<!doctype html>
       const pn = panelOf(id); if (!pn) continue;
       if (left.offsetHeight + pn.offsetHeight + 16 <= body.offsetHeight) side.appendChild(pn); else break;
     }
+    // what is still left over goes to the place map
+    DM.extra = Math.max(0, body.offsetHeight - left.offsetHeight - 2);
+    if (D) drawDreamMap(D);
   }
   function redrawAll() {
     if (D) { drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
