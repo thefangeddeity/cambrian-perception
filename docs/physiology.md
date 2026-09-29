@@ -381,16 +381,19 @@ can afford more and bigger ones.
   is still off (replay backup, dream steps, colour, any unwired input, and
   receptor leaves where a tree reads only constants -- a tree that never reads
   its eye can never grow a line).
-- **Oxygen** (2026-09-29; the diving reflex and brain sparing -- Scholander,
-  Ramirez): when its live body falls more than Poppel's ~3 s subjective
-  present behind the world (whatever the cause: load, heat throttling, a host
-  short of memory), it sheds what it can live without, one stage every 3 s:
-  evolution first (the next generation waits, at most a minute -- growth and
-  reproduction go first under hypoxia), then its visual cortex, then its
-  expansion measurement, then stale frames (only the newest is lived). Its
-  brain, gaze and senses are never shed. Back within a third of the present,
-  with its work under half a frame's time, it takes them back in reverse.
-  Logged as events; shown in the senses strip.
+- **Living in the present, and oxygen** (2026-09-29 panels): its present is
+  its own look interval; a frame older than that when it gets to it isn't
+  lived, only the newest is (freshness over completeness: it never queues a
+  backlog). Like the diving reflex (Scholander; brain sparing, Ramirez), when
+  its work per frame outgrows the frame's own time (load > 1, whatever the
+  cause -- load, heat, a host short of memory) it sheds, one at a time:
+  evolution (the next generation waits, at most as long as the last took),
+  then its visual cortex, then its expansion measurement. Each shedding's
+  saving is measured once its timings have settled (50 frames, the running
+  mean's span), and each comes back when its load plus that saving fits in a
+  frame. Its brain, gaze and senses are never shed. Every genome, the parent
+  included, is scored in worker processes (a pool of one, if memory is
+  short): its body's process only lives.
 - **Walking cameras** (2026-09-29): a camera walking forward shifts the frame
   hardly at all -- the image flows out of its centre (Gibson) -- so it read as
   still, and parallax never switched on (on a 24/7 walking stream: moving in

@@ -39,15 +39,18 @@ from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENC
                        Organism, kc_macs)
 from .state import EMPTY_G, LEGACY_UNIT
 
-# Oxygen (a 2026-09-29 panel; the diving reflex and brain sparing -- Scholander,
-# Ramirez; under hypoxia an animal shuts down its periphery, growth and
-# reproduction first, to keep its brain in oxygen): when its live body falls
-# behind the world, it sheds what it can live without, one stage at a time,
-# to keep its cognition in the present -- its brain, gaze and senses are
-# never shed. Its "oxygen" is how far behind live it is, whatever the cause
-# (load, heat throttling, a host short of memory).
-PRESENT_S = 3.0  # Poppel's subjective present: behind more than this, it is no longer living now
-SHED = ("evolution", "cortex", "expansion", "stale frames")  # in the order it lets them go (and back in reverse)
+# Living in the present, and oxygen (a 2026-09-29 panel). Its present is its
+# own look interval (the time between two looks: its pace): a frame older than
+# that when it gets to it is not lived -- only the newest is (an animal
+# doesn't process stale input; freshness over completeness). And, like the
+# diving reflex (Scholander; brain sparing, Ramirez: under hypoxia growth and
+# reproduction go first, then the periphery, to keep the brain in oxygen):
+# when its work per frame outgrows the frame's own time (load > 1, whatever
+# the cause -- load, heat throttling, a host short of memory), it sheds what
+# it can live without, one at a time; each comes back once its measured cost
+# fits in the frame again. Its brain, gaze and senses are never shed.
+SHED = ("evolution", "cortex", "expansion")  # in the order it lets them go (and back in reverse)
+LOAD_FRAMES = 50  # the timings' running mean spans 1 / 0.02 frames: a change is judged after that long
 EPISODES_EVERY_S = 600.0  # its episodes and sleep test set go to disk this often, and when it stops
 KEEP = 150            # frames shown to the viewer (~20 s of kept frames): enough for its replay delay
 WRITE_EVERY_S = 1.0   # how often the viewer's file is rewritten (it is in RAM where the host has /dev/shm)
@@ -224,6 +227,9 @@ class LiveLife:
         self.stage = 0              # how much it has shed (SHED[:stage]); run_vision pauses evolution at 1
         self._stage_changed = time.time()
         self._latency = 0.0
+        self._shed_load: list = []   # the load when each was shed, and what shedding it saved (measured)
+        self._shed_cost: list = []
+        self.dropped = 0             # stale frames not lived
         self.field = FieldSignals()
         self.last = None          # the feed's index of the last frame it lived
         self.last_time = None     # when that frame arrived
@@ -356,8 +362,11 @@ class LiveLife:
             self.error = repr(e)
 
     def _live(self, items: list) -> None:
-        if self.stage >= SHED.index("stale frames") + 1 and len(items) > 1:
-            items = items[-1:]  # the stale ones go unseen: the present matters, not the backlog
+        present = max(1.0, self.org.last_interval) / max(1.0, self.org.fps)  # its look interval, seconds
+        now = time.time()
+        fresh = [it for it in items[:-1] if now - it[4] <= present] + items[-1:]  # the newest always
+        self.dropped += len(items) - len(fresh)
+        items = fresh
         fps = max(1.0, self.feed.frames_per_second() or 15.0)
         batch = {"eating": [], "asleep": [], "alarm": [], "trajectory": [], "swat_acts": [],
                  "sums": collections.Counter()}
@@ -461,25 +470,32 @@ class LiveLife:
             self.metrics.add(batch, items[0][0], fps)
 
     def _breathe(self, arrived: float) -> None:
-        """Its oxygen: behind the present by more than PRESENT_S, it sheds the
-        next function (one stage per PRESENT_S, so each has time to act);
-        well inside it (a third) with its work under half its frame's time,
-        it takes the last one back."""
+        """Its oxygen: its load is its work per frame over the frame's own time.
+        Over 1 (it can't keep up: frames go unlived), it sheds the next
+        function; once the running mean has had time to show the change
+        (LOAD_FRAMES frames), it knows what that saved. It takes the last one
+        back when its load plus that saving still fits in a frame."""
         now = time.time()
         self._latency = now - arrived
-        load = (self.timing["field"] + self.timing["organism"] + self.timing["cortex"]) * max(1.0, self.org.fps) / 1000.0
-        if now - self._stage_changed < PRESENT_S:
+        fps = max(1.0, self.org.fps)
+        load = (self.timing["field"] + self.timing["organism"] + self.timing["cortex"]) * fps / 1000.0
+        if now - self._stage_changed < LOAD_FRAMES / fps:
             return
-        if self._latency > PRESENT_S and self.stage < len(SHED):
+        if len(self._shed_cost) < len(self._shed_load):  # what the last shedding saved, now visible
+            self._shed_cost.append(max(0.0, self._shed_load[-1] - load))
+        if load > 1.0 and self.stage < len(SHED):
+            self._shed_load.append(load)
             self.stage += 1
             self._stage_changed = now
             self.field.expansion = self.stage < SHED.index("expansion") + 1
-            self._event("hypoxic: shed " + SHED[self.stage - 1], behind_s=round(self._latency, 1), load=round(load, 2))
-        elif self._latency < PRESENT_S / 3 and load < 0.5 and self.stage > 0:
+            self._event("hypoxic: shed " + SHED[self.stage - 1], load=round(load, 2), behind_s=round(self._latency, 1))
+        elif self.stage > 0 and len(self._shed_cost) == self.stage and load + self._shed_cost[-1] < 1.0:
             self.stage -= 1
+            self._shed_load.pop()
+            self._shed_cost.pop()
             self._stage_changed = now
             self.field.expansion = self.stage < SHED.index("expansion") + 1
-            self._event("breathing again: restored " + SHED[self.stage], behind_s=round(self._latency, 1), load=round(load, 2))
+            self._event("breathing again: restored " + SHED[self.stage], load=round(load, 2), behind_s=round(self._latency, 1))
 
     def _competences(self, org: Organism, boxes: list, sums) -> None:
         """What the panel asked the week to measure (observation only), per
@@ -555,7 +571,9 @@ class LiveLife:
             # never senses per-cell brightness, only where and how much things change)
             "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
             "cortex": cortex, "timing_ms": timing,
-            "oxygen": {"stage": self.stage, "shed": list(SHED[:self.stage]), "behind_s": round(self._latency, 2)},
+            "oxygen": {"stage": self.stage, "shed": list(SHED[:self.stage]), "behind_s": round(self._latency, 2),
+                       "load": round((timing["field"] + timing["organism"] + timing["cortex"]) * max(1.0, fps) / 1000.0, 2),
+                       "dropped": self.dropped},
         }
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:

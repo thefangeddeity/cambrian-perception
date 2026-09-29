@@ -1421,12 +1421,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 break
             seen_total = total
         # Short of oxygen, its body sheds evolution first (fishbowl/livelife.py
-        # SHED): the next generation waits until it breathes again -- at most a
-        # minute, so a host that is always short still evolves, slowly.
+        # SHED): the next generation waits until it breathes again -- at most
+        # as long as the last generation took, so a host that is always short
+        # still evolves, at half speed or less.
         if life is not None:
             waited = time.time()
-            while life.stage >= 1 and life.error is None and not stop["now"] and time.time() - waited < 60.0:
-                time.sleep(0.5)
+            while life.stage >= 1 and life.error is None and not stop["now"] and time.time() - waited < gen_seconds:
+                time.sleep(0.1)
         if life is not None:
             if life.error:
                 print(f"Its live body failed ({life.error}); the survivors carry its body for the rest of this run.")
@@ -1436,17 +1437,31 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                     life.set_prices(price_quota, host_rate)
                 body_now, memory_now = life.snapshot()  # the children start from the living body and memory
         memory_eval = _for_evaluation(memory_now)  # the children are scored without the imagery prototypes
-        futures = None
-        if n_children > 1 and workers is not False:
+        # Every genome -- the parent too -- is scored in a worker process, even
+        # a pool of one (a host short of memory): the organism's own process
+        # only lives and keeps the books, so evolution never takes its body's
+        # time (a 2026-09-29 panel: 7elwe, short of memory, scored parent and
+        # child in its body's process every generation and fell minutes behind).
+        futures, parent_future = None, None
+        if workers is not False:
             try:
                 if workers is None:
                     workers = _Workers(max(1, min((os.cpu_count() or 2) - 1, space)))
                 if workers.publish(world):
+                    parent_future = workers.submit(genome, price_quota, body_now, _fps(), memory_eval, host_rate)
                     futures = [workers.submit(c, price_quota, body_now, _fps(), memory_eval, host_rate) for c, _, _ in children]
             except Exception as e:  # no worker processes on this host: serial from here on
                 print(f"Parallel evaluation unavailable ({e}); continuing serially.")
-                workers, futures = False, None
-        parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_eval, world.colour, host_rate)
+                workers, futures, parent_future = False, None, None
+        parent_fitness = None
+        if parent_future is not None:
+            try:
+                parent_fitness, _, parent_info = parent_future.result(timeout=600)
+            except Exception as e:  # a lost worker: score the parent here instead
+                if not stop["now"]:
+                    print(f"Worker failed ({type(e).__name__}); scoring the parent here.")
+        if parent_fitness is None:
+            parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_eval, world.colour, host_rate)
         if futures is not None:
             results = []
             for (c, _, _), fut in zip(children, futures):

@@ -229,6 +229,16 @@ yardsticks are found.
 | founder: scenes | three of its mutation steps from 1 | S | was 1 - 8, a guess |
 | founder: plasticity | its birth distribution | S | |
 
+### Its present and oxygen (fishbowl/livelife.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| its present | its own look interval | M | its pace over its frame rate (was 3 s, Poppel's present: handwritten, replaced after the panel) |
+| shed when | load > 1 | S | work per frame exceeds the frame's own time: it can't keep up |
+| restore when | load + the measured saving < 1 | M | each shedding's saving is measured |
+| settling | 50 frames | S | the running mean's span (1 / 0.02) |
+| evolution's wait | the last generation's duration | M | a host always short still evolves, at half speed or less |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px
