@@ -97,3 +97,23 @@ host's (`-Checkpoint` / `--checkpoint`).
 3. `.deb`, tested on tina.
 4. AUR, which needs an Arch box.
 5. macOS, on ariana (done: `deploy/macos/install.sh`).
+
+## Breeding across the fleet (`tools/fleet.py`)
+
+Finds the organisms on the Tailnet (or `--hosts`), fetches each whole organism
+(genome, body, memory, episodes) from its viewer (`/organism/...`, numbers
+only), and judges them in a tournament: all on the same frames, captured into
+RAM from the stream the fleet is watching, at the same prices. Each host's own
+fitness is not comparable (its own CPU prices, its own frames).
+
+- `python tools/fleet.py`: breed. The ranking is shown; you choose the parent
+  and tick the hosts to clone it onto; nothing happens without "yes".
+- `python tools/fleet.py --auto`: Sewall Wright's shifting balance. 3
+  tournaments on 3 snapshots; if the best beats the worst in all of them, the
+  best replaces the worst -- at most one per run. `--protect a,b` keeps hosts
+  out of it (none by default). `--dry-run` judges and changes nothing.
+
+Every replaced lineage is backed up to `state/backup-<time>-before-<parent>/`
+first. Linux and macOS targets are cloned over ssh (the host's own name), the
+local machine directly; a remote Windows target gets the steps printed. Runs
+are logged in `state/fleet_log.jsonl`.
