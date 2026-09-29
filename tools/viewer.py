@@ -1474,7 +1474,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       // the mesh reads its map -- already blended in its mind (neighbouring
       // cells share evidence: the ground is continuous) -- each node back to
       // the frame (depth z at frame row hz + (1 - hz) / z), read bilinearly
-      const NU = MOBILE ? 24 : 48, NZ = MOBILE ? 16 : 32, cells = [];  // the drawing's squares, finer than its map (which is its own, coarse)
+      let NU = MOBILE ? 24 : 48, NZ = MOBILE ? 16 : 32; const cells = [];  // the drawing's squares, finer than its map (which is its own, coarse)
       terr.forEach((t, k) => { if (t) cells.push([0, 0, t[0] * HCAM]); });
       const cellE = (r, c) => { r = Math.max(0, Math.min(rows - 1, r)); c = Math.max(0, Math.min(cols - 1, c)); const t = terr[r * cols + c]; return t ? t[0] * HCAM : 0; };
       const groundAt = (x, z) => {
@@ -1486,15 +1486,21 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       const sticks = cells.map(q => ({ elev: q[2] }));
       const big = Math.max(1e-6, ...sticks.map(q => Math.abs(q.elev)));
       const node = [];
+      // From its eye: equal squares on the ground (TS a side, out to TX either
+      // side and TZ ahead), so lines running away meet at the horizon and
+      // cross-lines crowd toward it -- perspective. From outside: its frame's grid.
+      const TS = MOBILE ? 0.5 : 0.25, TX = 16, TZ = 24;
+      if (SP3.pov) { NU = Math.round(2 * TX / TS); NZ = Math.round((TZ - 1) / TS); }
       for (let j = 0; j <= NZ; j++) {
-        // rows spaced as the frame's rows are (evenly in 1 / depth) from its eye; evenly in depth from outside
-        const z = SP3.pov ? 1 / (1 - (j / NZ) * (1 - 1 / ZMAX)) : 1 + (ZMAX - 1) * j / NZ, row = [];
-        for (let i = 0; i <= NU; i++) { const x = (i / NU - 0.5) * 1.6 * z, h = groundAt(x, z); row.push([at(x, h, z), h]); }
+        const z = SP3.pov ? 1 + j * TS : 1 + (ZMAX - 1) * j / NZ, row = [];
+        for (let i = 0; i <= NU; i++) { const x = SP3.pov ? -TX + i * TS : (i / NU - 0.5) * 1.6 * z, h = groundAt(x, z); row.push([at(x, h, z), h]); }
         node.push(row);
       }
       const seg = (p, q) => {
+        if ((p[0][0] < 0 && q[0][0] < 0) || (p[0][0] > W && q[0][0] > W) || (p[0][1] > H && q[0][1] > H)) return;  // off its view
         const t = Math.min(1, Math.abs(p[1] + q[1]) / 2 / big);
-        ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${0.3 + 0.3 * t})`;
+        const fade = SP3.pov ? Math.min(1, W * TS / (1.6 * p[0][2]) / 6) : 1;  // squares under ~6 px fade out, not into a solid band
+        ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${(0.3 + 0.3 * t) * fade})`;
         ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(q[0][0], q[0][1]); ctx.stroke();
       };
       ctx.lineWidth = 1;
