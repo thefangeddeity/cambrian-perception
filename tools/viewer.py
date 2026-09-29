@@ -1179,7 +1179,7 @@ PAGE = r"""<!doctype html>
     pts.forEach(([k, q]) => {
       const fog = Math.max(0.35, Math.min(1, 0.7 - 0.4 * q[2]));
       if (k >= mb.live) { ctx.fillStyle = `rgba(70,70,70,${0.6 * fog})`; ctx.fillRect(q[0] - dot / 2, q[1] - dot / 2, dot, dot); return; }
-      const cc = cellRGB(k), lit = on.has(k), a = (lit ? 1 : 0.8) * fog;
+      const cc = cellRGB(k), lit = on.has(k), a = (lit ? 1 : 0.5) * fog;
       ctx.fillStyle = `rgba(${cc[0]},${cc[1]},${cc[2]},${a})`;
       const z = lit ? dot * 1.8 : dot;
       ctx.fillRect(q[0] - z / 2, q[1] - z / 2, z, z);
