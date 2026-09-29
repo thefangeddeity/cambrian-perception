@@ -750,6 +750,21 @@ def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict
     return evaluate_genome(g, _WORKER["frames"], meta["ws"], quota_pct, body, fps, meta["prey"], memory, _WORKER["colour"], sec_per_mac)
 
 
+def _kernel32():
+    """kernel32 with the handle types declared: undeclared, ctypes passes the
+    process's pseudo-handle as a 32-bit int on 64-bit Windows -- an invalid
+    handle, and the call fails silently."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k32.SetPriorityClass.restype = wintypes.BOOL
+    k32.SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.SetProcessInformation.restype = wintypes.BOOL
+    return k32
+
+
 def _worker_below_the_body() -> None:
     """A worker runs one step below the organism's own process: the living
     organism (its live actor, in the main process) is real time, evolution is
@@ -760,10 +775,9 @@ def _worker_below_the_body() -> None:
     5 more niceness)."""
     try:
         if os.name == "nt":
-            import ctypes
-            k32 = ctypes.windll.kernel32
-            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00000040)  # IDLE_PRIORITY_CLASS
-            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00100000)  # PROCESS_MODE_BACKGROUND_BEGIN
+            k32 = _kernel32()
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00100000)  # PROCESS_MODE_BACKGROUND_BEGIN (I/O, memory)
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00000040)  # then IDLE_PRIORITY_CLASS (CPU): in this order both hold
         else:
             os.nice(5)
     except (OSError, AttributeError):
@@ -1809,7 +1823,7 @@ def _body_at_full_speed() -> None:
         class _Throttle(ctypes.Structure):
             _fields_ = [("Version", ctypes.c_ulong), ("ControlMask", ctypes.c_ulong), ("StateMask", ctypes.c_ulong)]
         state = _Throttle(1, 0x1, 0x0)  # PROCESS_POWER_THROTTLING_EXECUTION_SPEED: controlled, and off
-        k32 = ctypes.windll.kernel32
+        k32 = _kernel32()
         k32.SetProcessInformation(k32.GetCurrentProcess(), 4, ctypes.byref(state), ctypes.sizeof(state))  # ProcessPowerThrottling
     except (OSError, AttributeError):
         pass
