@@ -473,23 +473,25 @@ class LiveLife:
         """Its oxygen: its load is its work per frame over the frame's own time.
         Over 1 (it can't keep up: frames go unlived), it sheds the next
         function; once the running mean has had time to show the change
-        (LOAD_FRAMES frames), it knows what that saved. It takes the last one
-        back when its load plus that saving still fits in a frame."""
+        (LOAD_FRAMES frames), it knows what share of its load that saved. It
+        takes the last one back when its load, grown back by that share,
+        still fits in a frame. (A share, not milliseconds: a saving measured
+        while the whole host was thrashing would never fit again.)"""
         now = time.time()
         self._latency = now - arrived
         fps = max(1.0, self.org.fps)
         load = (self.timing["field"] + self.timing["organism"] + self.timing["cortex"]) * fps / 1000.0
         if now - self._stage_changed < LOAD_FRAMES / fps:
             return
-        if len(self._shed_cost) < len(self._shed_load):  # what the last shedding saved, now visible
-            self._shed_cost.append(max(0.0, self._shed_load[-1] - load))
+        if len(self._shed_cost) < len(self._shed_load):  # the share of its load the last shedding saved, now visible
+            self._shed_cost.append(min(0.9, max(0.0, 1.0 - load / max(1e-9, self._shed_load[-1]))))
         if load > 1.0 and self.stage < len(SHED):
             self._shed_load.append(load)
             self.stage += 1
             self._stage_changed = now
             self.field.expansion = self.stage < SHED.index("expansion") + 1
             self._event("hypoxic: shed " + SHED[self.stage - 1], load=round(load, 2), behind_s=round(self._latency, 1))
-        elif self.stage > 0 and len(self._shed_cost) == self.stage and load + self._shed_cost[-1] < 1.0:
+        elif self.stage > 0 and len(self._shed_cost) == self.stage and load / (1.0 - self._shed_cost[-1]) < 1.0:
             self.stage -= 1
             self._shed_load.pop()
             self._shed_cost.pop()

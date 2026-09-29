@@ -754,12 +754,16 @@ def _worker_below_the_body() -> None:
     """A worker runs one step below the organism's own process: the living
     organism (its live actor, in the main process) is real time, evolution is
     background -- on a busy host the scheduler serves the body first, and
-    evolution gets what is left (Windows: idle class under the service's
-    below-normal; elsewhere: 5 more niceness)."""
+    evolution gets what is left (Windows: background mode -- the documented
+    way to lower a process's CPU, I/O and memory priority together, so under
+    memory pressure its pages go before the body's (Russinovich); elsewhere:
+    5 more niceness)."""
     try:
         if os.name == "nt":
             import ctypes
-            ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00000040)  # IDLE_PRIORITY_CLASS
+            k32 = ctypes.windll.kernel32
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00000040)  # IDLE_PRIORITY_CLASS
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00100000)  # PROCESS_MODE_BACKGROUND_BEGIN
         else:
             os.nice(5)
     except (OSError, AttributeError):
