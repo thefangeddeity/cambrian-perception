@@ -30,4 +30,5 @@ systemctl daemon-reload
 systemctl enable -q cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer
 if systemctl is-active -q cambrian-perception.service; then "$DIR/tools/cambrian" --restart; else "$DIR/tools/cambrian" --start; fi
 [ -f "$DIR/models/yolov8n.onnx" ] || echo "cambrian-perception: no detector model yet -- put yolov8n.onnx in $DIR/models (no hosts to feed on until then)"
+[ -f "$DIR/models/yolov8n-oiv7.onnx" ] || echo "cambrian-perception: optional -- yolov8n-oiv7.onnx and yolov8n-oiv7.names.json in $DIR/models let it find plants (docs/packaging.md); without them only potted plants are nectar"
 echo "cambrian-perception: cambrian --start | --stop | --restart | --yield | --status; its camera and priority go in drop-ins (docs/packaging.md)"

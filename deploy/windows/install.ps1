@@ -71,6 +71,7 @@ $livecamModel = "C:\Program Files\hls-livecam-win\models\yolov8n.onnx"
 if ($Model) { Copy-Item $Model $modelDst -Force }
 elseif (-not (Test-Path $modelDst) -and (Test-Path $livecamModel)) { Copy-Item $livecamModel $modelDst -Force }
 if (-not (Test-Path $modelDst)) { Write-Warning "no YOLO model at $modelDst -- it runs without prey (snacks only) until one is added (-Model <yolov8n.onnx>)" }
+if (-not (Test-Path "$InstallDir\models\yolov8n-oiv7.onnx")) { Write-Host "optional: yolov8n-oiv7.onnx + yolov8n-oiv7.names.json in $InstallDir\models let it find plants (docs/packaging.md)" }
 
 # 4. What it watches: -Source, else what it watched before (an update keeps
 #    it), else the camera (it has it whenever it runs: the livecam is off).
