@@ -609,6 +609,11 @@ LOCK_HUD_JS = r"""
 # run, replayed). The viewer ("/") is the operators' view with its insides.
 LIVE_PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0706">
+<script>
+// Uncaught errors, recorded on the page's root (invisible; for audits: a headless browser's DOM dump shows them)
+addEventListener('error', e => { const r = document.documentElement; r.dataset.jsErrors = (+(r.dataset.jsErrors || 0) + 1) + ''; r.dataset.jsLast = String(e.message).slice(0, 200) + ' @' + (e.lineno || '?'); });
+</script>
+
 <title>__HOST__ | CP</title>
 <style>
   html, body { margin: 0; height: 100%; background: #05080c; color: #f0d6cf; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
@@ -655,6 +660,11 @@ PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0b0706">
+<script>
+// Uncaught errors, recorded on the page's root (invisible; for audits: a headless browser's DOM dump shows them)
+addEventListener('error', e => { const r = document.documentElement; r.dataset.jsErrors = (+(r.dataset.jsErrors || 0) + 1) + ''; r.dataset.jsLast = String(e.message).slice(0, 200) + ' @' + (e.lineno || '?'); });
+</script>
+
 <title>__HOST__ | CP</title>
 <style>
   :root { --bg:#0b0706; --panel:#130b0a; --line:#2b1714; --text:#f0d6cf; --dim:#9a6f67; --cyan:#ffb4a6; --green:#ffe2d6; --orange:#ff7a45; --red:#ff3b28; --yellow:#ffb066; --violet:#e0909c; --pink:#ff6f8a; --magenta:#ff4f6f; }
