@@ -100,7 +100,10 @@ class PreyDetector:
         self.model_path = Path(model_path)
         self.net = cv2.dnn.readNetFromONNX(str(self.model_path)) if self.model_path.exists() else None
         # its flowers (optional: without the model, only potted plants are nectar)
-        flower_model = self.model_path.with_name(FLOWER_MODEL.name)
+        # beside the host model, else in the organism's own model folders
+        flower_model = next((c for c in (self.model_path.with_name(FLOWER_MODEL.name), _LOCAL_MODEL.with_name(FLOWER_MODEL.name),
+                                         Path("/srv/cambrian/models") / FLOWER_MODEL.name) if c.exists()),
+                            self.model_path.with_name(FLOWER_MODEL.name))
         names_path = flower_model.with_suffix(".names.json")
         self.flower_net, self.flower_classes = None, {}
         if flower_model.exists() and names_path.exists():
