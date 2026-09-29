@@ -183,7 +183,7 @@ def main() -> int:
             organism, next_run = None, now + RESTART_AFTER_S
         if organism is None and now >= next_run:
             source = str(settings().get("source", source))
-            organism = start([py, "run_vision.py", source, "--generations", "200000", "--seconds", "3600"],
+            organism = start([py, "run_vision.py", source],  # one long process: no hourly bound
                              "run.log", budget=True)
             log(f"service: organism started (pid {organism.pid}, source {source}, cap {quota_pct():.0f}%)")
         if now >= next_handler:

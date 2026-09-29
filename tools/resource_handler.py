@@ -157,6 +157,26 @@ def _set_quota_pct(pct: int) -> None:
     )
 
 
+def _memory_limits() -> tuple[int, int] | None:
+    """Linux (a 2026-09-29 panel; Poettering, Russinovich): its memory limits
+    from what the host has, not static numbers. MemoryHigh (where the kernel
+    starts reclaiming from it) = what the service holds now + what the host can
+    still give before reaching this handler's own strain line; MemoryMax (the
+    leak guard) = the host's RAM less that line. MB."""
+    try:
+        info = {l.split(":")[0]: int(l.split()[1]) for l in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines() if ":" in l}
+        now = int(Path(f"/sys/fs/cgroup/system.slice/{SERVICE_NAME}/memory.current").read_text()) // 1048576
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
+    total, avail = info["MemTotal"] // 1024, info["MemAvailable"] // 1024
+    ceiling = max(256, total - FREE_MEM_STRAIN_MB)
+    return min(ceiling, now + max(0, avail - FREE_MEM_STRAIN_MB)), ceiling
+
+
+def _set_memory_limits(high_mb: int, max_mb: int) -> None:
+    subprocess.run(["sudo", "systemctl", "set-property", SERVICE_NAME, f"MemoryHigh={high_mb}M", f"MemoryMax={max_mb}M"], check=True)
+
+
 def _tail_jsonl(path: Path, max_lines: int, max_bytes: int = 2_000_000) -> list[dict]:
     if not path.exists():
         return []
@@ -343,9 +363,14 @@ def run(dry_run: bool = False) -> None:
           f"memory_short={mem_strained} space={space}/{space_cap} workers")
     print(f"[resource_handler] {reason}")
 
+    memory = _memory_limits() if SYSTEMD else None
+    if memory:
+        print(f"[resource_handler] memory: high {memory[0]} MB, max {memory[1]} MB (from what the host has)")
     if not dry_run:
         if target != current:
             _set_quota_pct(target)
+        if memory:
+            _set_memory_limits(*memory)
         _write_json_atomic(HANDLER_STATE_PATH, {
             "satiation": satiation,
             "last_run_unix": time.time(),

@@ -901,6 +901,7 @@ STALL_CADENCES = 3
 # A web stream arrives in segments a few seconds apart (YouTube live: ~2-5 s),
 # so it gets at least a few missed reloads' worth before it counts as stalled.
 STREAM_STALL_MIN_S = 30.0
+CHECKPOINT_EVERY_S = 600.0  # as its episodes (livelife.EPISODES_EVERY_S): a crash loses at most this much
 # ...or sooner, once the snapshot is older than this or three generations,
 # whichever is longer: on a slow host its gaze stays close to live (and a
 # dead feed is noticed) without spending most of its time refreshing.
@@ -1177,7 +1178,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             frames_dir.serve(sandbox.LIVE_STATUS_PATH.with_name("frames.json"))
             use_frames = True
         feed = video_source.LiveFeed(feed_src, detector=detector if detector.available else None,
-                                     frames_dir=frames_dir if use_frames else None, epoch=feed_epoch)
+                                     frames_dir=frames_dir if use_frames else None, epoch=feed_epoch,
+                                     resolve=(lambda: _resolve_live_url(clip_path)) if source == "live" else None)
         # A slow camera on a busy host (e.g. 8 frames/s on a laptop already
         # running a livecam server) takes minutes to fill the window.
         # A deliberate stop while it fills (the other half of the camera suite
@@ -1312,6 +1314,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
 
     _publish_champion()
 
+    saved_at = time.time()
+
     def _save():
         sandbox.save_checkpoint({
             "genome": genome.to_dict(),
@@ -1371,6 +1375,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
 
     def _metrics_flush():
         return metrics.flush(world.fps, {
+            "memory_mb": _memory_account(life.org if life is not None else None, feed),
             "generation": box.generation, "watching": clip_path,
             "pump": round(genome.pump, 3), "metabolism": round(genome.metabolism, 3), "pace": genome.pace,
             "kc": genome.kc, "receptors": genome.receptors, "zoom": round(genome.zoom, 3),
@@ -1841,8 +1846,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 f"  gen {box.generation:>5} best_fitness={best_fitness:.4f} "
                 f"margin={margin:.4f}"
             )
-        if box.generation % 100 == 0:
+        if box.generation % 100 == 0 or time.time() - saved_at >= CHECKPOINT_EVERY_S:
             _save()
+            saved_at = time.time()
 
     if life is not None:
         life.stop()
@@ -1857,6 +1863,61 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         feed.close()
     print(f"Stopped after {box.generation} generations, {round(__import__('time').perf_counter() - box.start_time, 1)}s.")
     print(f"Final best_fitness: {best_fitness:.4f} -- checkpoint saved, next restart resumes from here.")
+
+
+def _resident_mb() -> float | None:
+    """This process's resident memory (MB), where the OS says."""
+    try:
+        if sys.platform.startswith("linux"):
+            for line in open("/proc/self/status", encoding="utf-8"):
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024.0
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            class _Counters(ctypes.Structure):
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + \
+                           [(n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                                                           "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                                                           "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+            c = _Counters(); c.cb = ctypes.sizeof(c)
+            k32 = _kernel32()
+            psapi = ctypes.WinDLL("psapi")
+            psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+            if psapi.GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(c), c.cb):
+                return c.WorkingSetSize / 1048576.0
+        import resource  # macOS: the peak (ru_maxrss is bytes there)
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1048576.0
+    except (OSError, ValueError, AttributeError, ImportError):
+        return None
+
+
+def _memory_account(org, feed) -> dict:
+    """What the organism holds, by owner, against what the process holds (a
+    2026-09-29 panel; Knuth: a growing brain looks like a leak from outside --
+    account memory by owner, and a leak is resident memory growing faster than
+    this account). MB, hourly in the metrics."""
+    def nbytes(x, depth=0):
+        if isinstance(x, np.ndarray):
+            return x.nbytes
+        if depth < 3 and isinstance(x, (list, tuple)):
+            return sum(nbytes(v, depth + 1) for v in x)
+        if depth < 3 and isinstance(x, dict):
+            return sum(nbytes(v, depth + 1) for v in x.values())
+        return 0
+    out = {"resident": _resident_mb()}
+    if org is not None:
+        mb = org.mb
+        out["brain"] = nbytes([org.brain.weights_ih, org.brain.weights_hh, org.brain.weights_ho, getattr(org.brain, "layers", [])]) / 1048576.0
+        out["mushroom_body"] = nbytes(list(vars(mb).values())) / 1048576.0
+        out["episodes"] = nbytes([e[0] for e in org.episodes] + list(getattr(org, "test_set", []))) / 1048576.0
+        out["maps"] = nbytes([org.place, org.people_day, org.people_night, org.value_map, org.memory, org.variance,
+                              org.ground, org.terrain, org.scenes]) / 1048576.0
+    if feed is not None:
+        with feed._lock:
+            out["frames"] = nbytes(list(feed._buf)) / 1048576.0
+    return {k: (None if v is None else round(v, 1)) for k, v in out.items()}
 
 
 def _body_at_full_speed() -> None:
@@ -1887,8 +1948,8 @@ def main() -> int:
     sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("source", help="'live' for real live streams (see LIVE_SOURCES), a media/ directory of clips, a single file, or a live device (e.g. /dev/video0)")
-    parser.add_argument("--generations", type=int, default=200000)
-    parser.add_argument("--seconds", type=float, default=3600.0)
+    parser.add_argument("--generations", type=int, default=0, help="0 (the default): no limit")
+    parser.add_argument("--seconds", type=float, default=0.0, help="0 (the default): no limit")
     args = parser.parse_args()
 
     limits = sandbox.Limits(max_generations=args.generations, max_wallclock_seconds=args.seconds)

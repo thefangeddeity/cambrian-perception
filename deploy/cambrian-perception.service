@@ -7,7 +7,10 @@ PartOf=cambrian.target
 Type=simple
 User=cambrian
 WorkingDirectory=/srv/cambrian/cambrian-perception
-ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/video0 --generations 200000 --seconds 3600
+# One long process (a 2026-09-29 panel): no --seconds bound. It saves every
+# 10 minutes and on stop; a clean exit is a reconfiguration (a video chosen)
+# and systemd starts it again.
+ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/video0
 
 # Real, hard resource caps: this must not interfere with other
 # workloads sharing the host. Conservative
@@ -18,8 +21,10 @@ CPUQuota=150%
 # Its cgroup is its own to split (run_vision.py _split_body_and_workers):
 # body/ with its memory protected, workers/ at the idle scheduling class.
 Delegate=yes
+# Memory: set by the resource handler from what the host has (MemoryHigh =
+# what it holds + what the host can spare above its strain line; MemoryMax =
+# the host's RAM less that line). This MemoryMax guards only until its first run.
 MemoryMax=1536M
-MemoryHigh=1024M
 
 # Restart=always is the actual point: run_vision.py is deliberately a
 # BOUNDED process per invocation (--seconds above), never an unbounded

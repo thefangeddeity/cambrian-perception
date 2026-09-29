@@ -260,7 +260,7 @@ class LiveFeed:
     """
 
     def __init__(self, source: str, stride: int = 2, window: int = 600, max_dim: int = DEFAULT_MAX_DIM,
-                 detector=None, frames_dir=None, epoch: int = 0):
+                 detector=None, frames_dir=None, epoch: int = 0, resolve=None):
         from .retina import frame_to_vector
         self._to_vector = frame_to_vector
         # Prey (see prey.py): detected on its own thread, on the newest
@@ -271,6 +271,10 @@ class LiveFeed:
         self._last_prey: list = []
         self._latest_full = None
         self.source, self.stride, self.max_dim = source, stride, max_dim
+        # A stream's address is signed and expires (hours): on a failed
+        # reconnect it is resolved afresh (resolve() -> a new address), so one
+        # long process can watch one stream for days.
+        self.resolve = resolve
         # Each kept frame as a small JPEG, for the viewer's replay of its
         # latest run: the last FRAME_RING of them, f<index>.jpg. Only ever
         # pointed at the RAM runtime dir (run_vision.py), never at disk --
@@ -315,7 +319,14 @@ class LiveFeed:
             # RTSP over UDP drops packets under load (corrupt H.264
             # macroblocks); TCP delivers whole frames.
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+        first = True
         while not self._stop:
+            if not first and self.resolve is not None:
+                try:
+                    self.source = self.resolve()
+                except Exception:
+                    pass  # the old address, then; the caller's stall watch decides when a stream has ended
+            first = False
             cap = open_capture(self.source)
             if not cap.isOpened():
                 time.sleep(2.0)

@@ -276,9 +276,11 @@ class Sandbox:
         # max_generations is PER RUN: the generation counter itself is the
         # lifetime total restored from the checkpoint (it once hit 200000
         # and every restart stopped immediately).
-        if self.generation - self.run_start_generation >= self.limits.max_generations:
+        # 0 = no limit: it lives on, one long process (a 2026-09-29 panel -- the
+        # old hourly bounded runs wiped everything it held in memory each hour)
+        if self.limits.max_generations and self.generation - self.run_start_generation >= self.limits.max_generations:
             return False
-        if time.perf_counter() - self.start_time >= self.limits.max_wallclock_seconds:
+        if self.limits.max_wallclock_seconds and time.perf_counter() - self.start_time >= self.limits.max_wallclock_seconds:
             return False
         return True
 
