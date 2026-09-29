@@ -72,7 +72,7 @@ from fishbowl.organism import (  # noqa: E402
     SHIFT_MAX, SHIFT_MIN_RESPONSE, SHIFT_WIDTH, STABILIZER_COST, SURPRISE_SIGMAS, TEMPO_RANGE, THINK_COST,
     RECEPTOR_COST, UNSEEN_NOVELTY, VAR_RATE, Organism, _receptor_cost,
     feed_on_novelty as _feed_on_novelty, global_shifts as _global_shifts,
-    peripheral_motion_centroid as _peripheral_motion_centroid, prey_sense as _prey_sense,
+    peripheral_motion_centroid as _peripheral_motion_centroid, prey_sense as _prey_sense, parallax_series,
 )
 from fishbowl.retina import field_shape, frame_to_vector
 
@@ -570,7 +570,7 @@ def evaluate_genome(
         # Memory carried to the next generation: surprise, the mushroom body's
         # learning, the place map and where people are expected (day, night).
         "_memory": (memory, variance, org.mb.weights, org.place, org.people_day, org.people_night, org.mb.danger_weights,
-                    org.value_map, dict(org.nectar), org.mb.proto, org.library()),
+                    org.value_map, dict(org.nectar), org.mb.proto, org.library(), org.ground, org.mb.heads),
         # Per frame: its alarm (the warning) and the intruder sense, for the viewer.
         "alarm": [int(alarms[max(0, int(np.searchsorted(idxs, k, side='right')) - 1)] > 0.0) if alarms else 0 for k in range(nf)],
         "replays": dict(org.replays),
@@ -856,6 +856,7 @@ class World:
             ws["mismatch"], ws["mismatch_cx"], ws["mismatch_cy"] = reflexes.mismatch_score(
                 wv, self.field_shape, pace / self.fps, MISMATCH_TAU_S, SURPRISE_SIGMAS, NOISE_FLOOR)
             ws["shift_x"], ws["shift_y"] = _global_shifts(self.frames[::pace])
+            ws["parallax"] = parallax_series(self.frames[::pace], ws["shift_x"], ws["shift_y"], self.field_shape)
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
 
@@ -942,7 +943,9 @@ def memory_from_checkpoint(checkpoint: dict | None):
             *(np.array(m[k], dtype=float) if m.get(k) else None for k in ("place", "people_day", "people_night", "danger", "value")),
             dict(m.get("nectar") or {}),
             _unpack_proto(m.get("proto")),
-            _unpack_scenes(m.get("scenes")))
+            _unpack_scenes(m.get("scenes")),
+            np.array(m["ground"], dtype=float) if m.get("ground") else None,
+            np.array(m["heads"], dtype=float) if m.get("heads") else None)
 
 
 def _for_evaluation(memory):
@@ -1215,7 +1218,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                        # the plants' standing crops, as it has lived them (item 9)
                        "nectar": {k: round(float(v), 4) for k, v in memory_now[8].items()} if len(memory_now) > 8 and memory_now[8] else {},
                        "proto": _pack_proto(memory_now[9]) if len(memory_now) > 9 else None,
-                       "scenes": _pack_scenes(memory_now[10]) if len(memory_now) > 10 else None}
+                       "scenes": _pack_scenes(memory_now[10]) if len(memory_now) > 10 else None,
+                       "ground": np.round(memory_now[11], 5).tolist() if len(memory_now) > 11 and memory_now[11] is not None else None,
+                       "heads": np.round(memory_now[12], 5).tolist() if len(memory_now) > 12 and memory_now[12] is not None else None}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })

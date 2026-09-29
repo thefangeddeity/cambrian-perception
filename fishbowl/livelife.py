@@ -49,7 +49,7 @@ def memory_of(org: Organism) -> tuple:
         return None if a is None else np.array(a, dtype=float, copy=True)
     return (c(org.memory), c(org.variance), c(org.mb.weights), c(org.place), c(org.people_day),
             c(org.people_night), c(org.mb.danger_weights), c(org.value_map), dict(org.nectar),
-            np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()))
+            np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()), c(org.ground), c(org.mb.heads))
 
 
 def _carry(old: Organism, new: Organism) -> None:
@@ -77,7 +77,9 @@ def _carry(old: Organism, new: Organism) -> None:
     if old.tree is not None and old.g.trees.get("response") is not None and new.g.trees.get("response") is not None \
             and old.g.trees["response"].to_dict() == new.g.trees["response"].to_dict():
         new.tree, new.tree_macs = old.tree, old.tree_macs
+    new.uncertainty, new.just_missed = old.uncertainty, old.just_missed
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
+    new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
         new.test_set = new.test_set[:new.sleep_set]
     new.edits_tried, new.edits_kept = old.edits_tried, old.edits_kept
@@ -159,6 +161,14 @@ def _circuits(org: Organism) -> dict:
                 out["replay_eye"]["recon_side"] = PROTO_SIDE
         if meta is not None and meta[0] is not None:  # what it saw then: the frame, if the ring still holds it
             out["replay_eye"]["seen"] = {"i": int(meta[0]), "cx": round(meta[1], 4), "cy": round(meta[2], 4), "f": round(meta[3], 4)}
+    # its newer senses, for the visual field card
+    names = {**{int(k): v for k, v in prey_lib.PREY_CLASSES.items()}, prey_lib.PLANT_CLASS: "plant"}
+    out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3),
+                     "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
+                     "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
+                     "uncertainty": round(float(org.uncertainty), 3), "camera_moving": bool(org.cam_moving),
+                     "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]
+                                    for c, v in zip(org.head_classes[:org.n_heads], org.mb.head_values(org.last_kc)[:org.n_heads])]}
     b = org.body
     out["sleep"] = {"asleep": bool(b.asleep >= 0.5), "for_s": round(b.sleep_clock, 0), "pressure": round(b.sleep_pressure, 3),
                     "dreaming": bool(org.dreaming), "imagery": bool(org.imagery),
@@ -166,6 +176,7 @@ def _circuits(org: Organism) -> dict:
                     "recall": bool(org.recall), "recalled": org.recalled,
                     "sleep_set": org.sleep_set, "edits": [org.edits_kept, org.edits_tried],
                     "episodes": len(org.episodes), "replays": dict(org.replays),
+
                     "scene": org.scene + 1 if org.scenes else 1, "scenes": max(1, len(org.scenes)), "max_scenes": org.max_scenes,
                     "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
                                "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}
@@ -234,6 +245,11 @@ class LiveLife:
         self._thread.join(timeout=10.0)
         self._save_episodes()
 
+    def _event(self, kind: str, **data) -> None:
+        """A rare event, logged as it happens (the long tail: a 2026-09-29
+        panel, Gelman and Nesse -- what hourly counts average away)."""
+        sandbox.log_event({"t": round(time.time(), 1), "lived_s": round(float(self.org.lived_s), 1), "event": kind, **data})
+
     # ---- its episodes and sleep test set survive a restart (2026-09-28 audit) --
     def _load_episodes(self) -> None:
         org = self.org
@@ -252,7 +268,8 @@ class LiveLife:
                 org.episode_meta = [None] * len(org.episodes)  # the frames they formed on are gone
                 if org.sleep_set and "test_planes" in z and len(z["test_planes"]):
                     planes = z["test_planes"].astype(np.float32) / 127.0
-                    org.test_set = [(planes[i:i + 1], z["test_plain"][i:i + 1].astype(float), float(z["test_labels"][i]))
+                    keys = z["test_keys"] if "test_keys" in z else np.zeros(len(planes))
+                    org.test_set = [(planes[i:i + 1], z["test_plain"][i:i + 1].astype(float), float(z["test_labels"][i]), float(keys[i]))
                                     for i in range(min(len(planes), org.sleep_set))]
                     org.test_seen = int(z["test_seen"]) if "test_seen" in z else len(org.test_set)
             print(f"Its memories: {len(org.episodes)} episodes and {len(org.test_set)} test looks back from disk.")
@@ -279,6 +296,7 @@ class LiveLife:
             data["test_planes"] = np.clip(np.round(np.concatenate([t[0] for t in tests]) * 127), -127, 127).astype(np.int8)
             data["test_plain"] = np.concatenate([t[1] for t in tests]).astype(np.float32)
             data["test_labels"] = np.array([t[2] for t in tests], dtype=np.float32)
+            data["test_keys"] = np.array([t[3] if len(t) > 3 else 0.0 for t in tests], dtype=np.float64)
         sandbox.save_episodes(data)
 
     # ---- its life, frame by frame ----------------------------------------------
@@ -321,11 +339,21 @@ class LiveLife:
                         else 0.7 * self.field_motion + 0.3 * change
                 swats0 = org.swats
                 was_asleep = org.body.asleep >= 0.5
+                ev0 = (org.scene_switches, org.edits_kept, len(org.scenes), org.scene)
                 org.feed_index = index
                 out = org.frame(grey, sig, boxes or [], colour, shift)
                 hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 if was_asleep and org.body.asleep < 0.5:
                     batch["sums"]["woke_" + (org.body.woke_by or "choice")] += 1
+                    self._event("woke", cause=org.body.woke_by or "choice", mismatch=round(float(org.mismatch), 3))
+                elif not was_asleep and org.body.asleep >= 0.5:
+                    self._event("fell asleep", pressure=round(float(org.body.sleep_pressure), 3))
+                if org.swats > swats0:
+                    self._event("swatted", gut=round(float(org.body.gut), 3))
+                if org.scene_switches > ev0[0]:
+                    self._event("new scene" if len(org.scenes) > ev0[2] else "back in a scene", scene=org.scene + 1, scenes=len(org.scenes))
+                if org.edits_kept > ev0[1]:
+                    self._event("taught itself", tree_nodes=org.tree.node_count() if org.tree is not None else None)
                 snack = org.pending["snack"] if out["gazed"] and org.pending else 0.0
                 if out["gazed"]:
                     looks += 1

@@ -741,9 +741,12 @@ PAGE = r"""<!doctype html>
       <label><input type="checkbox" data-layer="place"> <b style="color:#ffb066">food places</b></label>
       <label><input type="checkbox" data-layer="people"> <b style="color:#ff6f8a">people expected</b></label>
       <label><input type="checkbox" data-layer="familiar"> <b style="color:#ffb4a6">still surprising</b></label>
+      <label><input type="checkbox" data-layer="ground"> <b style="color:#9ccf7a">ground</b></label>
+      <label><input type="checkbox" data-layer="parallax"> <b style="color:#7fd4ff">parallax</b></label>
 </div>
     <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; <b style="color:#9ccf7a">dotted</b> = a plant (nectar); red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
+    <div class="cap" id="senses-strip"></div>
   </div>
   <div class="panel" id="tree-panel">
     <h2>its perception tree</h2>
@@ -821,7 +824,7 @@ PAGE = r"""<!doctype html>
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy', 'protein', 'host vx', 'host vy'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy', 'protein', 'host vx', 'host vy', 'own pace', 'missed', 'uncertainty', 'ground near', 'horizon', 'parallax', 'camera moving', 'archetype 1', 'archetype 2', 'archetype 3', 'archetype 4'];
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
@@ -980,12 +983,25 @@ PAGE = r"""<!doctype html>
     cb.checked = !!LAYERS[cb.dataset.layer];
     cb.addEventListener('change', () => { LAYERS[cb.dataset.layer] = cb.checked; try { localStorage.setItem('layers', JSON.stringify(LAYERS)); } catch (e) { } });
   });
+  // Its newer senses in one line under the visual field: its own pace, how
+  // unsure its memory is, whether the camera itself moves, where its horizon
+  // is, and what its archetype heads see now (a small bar each).
+  function drawSenses(d) {
+    const el = $('senses-strip'), s = d && d.senses; if (!el) return;
+    if (!s) { el.textContent = ''; return; }
+    const bar = v => `<span style="display:inline-block;width:40px;height:6px;background:#1c2a36;vertical-align:middle"><span style="display:block;height:6px;width:${Math.round(40 * Math.max(0, Math.min(1, v)))}px;background:#7fd4ff"></span></span>`;
+    const parts = [`pace ${s.pace_s.toFixed(2)} s${s.missed ? ' <b style="color:#ff6f8a">missed</b>' : ''}`, `unsure ${bar(s.uncertainty)}`,
+                   s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
+                   s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet'];
+    if (s.archetypes && s.archetypes.length) parts.push('sees ' + s.archetypes.map(([n, v]) => `${n} ${bar(v)}`).join(' '));
+    el.innerHTML = 'Senses: ' + parts.join(' &middot; ');
+  }
   function drawLayers(ctx, d, W, H) {
     // Each layer its own kind of mark, so they stack (a 2026-09-28 UX panel):
     // the heat dims to a ground, food places are outlines, people expected are
     // dots, habituation is shade (what is still surprising stays bright), and
     // replay and dreams are strokes.
-    const m = d.maps; if (!m || !Object.values(LAYERS).some(Boolean)) return;
+    const m = d.maps, sn = d.senses || {}; if (!m || !Object.values(LAYERS).some(Boolean)) return;
     ctx.fillStyle = 'rgba(8, 4, 4, 0.5)'; ctx.fillRect(0, 0, W, H);
     const each = (vals, shape, draw) => {
       const [rows, cols] = shape, cw = W / cols, ch = H / rows;
@@ -1004,6 +1020,20 @@ PAGE = r"""<!doctype html>
         ctx.strokeRect(x + lw / 2 + 1, y + lw / 2 + 1, w - lw - 2, h - lw - 2);
       });
     }
+    if (LAYERS.ground && sn.horizon != null) {  // its learned ground plane: the horizon, and depth bands below it (lines)
+      const hy = sn.horizon * H;
+      ctx.strokeStyle = 'rgba(156, 207, 122, 0.9)'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke(); ctx.setLineDash([]);
+      for (const d2 of [2, 4, 8]) {  // where things are 1/2, 1/4, 1/8 as near as at the frame's bottom
+        const y = hy + (H - hy) / d2; ctx.strokeStyle = `rgba(156, 207, 122, ${0.2 + 0.3 / d2})`; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      }
+    }
+    if (LAYERS.parallax && sn.parallax) each(sn.parallax, m.shape, (v, x, y, w, h) => {  // what moves against the camera's own motion (crosses)
+      if (v <= 0.05) return;
+      const s = Math.min(w, h) * 0.3 * v; ctx.strokeStyle = `rgba(127, 212, 255, ${0.4 + 0.6 * v})`; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x + w / 2 - s, y + h / 2); ctx.lineTo(x + w / 2 + s, y + h / 2); ctx.moveTo(x + w / 2, y + h / 2 - s); ctx.lineTo(x + w / 2, y + h / 2 + s); ctx.stroke();
+    });
     if (LAYERS.people) each(m.people, m.shape, (v, x, y, w, h) => {
       if (v <= 0.01) return;
       ctx.fillStyle = 'rgba(255, 111, 138, 0.9)'; ctx.beginPath();
@@ -1831,14 +1861,12 @@ PAGE = r"""<!doctype html>
     { id: 'c-look', title: 'gaze size', cap: 'the side of its eye as a fraction of the frame height (receptors x 1/64; before the eye became a fixed mosaic: the zoom gaze at birth and its mean over each run)', fixed: [0, 0.65], series: [['at birth', '#ffb4a6', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
     { id: 'c-pace', title: 'resting pace', cap: 'inherited resting gaze interval, every Nth frame (its temperament; the brain moves 3x either way around it)', series: [['every Nth frame', '#ffb4a6', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: 'resource_handler: grows with real improvement, shrinks under system strain (%)', series: [['quota %', '#fd4', r => r.quota_pct]] },
-    { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#9a6f67', r => r.mv && r.mv.fixate], ['glide', '#ffe2d6', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#ffb4a6', r => r.tree_depth]] },
-    { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#ffe2d6', r => r.accepted_delta]] },
     { id: 'c-diet', title: 'blood and nectar', cap: 'per hour: bites (blood: its protein, for eggs) and nectar sips (sugar), each on its own scale', hourly: true, dual: true, series: [['bites', '#ff5fa2', r => r.bites], ['nectar sips', '#9ccf7a', r => r.nectar_sips]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
-  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_sleep_set', 'mutate_pool', 'mutate_setpoints', 'mutate_bore', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
-  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', mutate_imagery: '#fff0c0', mutate_recall: '#ffd8a0', mutate_scenes: '#a0e0ff', mutate_sleep_set: '#d0b0ff', mutate_pool: '#ffc070', mutate_setpoints: '#db7', mutate_bore: '#e77', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
+  const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_sleep_set', 'mutate_pool', 'mutate_setpoints', 'mutate_bore', 'mutate_archetypes', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
+  const MUT_COLOR = { grow_kc: '#9f6', shrink_kc: '#595', mutate_learning: '#ff9', mutate_cones: '#fb5', duplicate_layer: '#6cf', remove_layer: '#468', grow_unit: '#e9f', shrink_unit: '#958', mutate_prey_sense: '#f8a', mutate_stabilizer: '#9fe', mutate_zoom: '#8ef', mutate_metabolism: '#e96', mutate_host: '#f7c', mutate_replay: '#b9f', mutate_vigilance: '#fe6', mutate_pump: '#e55', mutate_aversive: '#c66', mutate_receptor_speed: '#9cf', mutate_plant_sense: '#9ccf7a', mutate_imagery: '#fff0c0', mutate_recall: '#ffd8a0', mutate_scenes: '#a0e0ff', mutate_sleep_set: '#d0b0ff', mutate_pool: '#ffc070', mutate_setpoints: '#db7', mutate_bore: '#e77', mutate_archetypes: '#7ec', grow_channel: '#fa6', add_prediction: '#fc4', shrink_channel: '#a86', mutate_colour: '#ff5fa2', mutate_pace: '#fd4', mutate_brain: '#f4f', mutate_fovea: '#c8f', mutate_const: '#ffe2d6', mutate_op: '#0af', grow: '#ffb4a6', shrink: '#f90', reroll_subtree: '#f66' };
   (function buildCharts() {
     // the mutation chart spans its whole row, with a line per kind (their names are long and many)
     $('charts').innerHTML = CHARTS.map(ch => `<div class="panel"${ch.mutations ? ' style="grid-column: 1 / -1"' : ''}><h2>${ch.title}</h2><div class="cap">${ch.cap}</div>` +
@@ -1894,7 +1922,7 @@ PAGE = r"""<!doctype html>
   // Controls inside a panel (inputs, buttons, links) keep working.
   // No wasted space: the charts nearest the body's subject move up under the
   // sleep card, beside the tall body card, as many as fit; the rest stay below.
-  const SIDE_ORDER = ['c-body', 'c-drive', 'c-pace', 'c-move', 'c-look', 'c-quota', 'c-tree', 'c-fit', 'c-delta'];
+  const SIDE_ORDER = ['c-body', 'c-drive', 'c-pace', 'c-look', 'c-quota', 'c-tree', 'c-fit'];
   function balanceSide() {
     const side = $('charts-side'), main = $('charts'), body = $('body-panel'), left = $('left-stack'), quad = document.querySelector('.quad');
     if (!side || !main || !body || !left || !quad) return;
@@ -1917,7 +1945,7 @@ PAGE = r"""<!doctype html>
   }
   const CH_EXTRA = {};
   function redrawAll() {
-    if (D) { drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
+    if (D) { drawBody(D); drawBrain(D); drawSenses(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
     balanceSide();
     if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, ch.hourly ? lastHourly : lastHistory));
   }
@@ -2029,7 +2057,7 @@ PAGE = r"""<!doctype html>
         $('h-prey').textContent = ['eyes only', 'scent', 'scent + direction'][d.prey_sense ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? (d.host_cores ? `${(d.quota_pct / 100).toFixed(1)} of ${d.host_cores} cores` : d.quota_pct + '% of a core') : '--';  // systemd's % = one core
         $('h-stale').innerHTML = '';
-        drawBody(d); drawBrain(d); showLive(d);
+        drawBody(d); drawBrain(d); drawSenses(d); showLive(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
     } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }

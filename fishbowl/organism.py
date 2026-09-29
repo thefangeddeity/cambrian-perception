@@ -29,7 +29,8 @@ import cv2
 import numpy as np
 
 from . import fovea, prey as prey_lib
-from .controller import DANGER_INPUT, INTRUDER_INPUT, MISMATCH_INPUTS, PLACE_INPUTS, PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS
+from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
+                         PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT)
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -260,6 +261,47 @@ def global_shift(prev_small: np.ndarray, cur_small: np.ndarray, window: np.ndarr
     return 0.0, 0.0
 
 
+def parallax_map(prev_small, small, shift, shape) -> np.ndarray:
+    """Parallax (a 2026-09-29 panel; Land, Friston: depth from a moving
+    camera): with the camera's own motion (the frame's global shift) undone,
+    what still moved, per whole-field cell -- near things slide more than far
+    ones. Zero when the camera doesn't move."""
+    rows, cols = shape
+    if prev_small is None or small is None or prev_small.shape != small.shape or not camera_moves(shift, small.shape):
+        return np.zeros(rows * cols)
+    h, w = small.shape
+    moved = cv2.warpAffine(prev_small, np.float32([[1, 0, shift[0] * w], [0, 1, shift[1] * h]]), (w, h),
+                           borderMode=cv2.BORDER_REPLICATE)
+    # Cell by cell (as its motion sense compares receptors), how much of the
+    # change is left once the camera's own motion is undone: what still moved,
+    # over what moved at all (+ sensor noise) -- 0 for the scene sliding past as
+    # a whole, towards 1 for what is nearer, or moving on its own. No gain.
+    cell = lambda img: cv2.resize(img, (cols, rows), interpolation=cv2.INTER_AREA) / 255.0  # noqa: E731
+    now, was, before = cell(small), cell(moved), cell(prev_small)
+    return np.clip(np.abs(now - was) / (np.abs(now - before) + NOISE_FLOOR), 0.0, 1.0).ravel()
+
+
+def camera_moves(shift, small_shape) -> bool:
+    """The camera itself moved: a whole-frame shift of at least one pixel of the
+    small frame it is measured on (below that it's the measurement's noise)."""
+    h, w = small_shape[:2]
+    return abs(shift[0]) * w >= 1.0 or abs(shift[1]) * h >= 1.0
+
+
+def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, shape) -> np.ndarray:
+    """parallax_map over a recording (the batch twin of field.FieldSignals)."""
+    out = np.zeros((len(frames), shape[0] * shape[1]))
+    if len(frames) < 2:
+        return out
+    size = shift_size(frames[0].shape)
+    prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
+    for k in range(1, len(frames)):
+        cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
+        out[k] = parallax_map(prev, cur, (sx[k], sy[k]), shape)
+        prev = cur
+    return out
+
+
 def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     """The whole frame's shift from frame k-1 to frame k, for a recording."""
     n = len(frames)
@@ -271,7 +313,7 @@ def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
     for k in range(1, n):
         cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
-        sx[k], sy[k] = global_shift(prev, cur, window)
+        sx[k], sy[k] = global_shift(prev.copy(), cur.copy(), window)  # copies: phase correlation windows its inputs in place
         prev = cur
     return sx, sy
 
@@ -299,7 +341,11 @@ NECTAR_CROP = 1.0         # a full plant, in gut-fulls
 NECTAR_REFILL_S = 3 * 3600.0
 
 # What a host passes each frame about the whole field (sig): the keys below.
-SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light", "mismatch", "mismatch_cx", "mismatch_cy", "structure")
+SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_light", "mismatch", "mismatch_cx", "mismatch_cy", "structure",
+               "parallax")
+
+
+GROUND_CLASSES = sorted(prey_lib.PREY_CLASSES)  # the classes whose sizes measure its ground plane
 
 
 class Organism:
@@ -355,7 +401,23 @@ class Organism:
         self.plant_level = int(getattr(g, "plant_sense", 0))
         self.sips = 0
         proto = memory[9] if memory is not None and len(memory) > 9 else None  # its imagery (item 10)
-        self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger, proto)
+        heads = memory[12] if memory is not None and len(memory) > 12 else None  # its archetype heads (item 13)
+        self.mb = MushroomBody(int(getattr(g, "kc", 0)), int(getattr(g, "kc_seed", 0)), learned, danger, proto, heads)
+        self.n_heads = int(getattr(g, "archetypes", 0))
+        self.head_classes = list(getattr(g, "archetype_classes", [0, 0, 0, 0]))
+        # Its ground plane (a 2026-09-29 panel; Gibson, Land, the self-driving
+        # bird's-eye view): every host it sees is a measuring stick -- under a
+        # flat ground and a pinhole eye, a thing's height in the frame grows in
+        # proportion to how far below the horizon its base stands. Per class
+        # (people and geese differ in size), running sums of (base y, height)
+        # give a line whose zero is the horizon. Kept per scene (item 12).
+        g_mem = memory[11] if memory is not None and len(memory) > 11 else None
+        self.ground = np.array(g_mem, dtype=float) if g_mem is not None and len(g_mem) else np.zeros((len(GROUND_CLASSES), 5))
+        self.uncertainty = 0.0   # running mean of its mushroom body's prediction errors (at its own learning rate)
+        self.just_missed = False
+        self.cam_shift = (0.0, 0.0)
+        self.cam_moving = False
+        self.last_parallax = None
         self.imagery = bool(getattr(g, "imagery", 0))
         # Recall (pattern completion; a 2026-09-28 panel -- Marr's CA3, which at
         # low load retrieves like a Hopfield net: the stored pattern that best
@@ -373,7 +435,8 @@ class Organism:
         self.tree_macs = self.tree.macs() if self.tree is not None else 0
         self.sleep_set = int(getattr(g, "sleep_set", 0))
         self.test_set: list = []   # a uniform sample of its waking looks: (retina planes, plain inputs, teacher's label)
-        self.test_seen = 0         # waking looks offered to the sample (Vitter's Algorithm R)
+        self.test_seen = 0         # waking looks offered to the sample
+        self.mean_miss = 0.0       # its tree's running mean disagreement with the teacher (the sample's weights)
         self.edits_tried = self.edits_kept = 0
         self.rng_edit = np.random.default_rng(int(getattr(g, "kc_seed", 0) or 0) + 7919)
         # Scenes (a 2026-09-28 panel; hippocampal remapping, O'Keefe & Moser):
@@ -493,6 +556,8 @@ class Organism:
         colour_frame: BGR, if it has colour vision; shift: the whole frame's
         shift from the previous frame (for the stabilizer).
         """
+        self.cam_shift = (float(shift[0]), float(shift[1]))
+        self.cam_moving = camera_moves(self.cam_shift, shift_size(frame.shape)[::-1])
         if self.k == 0:
             if len(self.scenes) > self.max_scenes:  # a smaller library now: keep the most recent
                 keep = sorted(range(len(self.scenes)), key=lambda i: self.scenes[i].get("last", 0.0))[-self.max_scenes:]
@@ -603,6 +668,16 @@ class Organism:
         self.last_kc = kc_active
         self.food_value = float(np.clip(self.mb.value(kc_active), -1.0, 1.0))
         self.danger_value = float(np.clip(self.mb.danger(kc_active), -1.0, 1.0)) if self.aversive_rate > 0.0 else 0.0
+        head_vals = np.clip(self.mb.head_values(kc_active), -1.0, 1.0) if self.n_heads else np.zeros(4)
+        head_vals[self.n_heads:] = 0.0
+        head_macs = 2 * self.n_heads * len(kc_active)  # reading them now, and teaching them below
+        ground_near, horizon = self._ground_sense(state.cy)
+        cell_p = self._cell(state.cx, state.cy)
+        par = sig["parallax"] if not was_asleep else None
+        self.last_parallax = par
+        parallax = float(par[cell_p[0] * self.place.shape[1] + cell_p[1]]) if par is not None and cell_p is not None and len(par) else 0.0
+        camera_moving = float(min(1.0, math.hypot(*self.cam_shift) / SHIFT_MAX)) if self.cam_moving else 0.0
+        own_pace = float(np.tanh(math.log2(max(1e-6, self.last_interval / max(1.0, self.fps) * REFERENCE_GAZES_PER_S))))
         cell = self._cell(state.cx, state.cy)
         place_dx, place_dy, place_value = self._place_sense(state.cx, state.cy)
         scene_macs = self._place_in(sig["structure"], self.last_interval / max(1.0, self.fps))
@@ -615,7 +690,7 @@ class Organism:
             if self.recalled is not None:
                 _, r_reward, r_cell = self.episodes[self.recalled]
                 recalled = float(np.clip(r_reward, -1.0, 1.0))
-                if r_cell is not None and self.place is not None:
+                if self._in_map(r_cell):
                     rows, cols = self.place.shape
                     recalled_dx, recalled_dy = (r_cell[1] + 0.5) / cols - state.cx, (r_cell[0] + 0.5) / rows - state.cy
                 self.recalls += 1
@@ -628,19 +703,23 @@ class Organism:
         if was_asleep and body.sleep_clock > SLEEP_SETTLE_S:
             replay_macs += self._dream()
             replay_macs += self._sleep_program()
-        replay_macs += recall_macs + scene_macs
+        replay_macs += recall_macs + scene_macs + head_macs
         if (self.sec_per_mac and self.last_out is not None
                 and self.sec_per_mac / max(1e-3, body.metabolism) * (brain.macs() + replay_macs)
                 > self.last_interval / max(1.0, self.fps)):  # its brain runs at the pace its metabolism powers
             out = self.last_out  # still thinking: this look is missed
             self.missed += 1
+            self.just_missed = True
         else:
+            self.just_missed = False
             out = brain.step(
                 lum, motion, flow_x, flow_y, loom, state.cx, state.cy, state.extent, body,
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
                 self.food_value, place_dx, place_dy, place_value, self.intruder, self.danger_value,
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
+                own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
+                tuple(head_vals),
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -667,15 +746,25 @@ class Organism:
             planes[0, 2 + c] = col[c * self.n_cells:(c + 1) * self.n_cells].reshape(n, n)
         plain = np.concatenate([[self.prev_dx, self.prev_dy], brain.tree_view()])[None, :]
         response = float(self.tree.evaluate(plain, planes)[0]) if self.tree is not None else float(g.evaluate("response", plain, planes)[0])
-        if self.sleep_set and not was_asleep:  # its sleep test set: a uniform sample of its waking looks
-            label = prey_lib.prey_in_window(boxes, state.cx, state.cy, *state.half_extents(self.aspect))
+        if self.sleep_set and not was_asleep:
+            # Its sleep test set: a sample of its waking looks, weighted toward
+            # where its tree disagreed with the teacher (the "data engine" of
+            # self-driving research, 2026-09-29 panel 13-1): weighted reservoir
+            # sampling (Efraimidis & Spirakis 2006, key = u^(1/w)); weight = its
+            # disagreement + the running mean disagreement (self-scaling: an
+            # average miss counts double a perfect look; none is excluded).
+            label = float(prey_lib.prey_in_window(boxes, state.cx, state.cy, *state.half_extents(self.aspect)))
+            guess = 0.5 * (1.0 + math.tanh(response)) if math.isfinite(response) else 0.5
+            miss = abs(guess - label)
             self.test_seen += 1
-            item = (planes.copy(), plain.copy(), float(label))
+            self.mean_miss += (miss - self.mean_miss) / min(self.test_seen, max(1, self.sleep_set))
+            key = float(self.rng_edit.random()) ** (1.0 / max(1e-9, miss + self.mean_miss))
+            item = (planes.copy(), plain.copy(), label, key)
             if len(self.test_set) < self.sleep_set:
                 self.test_set.append(item)
             else:
-                j = int(self.rng_edit.integers(self.test_seen))
-                if j < self.sleep_set:
+                j = min(range(len(self.test_set)), key=lambda i: self.test_set[i][3] if len(self.test_set[i]) > 3 else 0.0)
+                if key > (self.test_set[j][3] if len(self.test_set[j]) > 3 else 0.0):
                     self.test_set[j] = item
         # The perception tree's output reaches the brain next gaze; the tree
         # is also graded by its teacher (run_vision.TEACHER_WEIGHT).
@@ -740,8 +829,17 @@ class Organism:
             if len(kc_active) and self.learning_rate > 0.0:
                 err = self.mb.learn(kc_active, reward, self.learning_rate)
                 self.value_errors.append(abs(err))
+                self.uncertainty += self.learning_rate * (min(1.0, abs(err)) - self.uncertainty)  # its own timescale
+                if self.n_heads:  # its archetype heads, each taught by its class's presence in the gaze
+                    seen = (boxes or []) + (plants or [])
+                    hx, hy = state.half_extents(self.aspect)
+                    targets = np.array([prey_lib.prey_in_window([b for b in seen if int(b[0]) == c], state.cx, state.cy, hx, hy)
+                                        for c in self.head_classes])
+                    self.mb.learn_heads(kc_active, targets, self.learning_rate, self.n_heads)
                 self._remember((kc_active.copy(), reward, cell), abs(err),
                                (self.feed_index, state.cx, state.cy, state.extent))
+            if boxes:
+                self._learn_ground(boxes)
             proto_macs = 0
             if self.imagery and len(kc_active) and self.learning_rate > 0.0:
                 # its imagery: what the eye sees now, on the prototypes' grid;
@@ -816,7 +914,7 @@ class Organism:
             self.edits_kept += 1
         return (self.tree_macs + cand_macs) * len(items)
 
-    SCENE_MAPS = ("place", "people_day", "people_night", "value_map", "memory", "variance")
+    SCENE_MAPS = ("place", "people_day", "people_night", "value_map", "memory", "variance", "ground")
 
     def _place_in(self, structure, seconds: float) -> int:
         """Which scene it is in (see __init__); returns the multiply-adds spent."""
@@ -824,6 +922,8 @@ class Organism:
             return 0
         s = np.asarray(structure, dtype=float)
         if float(s.std()) <= NOISE_FLOOR:  # no structure (a blank or black frame): nothing to place
+            return len(s)
+        if self.cam_moving:  # the camera itself is moving: the layout is sliding, not a new place (Gelman)
             return len(s)
         if not self.scenes:  # its first scene: where it is now
             self.scenes, self.scene = [{"gist": s.copy(), "last": self.lived_s}], 0
@@ -903,6 +1003,7 @@ class Organism:
                 setattr(self, name, np.zeros_like(a))
         self.memory, self.variance = new_memory()
         self.nectar = {}
+        self.ground = np.zeros_like(self.ground)
 
     def library(self) -> dict | None:
         """Its scene library, for memory (item 11): the current scene's maps stashed first."""
@@ -910,6 +1011,41 @@ class Organism:
             return None
         self._stash()
         return {"current": self.scene, "library": [dict(s) for s in self.scenes]}
+
+    def _learn_ground(self, boxes: list) -> None:
+        """Each host a measuring stick: its base's height in the frame and its
+        own height, into its class's running sums (n, y, h, y^2, y*h), weighted
+        by the detector's confidence."""
+        for c, conf, x0, y0, x1, y1 in boxes:
+            if int(c) in GROUND_CLASSES and y1 > y0:
+                k, w = GROUND_CLASSES.index(int(c)), float(conf)
+                self.ground[k] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+
+    def horizon(self) -> float | None:
+        """Where its ground plane meets the sky (0 = top of the frame), from
+        each class's line height = a (y - horizon), weighted by evidence; None
+        until a class has enough spread in where its members stand."""
+        est, wsum = 0.0, 0.0
+        for n, sy, sh, syy, syh in self.ground:
+            if n < 3:
+                continue
+            vy = syy / n - (sy / n) ** 2
+            if vy <= 1e-6:
+                continue
+            a = (syh / n - (sy / n) * (sh / n)) / vy
+            if a <= 0:
+                continue
+            b = sh / n - a * sy / n
+            est, wsum = est + n * (-b / a), wsum + n
+        return float(np.clip(est / wsum, -1.0, 1.0)) if wsum else None
+
+    def _ground_sense(self, cy: float) -> tuple[float, float]:
+        """(how near the ground at its gaze is: 1 at the frame's bottom, 0 at
+        the horizon and above; where the horizon is, relative to the middle)."""
+        h = self.horizon()
+        if h is None or h >= 1.0:
+            return 0.0, 0.0
+        return float(np.clip((cy - h) / (1.0 - h), 0.0, 1.0)), float(np.clip(h - 0.5, -1.0, 1.0))
 
     def _host_velocity(self, boxes: list) -> tuple[float, float]:
         """The velocity of the host it follows (frame fractions per second,
@@ -1097,15 +1233,20 @@ class Organism:
                     target = reward + self.replay_backup * self.mb.value(self.episodes[i + 1][0])
                 self.mb.learn(code, target, self.learning_rate)
                 self.priority[i] = abs(target - self.mb.value(code))
-                if cell is not None:
+                if self._in_map(cell):  # (a memory from a differently shaped world touches no map)
                     self.place[cell] += self.learning_rate * (target - self.place[cell])
                 self.chain = (i - 1, seq) if self.replay_backup > 0.0 else None
                 self.replays["nrem" if asleep_settled else "awake"] += 1
                 self._log_replay("nrem" if asleep_settled else "awake", cell, seq)
         return count * kc_macs(self.live_kc)
 
+    def _in_map(self, cell) -> bool:
+        """A field cell that exists on its maps now (memories formed on a
+        stream of another shape carry cells that may not)."""
+        return cell is not None and self.place is not None and 0 <= cell[0] < self.place.shape[0] and 0 <= cell[1] < self.place.shape[1]
+
     def _log_replay(self, kind: str, cell, seq: int = 0) -> None:
-        if cell is not None:
+        if self._in_map(cell):
             self.replay_log.append((kind, int(cell[0]), int(cell[1]), self.lived_s, seq))
             del self.replay_log[:-64]
 
@@ -1145,7 +1286,8 @@ class Organism:
                                  + (THINK_COST * (kc_macs(self.live_kc) + (self.live_kc if self.aversive_rate > 0.0 else 0))
                                     / REFERENCE_MACS if p["kc_on"] else 0.0)  # + the aversive output neuron, once it exists
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
-                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS)
+                                 + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
+                                                                         + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS)
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

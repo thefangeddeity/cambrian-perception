@@ -80,6 +80,22 @@ def save_episodes(arrays: dict) -> None:
             time.sleep(0.05)
 
 
+EVENTS_PATH = STATE_DIR / "events.jsonl"
+EVENTS_MAX_BYTES = 5_000_000  # then it rotates to events.1.jsonl (one old file kept): a disk-wear bound
+
+
+def log_event(entry: dict) -> None:
+    """One rare event of the live organism (livelife.py), appended."""
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        if EVENTS_PATH.exists() and EVENTS_PATH.stat().st_size > EVENTS_MAX_BYTES:
+            EVENTS_PATH.replace(EVENTS_PATH.with_name("events.1.jsonl"))
+        with open(EVENTS_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass  # a log line is never worth its life
+
+
 def load_space(default: int) -> int:
     """How many worker bodies resource_handler.py last allowed it (its
     "space": shrunk when memory is short) -- read-only."""

@@ -99,6 +99,13 @@ yardsticks are found.
 | scene match | r > 1.96 / sqrt(N_eff), N_eff = N (1 - ra rb) / (1 + ra rb) | S | the 5% test with Bretherton et al. (1999)'s effective sample size for autocorrelated fields |
 | `MAX_SCENES` | 64 | B | a safety bound; matching's price limits the library |
 | `MAX_SLEEP_SET` | 1024 | B | a safety bound on its sleep test set; the edits tested on it are what it pays |
+| `MAX_HEADS` | 4 | B | archetype heads have fixed input slots |
+| camera moves | a whole-frame shift of >= 1 pixel of the shift frame | B | the measurement's own resolution; below it is noise |
+| parallax scale | residual / (change + `NOISE_FLOOR`) | P | a ratio: no gain; reuses the sensor-noise floor |
+| test-set weights | disagreement + running mean disagreement | P | self-scaling (Efraimidis & Spirakis 2006 keys) |
+| uncertainty rate | its own learning rate | P | reused |
+| `EVENTS_MAX_BYTES` | 5 MB, one rotation | B | disk wear |
+| `KEEP_BACKUPS` (fleet.py) | 3 per host | B | fleet-made backups only |
 | `ENGORGE_S` | 90 s | S | a mosquito engorges in ~1.5 min (Clements 1992; Chadee & Beier 1995: 1-2.5 min): the tube's flow at bore 1 |
 | bore upkeep | bore^2 x `PUMP_UPKEEP_SHARE` | P | tissue to keep scales with the tube's cross-section; reuses the pump's upkeep share |
 | `GONOTROPHIC_S` | 3 days | S | blood meal to eggs (Clements 1992: 2-4 days) |

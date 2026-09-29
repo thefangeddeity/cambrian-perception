@@ -55,9 +55,12 @@ def macs(n_kc: int) -> int:
     return n_kc * (KC_INPUTS + 1)
 
 
+MAX_HEADS = 4  # archetype heads at most (their inputs are fixed slots): a structural bound
+
+
 class MushroomBody:
     def __init__(self, n_kc: int, seed: int, weights: np.ndarray | None = None, danger: np.ndarray | None = None,
-                 proto: np.ndarray | None = None):
+                 proto: np.ndarray | None = None, heads: np.ndarray | None = None):
         self.n_kc = int(n_kc)
         self.pos = _wiring(int(seed))[:self.n_kc]
         self.weights = resize(weights, self.n_kc)
@@ -72,6 +75,16 @@ class MushroomBody:
         # the eye, like feedback connections carrying predictions. Summed over a
         # replayed code, it is its own reconstruction of that memory.
         self.proto = resize_proto(proto, self.n_kc)
+        # Archetype heads (a 2026-09-29 panel; Tooby & Cosmides, Menzel; the
+        # self-driving "shared backbone, many heads"): up to MAX_HEADS more
+        # output neurons on the same Kenyon cells, each taught by the
+        # three-factor rule to predict one detector class in its gaze -- which
+        # class is inherited and evolves. Categories grounded by a teacher.
+        h = np.asarray(heads, dtype=float) if heads is not None and len(heads) else np.zeros((0, 0))
+        self.heads = np.zeros((MAX_HEADS, self.n_kc))
+        if h.ndim == 2 and h.size:
+            m = min(self.n_kc, h.shape[1])
+            self.heads[:min(MAX_HEADS, h.shape[0]), :m] = h[:MAX_HEADS, :m]
         self.k = max(1, int(round(KC_ACTIVE * self.n_kc))) if self.n_kc else 0
 
     def active(self, look: np.ndarray, n: int, live: int | None = None) -> np.ndarray:
@@ -109,6 +122,15 @@ class MushroomBody:
 
     def reconstruct(self, active: np.ndarray) -> np.ndarray | None:
         return self.proto[active].mean(axis=0) if len(active) else None
+
+    def head_values(self, active: np.ndarray) -> np.ndarray:
+        return self.heads[:, active].mean(axis=1) if len(active) else np.zeros(MAX_HEADS)
+
+    def learn_heads(self, active: np.ndarray, targets: np.ndarray, rate: float, n: int) -> None:
+        """The three-factor rule for the first n heads, toward their targets."""
+        if len(active) and rate > 0.0 and n > 0:
+            err = np.asarray(targets[:n]) - self.head_values(active)[:n]
+            self.heads[:n, active] += rate * err[:, None]
 
     def learn(self, active: np.ndarray, reward: float, rate: float) -> float:
         """The three-factor update; returns the prediction error."""

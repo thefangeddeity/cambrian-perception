@@ -114,6 +114,16 @@ fitness is not comparable (its own CPU prices, its own frames).
   out of it (none by default). `--dry-run` judges and changes nothing.
 
 Every replaced lineage is backed up to `state/backup-<time>-before-<parent>/`
-first. Linux and macOS targets are cloned over ssh (the host's own name), the
+first (the newest 3 such backups are kept per host). Linux and macOS targets are cloned over ssh (the host's own name), the
 local machine directly; a remote Windows target gets the steps printed. Runs
 are logged in `state/fleet_log.jsonl`.
+
+Isolated evolution is the default: contests happen only when you run
+`fleet.py` (by hand, or with `--auto` if you choose to schedule it).
+
+## Shadow-testing a rule change (`tools/shadow.py`)
+
+`python tools/shadow.py <old ref> [<new ref>]` scores every organism of the
+fleet under both versions of the code on the same captured frames (each
+version from its own git worktree) and shows how each version judges it and
+how it behaves (prey eaten, time asleep) -- before any host runs the change.

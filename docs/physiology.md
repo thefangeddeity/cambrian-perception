@@ -314,3 +314,35 @@ detector at that orientation (V1's simple cells; insects' oriented cells). A
 pool can become oriented in one mutation. Both pay per receptor read, and
 every tree cost is multiplied by CPU scarcity, so a host with more resources
 can afford more and bigger ones.
+
+## Senses added 2026-09-29 (all born unwired; evolution decides)
+
+- **Its own speed** (interoception, unpriced like the gut): its pace (seconds
+  per look, around its reference pace) and whether it just missed a look
+  because its brain was still thinking.
+- **Uncertainty** (Friston's precision): a running mean of its mushroom body's
+  prediction errors, at its own learning rate. Priced as a sense.
+- **A ground plane per scene** (Gibson; the self-driving bird's-eye view):
+  every host is a measuring stick. Under a flat ground and a pinhole eye a
+  thing's height in the frame grows in proportion to how far below the
+  horizon its base stands; per class, a running line through (base, height)
+  gives the horizon. Senses: how near the ground at its gaze is, and where
+  the horizon is. Kept per scene.
+- **Parallax** (moving cameras): with the camera's own motion undone, what is
+  left of each cell's change over what changed at all (+ sensor noise): 0 for
+  the scene sliding past, towards 1 for what is nearer or moving on its own.
+  No gain. The camera "moves" only when the whole frame shifts by at least a
+  pixel of the frame it is measured on; while it moves, the scene library
+  doesn't switch places.
+- **Archetype heads** (inherited count, born 0; Tooby & Cosmides, Menzel):
+  up to 4 more mushroom-body readouts, each taught by the three-factor rule to
+  predict one detector class in its gaze; which class is inherited and
+  evolves. Categories grounded by a teacher.
+- **Self-teaching favours its mistakes** (the self-driving "data engine"): its
+  test set is a weighted reservoir sample (Efraimidis & Spirakis 2006), each
+  look weighted by its tree's disagreement with the teacher plus the running
+  mean disagreement (self-scaling; no look is excluded).
+- **Rare events are logged** as they happen (`state/events.jsonl`): waking and
+  why, falling asleep, swats, new and revisited scenes, kept self-edits.
+- Memories formed on a stream of another shape replay without touching maps
+  whose cells don't exist on the current one.

@@ -57,7 +57,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
-            "mutate_setpoints", "mutate_bore")
+            "mutate_setpoints", "mutate_bore", "mutate_archetypes")
 STABILIZER_SIGMA = 0.1
 MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
@@ -225,6 +225,8 @@ class Genome:
         scenes: int = 1,
         sleep_set: int = 0,
         bore: float = 1.0,
+        archetypes: int = 0,
+        archetype_classes: list | None = None,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
     ):
@@ -261,6 +263,9 @@ class Genome:
         self.sleep_set = int(np.clip(sleep_set, 0, MAX_SLEEP_SET))
         # Its proboscis's bore (state.py: flow ~ bore^4, upkeep ~ bore^2); born 1.
         self.bore = float(np.clip(bore, PUMP_GUARD[0], PUMP_GUARD[1]))
+        # Archetype heads (mushroom.py; born 0) and which detector class each is taught by.
+        self.archetypes = int(np.clip(archetypes, 0, 4))
+        self.archetype_classes = ([int(c) for c in (archetype_classes or [])] + [0, 0, 0, 0])[:4]
         # Its fuel set points (state.py), inherited, born at the rulebook's
         # values: blood sugar below `mobilize` counts as fasted (glucagon),
         # above `store` a surplus goes to fat (insulin). 0 < mobilize < store < 1.
@@ -348,6 +353,8 @@ class Genome:
             self.scenes,
             self.sleep_set,
             self.bore,
+            self.archetypes,
+            list(self.archetype_classes),
             self.mobilize,
             self.store,
         )
@@ -571,6 +578,20 @@ class Genome:
             old = self.plant_sense
             self.plant_sense = int(np.clip(old + rng.choice((-1, 1)), 0, 2))
             return "prey", (choice if self.plant_sense != old else "noop_inapplicable")
+        if choice == "mutate_archetypes":  # one more or fewer head, or a head taught by another class
+            from .prey import PLANT_CLASS, PREY_CLASSES
+            classes = sorted(PREY_CLASSES) + [PLANT_CLASS]
+            if self.archetypes and rng.random() < 0.5:
+                k = rng.randrange(self.archetypes)
+                self.archetype_classes[k] = rng.choice(classes)
+            else:
+                old = self.archetypes
+                self.archetypes = int(np.clip(old + rng.choice((-1, 1)), 0, 4))
+                if self.archetypes > old:
+                    self.archetype_classes[old] = rng.choice(classes)
+                if self.archetypes == old:
+                    return "brain", "noop_inapplicable"
+            return "brain", choice
         if choice == "mutate_bore":  # log-normal steps, like the pump's
             self.bore = float(np.clip(self.bore * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), PUMP_GUARD[0], PUMP_GUARD[1]))
             return "pump", choice
@@ -786,6 +807,8 @@ class Genome:
             "scenes": self.scenes,
             "sleep_set": self.sleep_set,
             "bore": self.bore,
+            "archetypes": self.archetypes,
+            "archetype_classes": list(self.archetype_classes),
             "mobilize": self.mobilize,
             "store": self.store,
         }
@@ -857,6 +880,8 @@ class Genome:
             scenes=int(data.get("scenes", 1)),
             sleep_set=int(data.get("sleep_set", 0)),
             bore=float(data.get("bore", 1.0)),
+            archetypes=int(data.get("archetypes", 0)),
+            archetype_classes=data.get("archetype_classes"),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),
         )

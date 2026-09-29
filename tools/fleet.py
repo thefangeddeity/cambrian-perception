@@ -24,7 +24,8 @@ Hosts named with --protect are never replaced (none by default). Run it by
 hand or on a timer; every replaced lineage is backed up first.
 
 Cloning a target: stop its organism (it saves), back up its state to
-state/backup-<time>-before-<parent>/, write the parent's checkpoint and
+state/backup-<time>-before-<parent>/ (the newest 3 such backups are kept per
+host; other backups are never touched), write the parent's checkpoint and
 episodes, start it. Linux and macOS targets over ssh (the host's own name),
 this machine directly; a remote Windows target prints the steps instead.
 """
@@ -45,6 +46,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 PORT = 8090
+KEEP_BACKUPS = 3  # fleet-made backups kept per host (the newest); a lineage's own named backups are never touched
 
 
 def _get(url: str, timeout: float = 4.0) -> bytes | None:
@@ -169,6 +171,8 @@ def clone(parent: dict, target: dict) -> None:
             (Path(state) / f).unlink(missing_ok=True)
         for f, data in files.items():
             (Path(state) / f).write_bytes(data)
+        for old in sorted(Path(state).glob("backup-*-before-*"), key=lambda d: d.stat().st_mtime)[:-KEEP_BACKUPS]:
+            shutil.rmtree(old, ignore_errors=True)
         subprocess.run([str(py), str(ctl), "--start"], check=True)
         return
     if target["platform"] == "win32":
@@ -196,7 +200,9 @@ def clone(parent: dict, target: dict) -> None:
               f"for f in checkpoint.json checkpoint.prev.json episodes.npz; do [ -f {S}/$f ] && {sudo}cp -p {S}/$f {B}/ || true; done; "
               f"{sudo}rm -f {S}/checkpoint.prev.json {S}/episodes.npz; "
               + "".join(f"{sudo}cp {tmp}/{f} {S}/{f}; " for f in files)
-              + f"{own}rm -rf {tmp}; {start}")
+              + f"{own}rm -rf {tmp}; "
+              + f"ls -dt {S}/backup-*-before-* 2>/dev/null | tail -n +{KEEP_BACKUPS + 1} | while read d; do {sudo}rm -rf \"$d\"; done; "
+              + f"{start}")
     _ssh(target["name"], script)
 
 

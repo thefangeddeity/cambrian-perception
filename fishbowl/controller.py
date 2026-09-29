@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 46  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y
+BASE_INPUTS = 57  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
@@ -83,6 +83,11 @@ PLACE_INPUTS = (29, 30, 31)
 INTRUDER_INPUT = 32
 DANGER_INPUT = 33  # its aversive compartment's learned danger of what it sees (fishbowl/mushroom.py)
 PLANT_INPUTS = (34, 35, 36)  # its plant sense (genome.plant_sense): scent, then a coarse direction
+SPEED_INPUTS = (46, 47)       # its own pace (seconds per look) and whether it just missed a look (interoception)
+UNCERTAINTY_INPUT = 48        # how wrong its mushroom body's predictions have been lately (Friston's precision)
+GROUND_INPUTS = (49, 50)      # how near the ground at its gaze is, and where the horizon is (a learned ground plane)
+PARALLAX_INPUTS = (51, 52)    # parallax at its gaze and how much the camera itself moves (moving streams)
+ARCHETYPE_INPUTS = (53, 54, 55, 56)  # its archetype heads: mushroom-body readouts taught by the detector's classes
 PROTEIN_INPUT = 43  # its protein store (for eggs; only blood fills it)
 VELOCITY_INPUTS = (44, 45)  # the followed host's velocity (prey sense level 3)
 RECALL_INPUTS = (40, 41, 42)  # what the memory its view recalls held, and where it happened (pattern completion)
@@ -108,7 +113,9 @@ INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y"
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
                "prey scent", "prey dir x", "prey dir y", "food value", "place dx", "place dy", "place value",
                "intruder", "danger", "plant scent", "plant dir x", "plant dir y", "mismatch", "mismatch dx", "mismatch dy",
-               "recalled value", "recalled dx", "recalled dy", "protein", "host vx", "host vy")
+               "recalled value", "recalled dx", "recalled dy", "protein", "host vx", "host vy",
+               "own pace", "missed", "uncertainty", "ground near", "horizon", "parallax", "camera moving",
+               "archetype 1", "archetype 2", "archetype 3", "archetype 4")
 OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
 
 
@@ -213,6 +220,14 @@ class MosquitoBrain:
         recalled_dy: float = 0.0,
         host_vx: float = 0.0,
         host_vy: float = 0.0,
+        own_pace: float = 0.0,
+        missed: float = 0.0,
+        uncertainty: float = 0.0,
+        ground_near: float = 0.0,
+        horizon: float = 0.0,
+        parallax: float = 0.0,
+        camera_moving: float = 0.0,
+        archetypes=(0.0, 0.0, 0.0, 0.0),
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -233,6 +248,11 @@ class MosquitoBrain:
             mismatch, mismatch_dx, mismatch_dy,  # its field vs its slow model of the room, and where (orienting)
             recalled, recalled_dx, recalled_dy,  # the episode its view recalls: what it held, where it was
             state.protein, host_vx, host_vy,  # protein for eggs; the followed host's velocity (prey sense 3)
+            own_pace, missed,  # its own speed (2026-09-29: "it needs the neurons to")
+            uncertainty,  # how unsure its memory's predictions are
+            ground_near, horizon,  # its learned ground plane
+            parallax, camera_moving,  # depth from a moving camera
+            *archetypes,  # its archetype heads
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):
