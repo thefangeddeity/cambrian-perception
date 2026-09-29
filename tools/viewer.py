@@ -1813,6 +1813,7 @@ PAGE = r"""<!doctype html>
     { id: 'c-move', title: 'how it moves', cap: 'share of frames fixating / gliding / in saccades', fixed: [0, 1], series: [['fixate', '#9a6f67', r => r.mv && r.mv.fixate], ['glide', '#ffe2d6', r => r.mv && r.mv.glide], ['saccade', '#f90', r => r.mv && r.mv.saccade]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#ffb4a6', r => r.tree_depth]] },
     { id: 'c-delta', title: 'fitness gain of accepted changes', cap: 'how much each accepted change earned', series: [['gain', '#ffe2d6', r => r.accepted_delta]] },
+    { id: 'c-diet', title: 'blood and nectar', cap: 'per hour: bites (blood: its protein, for eggs) and nectar sips (sugar), each on its own scale', hourly: true, dual: true, series: [['bites', '#ff5fa2', r => r.bites], ['nectar sips', '#9ccf7a', r => r.nectar_sips]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
   const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_sleep_set', 'mutate_pool', 'mutate_setpoints', 'mutate_bore', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
@@ -1828,6 +1829,7 @@ PAGE = r"""<!doctype html>
     c.height = isMax(c) ? Math.max(190, window.innerHeight - 190) : 190 + (CH_EXTRA[ch.id] || 0);
     const ctx = c.getContext('2d'), W = c.width, H = c.height; ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     const pad = { l: 46, r: 8, t: 8, b: 18 }, pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+    if (ch.dual) { dualChart(ch, recs, ctx, W, H, pad, pw, ph); return; }
     let lo = Infinity, hi = -Infinity;
     ch.series.forEach(s => recs.forEach(r => { const v = s[2](r); if (v !== null && v !== undefined && isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }));
     if (ch.fixed) { lo = ch.fixed[0]; hi = ch.fixed[1]; }
@@ -1840,6 +1842,21 @@ PAGE = r"""<!doctype html>
     ch.series.forEach(s => { ctx.strokeStyle = s[1]; ctx.lineWidth = 1.5; ctx.beginPath(); let on = false;
       recs.forEach((r, i) => { const v = s[2](r); if (v === null || v === undefined || !isFinite(v)) { on = false; return; } on ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v)); on = true; }); ctx.stroke(); });
   }
+  function dualChart(ch, recs, ctx, W, H, pad, pw, ph) {
+    pad.r = 46; pw = W - pad.l - pad.r;
+    const n = recs.length, px = i => pad.l + (n <= 1 ? 0 : i / (n - 1)) * pw;
+    ctx.strokeStyle = '#1c2a36'; ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + ph); ctx.lineTo(pad.l + pw, pad.t + ph); ctx.lineTo(pad.l + pw, pad.t); ctx.stroke();
+    if (!n) { ctx.fillStyle = '#9a6f67'; ctx.font = '11px monospace'; ctx.fillText('no hours recorded yet', pad.l + 8, H / 2); return; }
+    ch.series.forEach((s, k) => {
+      const vals = recs.map(s[2]).map(v => (v === null || v === undefined || !isFinite(v)) ? null : v);
+      const hi = Math.max(1, ...vals.filter(v => v !== null)), py = v => pad.t + (1 - v / hi) * ph;
+      ctx.fillStyle = s[1]; ctx.font = '10px monospace'; ctx.textAlign = k ? 'left' : 'right';
+      ctx.fillText(String(Math.round(hi)), k ? pad.l + pw + 4 : pad.l - 4, pad.t + 8); ctx.fillText('0', k ? pad.l + pw + 4 : pad.l - 4, pad.t + ph);
+      ctx.strokeStyle = s[1]; ctx.lineWidth = 1.5; ctx.beginPath(); let on = false;
+      vals.forEach((v, i) => { if (v === null) { on = false; return; } on ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v)); on = true; }); ctx.stroke();
+    });
+    ctx.fillStyle = '#9a6f67'; ctx.textAlign = 'left'; ctx.fillText(`${n} hours ago`, pad.l, H - 4); ctx.textAlign = 'right'; ctx.fillText('now', pad.l + pw, H - 4);
+  }
   function mutChart(ch, recs) {
     const c = $(ch.id); c.width = Math.max(300, Math.floor(innerWidth(c.parentElement)));
     c.height = isMax(c) ? Math.max(190, window.innerHeight - 190) : MUT.length * 14 + 26;  // 14 px a kind: labels never overlap
@@ -1850,7 +1867,7 @@ PAGE = r"""<!doctype html>
     const n = recs.length;
     recs.forEach((r, i) => (r.accepted_types || []).forEach(t => { const k = MUT.indexOf(t); if (k < 0) return; ctx.fillStyle = MUT_COLOR[t]; ctx.beginPath(); ctx.arc(pad.l + (n <= 1 ? 0 : i / (n - 1)) * pw, pad.t + k * rh + rh / 2, 3, 0, 7); ctx.fill(); }));
   }
-  let lastHistory = null;
+  let lastHistory = null, lastHourly = [];
 
   // Tap/click any panel to maximize it; tap again (or Esc) to restore.
   // Controls inside a panel (inputs, buttons, links) keep working.
@@ -1881,7 +1898,7 @@ PAGE = r"""<!doctype html>
   function redrawAll() {
     if (D) { drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
     balanceSide();
-    if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, lastHistory));
+    if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, ch.hourly ? lastHourly : lastHistory));
   }
   function setMax(panel) {
     document.querySelectorAll('.panel.maximized').forEach(p => { if (p !== panel) p.classList.remove('maximized'); });
@@ -1905,7 +1922,8 @@ PAGE = r"""<!doctype html>
       const recs = h.records || []; recs.label_left = h.span_generations ? `${h.span_generations} generations ago` : 'older';
       lastHistory = recs;
       balanceSide();  // the body card fills in with data: rebalance as it grows
-      CHARTS.forEach(ch => ch.mutations ? mutChart(ch, recs) : lineChart(ch, recs));
+      try { lastHourly = await (await fetch('/metrics')).json(); } catch (e) { }
+      CHARTS.forEach(ch => ch.mutations ? mutChart(ch, recs) : lineChart(ch, ch.hourly ? lastHourly : recs));
     } catch (e) { }
     setTimeout(fetchHistory, 20000);
   }
@@ -2082,6 +2100,15 @@ class Handler(BaseHTTPRequestHandler):
                         body = json.dumps(d, separators=(",", ":")).encode("utf-8")
             except (OSError, ValueError):
                 pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/metrics":
+            # The hourly metrics (fishbowl/metrics.py): numbers only, the last three days.
+            recs = _tail_jsonl(STATE_DIR / "metrics.jsonl", max_lines=72) if (STATE_DIR / "metrics.jsonl").exists() else []
+            body = json.dumps([{k: r.get(k) for k in ("t", "bites", "nectar_sips")} for r in recs]).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
