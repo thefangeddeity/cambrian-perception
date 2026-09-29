@@ -1178,14 +1178,14 @@ PAGE = r"""<!doctype html>
     pts.forEach(([k, q]) => {
       const fog = Math.max(0.35, Math.min(1, 0.7 - 0.4 * q[2]));
       if (k >= mb.live) { ctx.fillStyle = `rgba(70,70,70,${0.6 * fog})`; ctx.fillRect(q[0] - dot / 2, q[1] - dot / 2, dot, dot); return; }
-      const lit = on.has(k), cc = cellRGB(k, lit), a = fog;
+      const lit = on.has(k), cc = cellRGB(k, lit), a = lit ? 1 : 0.6 * fog;  // unlit stay dim
       ctx.fillStyle = `rgba(${cc[0]},${cc[1]},${cc[2]},${a})`;
       const z = lit ? dot * 1.8 : dot;
       ctx.fillRect(q[0] - z / 2, q[1] - z / 2, z, z);
     });
     if (on.size) {  // the firing cells glow
       ctx.globalCompositeOperation = 'lighter';
-      on.forEach(k => { if (k >= n) return; const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), r = 5 * dot, cc = cellRGB(k, true); const gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); gr.addColorStop(0, `rgba(${cc[0]},${cc[1]},${cc[2]},0.4)`); gr.addColorStop(1, `rgba(${cc[0]},${cc[1]},${cc[2]},0)`); ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, 2 * r, 2 * r); });
+      on.forEach(k => { if (k >= n) return; const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), r = 5 * dot, cc = cellRGB(k, true); const gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); gr.addColorStop(0, 'rgba(255,248,230,0.85)'); gr.addColorStop(0.3, `rgba(${cc[0]},${cc[1]},${cc[2]},0.6)`); gr.addColorStop(1, `rgba(${cc[0]},${cc[1]},${cc[2]},0)`); /* phosphorescent: a white-hot core in its own colour */ ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, 2 * r, 2 * r); });
       ctx.globalCompositeOperation = 'source-over';
     }
     // the two readouts
