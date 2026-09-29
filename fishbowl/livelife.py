@@ -164,6 +164,7 @@ def _circuits(org: Organism) -> dict:
                     "mismatch": round(float(org.mismatch), 3), "woke_by": b.woke_by,
                     "recall": bool(org.recall), "recalled": org.recalled,
                     "sleep_set": org.sleep_set, "edits": [org.edits_kept, org.edits_tried],
+                    "episodes": len(org.episodes), "replays": dict(org.replays),
                     "scene": org.scene + 1 if org.scenes else 1, "scenes": max(1, len(org.scenes)), "max_scenes": org.max_scenes,
                     "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
                                "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}

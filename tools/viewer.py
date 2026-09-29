@@ -1167,8 +1167,8 @@ PAGE = r"""<!doctype html>
     on.forEach(k => {
       if (k >= n) return;
       const f = food ? food[k] / 127 : 0, g = danger ? danger[k] / 127 : 0; fsum += f; gsum += g;
-      const A = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), B = proj(...PED), cc = cellRGB(k);
-      ctx.strokeStyle = `rgba(${cc[0]},${cc[1]},${cc[2]},0.22)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+      const A = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), B = proj(...PED);
+      ctx.strokeStyle = 'rgba(255,240,200,0.10)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
     });
     if (on.size) {
       const ped = proj(...PED), m = proj(...MED), v = proj(...VER), fa = Math.min(1, Math.abs(fsum) / Math.max(1, on.size) * 3), ga2 = Math.min(1, Math.abs(gsum) / Math.max(1, on.size) * 3);
