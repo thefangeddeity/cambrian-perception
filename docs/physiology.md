@@ -307,3 +307,10 @@ single step instead of chaining a dozen adds (Wagner, Land).
 - **It teaches itself awake too**, in the quiet moments it replays in.
 - **Pursuit:** prey sense level 3 adds the velocity of the host it follows,
   matched between detections by overlapping boxes.
+
+An **oriented pool** (2026-09-29) splits the patch by a line through its
+centre at an evolvable angle: the mean of one side minus the other, an edge
+detector at that orientation (V1's simple cells; insects' oriented cells). A
+pool can become oriented in one mutation. Both pay per receptor read, and
+every tree cost is multiplied by CPU scarcity, so a host with more resources
+can afford more and bigger ones.
