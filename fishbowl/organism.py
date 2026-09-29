@@ -298,8 +298,11 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
     should have moved it at least a pixel says which frame it belongs to --
     it stayed put (its local frame: the cab rides with it), or it moved as the
     world did (within RANSAC's own pixel). What moved some other way (moving on
-    its own) says nothing. Appended as (x, y, +1 local / -1 world), frame
-    fractions."""
+    its own) says nothing. Only when most of what it tracks flowed: feeling
+    itself move takes wide-field flow (vection; Brandt, Dichgans & Koenig 1973);
+    when most stood still it may be stopped among things moving on their own,
+    or a big cab may fill its view -- it can't tell, so nothing votes. Appended
+    as (x, y, +1 local / -1 world), frame fractions."""
     a, b = prev_small.astype(np.uint8), cur_small.astype(np.uint8)
     if votes is not None:
         votes.append(None)
@@ -329,7 +332,7 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
         world = _similarity(pa[~inl], pb[~inl])
         if world is not None:
             s, se, m = world[0], world[1], world[3]
-    if votes is not None:
+    if votes is not None and not still:
         expect = pa @ m[:, :2].T + m[:, 2]
         should = np.hypot(*(expect - pa).T) >= 1.0
         moved = np.hypot(*(pb - pa).T)

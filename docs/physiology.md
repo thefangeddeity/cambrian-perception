@@ -436,7 +436,10 @@ can afford more and bigger ones.
 - **Its frames of reference** (2026-09-29; Galileo's ship; Jeffery, Burgess,
   Wolpert): it tells what rides with it (a tram's cab, a bonnet, the glass)
   from the world it moves through, the way a passenger does. It learns this while
-  it moves and remembers it when it stops. On each frame where it moves, each
+  it moves and remembers it when it stops. On each frame where it moves and
+  most of what it tracks flowed (vection needs wide-field flow: Brandt,
+  Dichgans & Koenig 1973; when most stood still it may be stopped among people
+  walking, so nothing votes), each
   corner of its ego-motion fit that the world's motion should have moved at least a
   pixel votes. A corner that stayed put votes local frame; one that moved with
   the world (within RANSAC's pixel) votes world; one that moved some other way
@@ -453,7 +456,9 @@ can afford more and bigger ones.
   is memory item 15. Tested on a synthetic ride with a still dashboard band:
   its corners vote local (mean height 0.91 of the frame; the band starts at
   0.75), the world's vote world, nothing votes once stopped; the band's cells
-  are marked (riding 13%) and still marked 200 frames after the stop.
+  are marked (riding 13%) and still marked 200 frames after the stop. First
+  deploy: without the vection gate, a stopped tram with people walking past
+  voted its whole still view local (62% on Tina); fixed and the maps cleared.
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

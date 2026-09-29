@@ -288,6 +288,7 @@ yardsticks are found.
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
 | a vote | the world's fit predicts >= 1 px; still < 1 px, or with the world within 1 px | S | RANSAC's own reprojection threshold, as its ego-motion |
+| votes only when most flowed | the ego-motion fit's majority moved | S | vection needs wide-field flow (Brandt, Dichgans & Koenig 1973) |
 | forgetting | `MISMATCH_TAU_S`, in seconds moving only | S | its slow model of the room's rate; still, it forgets nothing |
 | local frame | still votes beat half at the 5% test (z > 1.96) | S | a binomial share against 1/2 |
 | one map a life | not per scene | P | its body is the same in every place (Jeffery) |
