@@ -638,6 +638,7 @@ PAGE = r"""<!doctype html>
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
+  #brain-mode a { color: #b88a80; } #brain-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
   .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
@@ -1324,19 +1325,19 @@ PAGE = r"""<!doctype html>
   const B3 = { on: true, yaw: 0.65, pitch: -0.28, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
   try { B3.on = localStorage.getItem('brain-view') !== '2d'; } catch (e) {}
   function brain3DLayout(nIn, nH, nOut) {
-    const pts = [], rows = Math.ceil(nIn / 2);
+    const pts = [], rows = Math.ceil(nIn / 3);  // three columns, each a run of senses in order
     for (let i = 0; i < nIn; i++) {
-      const col = i < rows ? 0 : 1, r = col ? i - rows : i;
-      pts.push({ kind: 'in', k: i, x: -1.15, y: -0.95 + 1.9 * r / Math.max(1, rows - 1), z: col ? 0.28 : -0.28 });
+      const col = Math.floor(i / rows), r = i % rows;
+      pts.push({ kind: 'in', k: i, x: -1.2, y: -1.05 + 2.1 * r / Math.max(1, rows - 1), z: (col - 1) * 0.42 });
     }
     const ga = Math.PI * (3 - Math.sqrt(5));  // a Fibonacci sphere: even spacing for any count
     for (let h = 0; h < nH; h++) {
       const y = nH > 1 ? 1 - 2 * (h + 0.5) / nH : 0, rad = Math.sqrt(1 - y * y), th = ga * h;
-      pts.push({ kind: 'hid', k: h, x: 0.3 * rad * Math.cos(th), y: 0.62 * y, z: 0.62 * rad * Math.sin(th) });
+      pts.push({ kind: 'hid', k: h, x: 0.42 * rad * Math.cos(th), y: 0.55 * y, z: 0.55 * rad * Math.sin(th) });
     }
     for (let o = 0; o < nOut; o++) {
       const a = 2 * Math.PI * o / nOut;
-      pts.push({ kind: 'out', k: o, x: 1.15, y: 0.5 * Math.cos(a), z: 0.5 * Math.sin(a) });
+      pts.push({ kind: 'out', k: o, x: 1.2, y: 0.55 * Math.cos(a), z: 0.55 * Math.sin(a) });
     }
     return pts;
   }
@@ -1347,7 +1348,7 @@ PAGE = r"""<!doctype html>
     const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
     const P = brain3DLayout(nIn, nH, nOut), hid = d.brain_hidden || [];
     const cy = Math.cos(B3.yaw), sy = Math.sin(B3.yaw), cp = Math.cos(B3.pitch), sp = Math.sin(B3.pitch);
-    const scale = Math.min(W * 0.8, H) * 0.42 * B3.zoom, F = 3.2;
+    const scale = Math.min(W * 0.75, H) * 0.46 * B3.zoom, F = 3.2;
     P.forEach(q => {
       const x1 = q.x * cy + q.z * sy, z1 = -q.x * sy + q.z * cy;
       const y2 = q.y * cp - z1 * sp, z2 = q.y * sp + z1 * cp;
@@ -1378,6 +1379,8 @@ PAGE = r"""<!doctype html>
       ctx.stroke();
     });
     const lit = new Set(hov != null ? shown.flatMap(e => [e[0], e[1]]) : []);
+    // unhovered, only inputs with a strong link are named (hover names any)
+    const strong = new Set(); edges.forEach(e => { if (!e[3] && Math.abs(e[2]) > 0.35 * maxW) strong.add(e[0]); });
     const label = q => q.kind === 'in' ? (q.k < INPUT_NAMES.length ? INPUT_NAMES[q.k] : channelName(br, q.k - INPUT_NAMES.length, 'in'))
       : q.kind === 'out' ? (q.k < OUTPUT_NAMES.length ? OUTPUT_NAMES[q.k] : channelName(br, q.k - OUTPUT_NAMES.length, 'out'))
       : `unit ${q.k + 1}  ${(hid[q.k] || 0).toFixed(2)}`;
@@ -1390,7 +1393,7 @@ PAGE = r"""<!doctype html>
       else if (q.kind === 'out') { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; }
       else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
       ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
-      if (idx === hov || (q.kind !== 'hid' && (hov == null || lit.has(idx)))) {
+      if (idx === hov || q.kind === 'out' && (hov == null || lit.has(idx)) || q.kind === 'in' && (hov == null ? strong.has(idx) : lit.has(idx))) {
         ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : '10px') + ' monospace';
         ctx.fillStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'hid' ? '#a9bcc8' : '#b88a80';
         const right = q.sx >= W / 2; ctx.textAlign = right ? 'left' : 'right';
