@@ -164,7 +164,7 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| `MAX_QUOTA_PCT` | (cores - 1) x 100 | M | |
+| `MAX_QUOTA_PCT` | (cores - 1) x 100, or lower per host (`state/host_limits.json`) | M | a host someone uses (a laptop) may keep more for itself: Ariana 200% of 4 cores (2026-09-28 infrastructure review) |
 | `MIN_QUOTA_PCT`, `IDLE_STEP_PCT`, `STEP_PCT` | 50, 100, 25 | B | |
 | `LOAD_STRAIN_PER_CORE`, `FREE_MEM_STRAIN_MB`, `HUNGER_DECAY` | 1.3, 800, 0.85 | **G** | |
 

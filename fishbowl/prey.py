@@ -27,6 +27,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .retina import field_shape
+
 # The model: CAMBRIAN_PREY_MODEL if set; else models/yolov8n.onnx next to the
 # code (the packaged layout, every platform); else the first Linux hosts'
 # /srv/cambrian/models.
@@ -50,6 +52,15 @@ PERSON_CLASS = 0
 # plant". They are never hosts -- the organism takes them apart from hosts
 # at its first frame (organism.py) and everything else sees hosts only.
 PLANT_CLASS = 58
+# COCO's only plant is a potted one: a park's trees and grass never
+# registered. So green vegetation counts too (2026-09-28 panel; mosquitoes
+# also draw sugar from plant tissue, Mueller & Schlein 2005, and home in on
+# green leaf volatiles): each connected region of the whole field's grid
+# (retina.field_shape) whose mean colour is vegetation by the standard
+# excess-green-minus-excess-red index, ExG - ExR > 0 on chromatic
+# coordinates (Meyer & Neto 2008 -- a zero threshold, nothing tuned), is
+# one plant, with the same nectar rule as a potted one (organism.py).
+# Grey (night, infrared) is never vegetation: ExG - ExR = -0.13 there.
 
 
 def hosts_only(boxes):
@@ -85,8 +96,14 @@ class PreyDetector:
         return self.net is not None
 
     def detect(self, bgr: np.ndarray) -> list[list[float]]:
-        """[[class_id, confidence, x0, y0, x1, y1], ...], coordinates normalized to [0, 1]."""
-        if self.net is None or bgr is None or bgr.ndim != 3:
+        """[[class_id, confidence, x0, y0, x1, y1], ...], coordinates normalized to [0, 1]:
+        YOLO's hosts and potted plants, then the vegetation regions."""
+        if bgr is None or bgr.ndim != 3:
+            return []
+        return self._yolo(bgr) + vegetation(bgr)
+
+    def _yolo(self, bgr: np.ndarray) -> list[list[float]]:
+        if self.net is None:
             return []
         h, w = bgr.shape[:2]
         # Letterboxed, as YOLO was trained: scaled to fit with its aspect kept,
@@ -119,6 +136,24 @@ class PreyDetector:
                            round(float(np.clip(x0[i], 0, 1)), 4), round(float(np.clip(y0[i], 0, 1)), 4),
                            round(float(np.clip(x0[i] + b[i, 2], 0, 1)), 4), round(float(np.clip(y0[i] + b[i, 3], 0, 1)), 4)])
         return result
+
+
+def vegetation(bgr: np.ndarray) -> list[list[float]]:
+    """The field grid's vegetation regions as plant boxes: [PLANT_CLASS,
+    share of the box that is vegetation, x0, y0, x1, y1] (normalized)."""
+    h, w = bgr.shape[:2]
+    rows, cols = field_shape(h, w)
+    cells = cv2.resize(bgr, (cols, rows), interpolation=cv2.INTER_AREA).astype(np.float64)
+    total = cells.sum(axis=2)
+    b, g, r = (np.divide(cells[:, :, k], total, out=np.zeros((rows, cols)), where=total > 0) for k in range(3))
+    mask = ((2 * g - r - b) - (1.4 * r - g) > 0) & (total > 0)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=4)
+    out = []
+    for k in range(1, n):
+        x, y, bw, bh, area = (int(v) for v in stats[k])
+        out.append([PLANT_CLASS, round(area / (bw * bh), 3),
+                    round(x / cols, 4), round(y / rows, 4), round((x + bw) / cols, 4), round((y + bh) / rows, 4)])
+    return out
 
 
 def prey_in_window(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: float) -> float:
