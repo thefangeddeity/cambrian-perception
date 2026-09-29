@@ -682,7 +682,7 @@ PAGE = r"""<!doctype html>
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
   canvas.steer { cursor: pointer; } canvas.steer.steering { outline: 1px solid #9a6f67; outline-offset: -1px; cursor: grab; }
-  #brain-mode a { color: #b88a80; } #brain-mode b { color: #ffe2d6; }
+  #brain-mode a, #mb-mode a { color: #b88a80; } #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
   .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
@@ -1290,12 +1290,58 @@ PAGE = r"""<!doctype html>
     }
     MB3.proj = proj;
   }
+  // 2D or 3D: a phone opens it in 2D, a desktop in 3D, each choice kept on its own
+  const MB_VIEW_KEY = MOBILE ? 'mb-view-phone' : 'mb-view';
+  MB3.flat = MOBILE;
+  try { const v = localStorage.getItem(MB_VIEW_KEY); if (v) MB3.flat = v === '2d'; } catch (e) {}
+  // Its mushroom body flat: the calyx's Kenyon cells as a grid (coloured as in
+  // 3D: green food, red danger, amber food it learned to avoid, grey once lost;
+  // firing cells glow phosphor green), and the two lobes as its two readouts.
+  function drawMB2D() {
+    const d = MB3.d, c = $('mb'); if (!d || !d.mb || !c) return;
+    const mb = d.mb, n = mb.n, W = c.width, H = c.height, ctx = c.getContext('2d');
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
+    const food = int8s(mb.food), danger = int8s(mb.danger), on = new Set(mb.active || []);
+    let fmax = 1e-6, gmax = 1e-6;
+    for (let k = 0; k < Math.min(n, mb.live); k++) { if (food) fmax = Math.max(fmax, Math.abs(food[k])); if (danger) gmax = Math.max(gmax, Math.max(0, danger[k])); }
+    const barH = Math.max(28, Math.round(H * 0.16)), gh = H - barH - 12, pad = 6;
+    const cols = Math.max(1, Math.round(Math.sqrt(n * (W - 2 * pad) / Math.max(1, gh)))), rows = Math.ceil(n / cols);
+    const cw = (W - 2 * pad) / cols, ch = gh / rows;
+    for (let k = 0; k < n; k++) {
+      const x = pad + (k % cols) * cw, y = pad + Math.floor(k / cols) * ch;
+      if (k >= mb.live) { ctx.fillStyle = '#2a2a2a'; }
+      else if (on.has(k)) {
+        const g = 0.45 + 0.55 * Math.min(1, Math.max(food ? Math.abs(food[k]) / fmax : 0, danger ? Math.max(0, danger[k]) / gmax : 0));
+        ctx.fillStyle = `rgb(${Math.round(70 * g)}, ${Math.round(255 * g)}, ${Math.round(130 * g)})`;
+      } else {
+        const f = food ? food[k] / fmax : 0, g = danger ? Math.max(0, danger[k]) / gmax : 0;
+        ctx.fillStyle = `rgb(${Math.min(255, Math.round(30 + 200 * Math.max(g, f < 0 ? -f : 0)))}, ${Math.min(255, Math.round(30 + 200 * Math.max(0, f) + (f < 0 ? 110 * -f : 0)))}, 30)`;
+      }
+      ctx.fillRect(x, y, Math.max(1, cw - (cw > 3 ? 1 : 0)), Math.max(1, ch - (ch > 3 ? 1 : 0)));
+    }
+    // the lobes: its two readouts, -1 .. 1 about the middle
+    const bar = (i, name, v, col) => {
+      const y = H - barH + i * (barH / 2), w = W - 2 * pad, mid = pad + w / 2, bh = barH / 2 - 4;
+      ctx.fillStyle = '#10161c'; ctx.fillRect(pad, y, w, bh);
+      const val = Math.max(-1, Math.min(1, v || 0));
+      ctx.fillStyle = `rgb(${col})`; ctx.fillRect(Math.min(mid, mid + val * w / 2), y, Math.abs(val) * w / 2, bh);
+      ctx.fillStyle = '#b88a80'; ctx.font = `${Math.max(9, Math.min(12, bh - 2))}px monospace`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillText(`${name} ${val.toFixed(2)}`, pad + 3, y + bh / 2);
+    };
+    bar(0, 'food value (medial lobe)', d.food_value, '120,230,120');
+    bar(1, 'danger (vertical lobe)', d.danger_value, '255,90,70');
+  }
+  function setMBView(flat) {
+    MB3.flat = flat; try { localStorage.setItem(MB_VIEW_KEY, flat ? '2d' : '3d'); } catch (e) {}
+    MB3.dirty = true; mbKick();
+    if (MB3.d) drawMB(MB3.d);
+  }
   function mbKick() {
     if (MB3.loop) return;
     MB3.loop = true;
     const tick = () => {
       const c = $('mb'), r = c && c.getBoundingClientRect();
-      if (MB3.dirty && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { MB3.dirty = false; drawMB3D(); }
+      if (MB3.dirty && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { MB3.dirty = false; if (MB3.flat) drawMB2D(); else drawMB3D(); }
       MB3.loop = false;
     };
     requestAnimationFrame(tick);
@@ -1307,7 +1353,7 @@ PAGE = r"""<!doctype html>
     const touch = () => { MB3.touched = performance.now(); MB3.dirty = true; mbKick(); };
     c.addEventListener('wheel', e => { if (!active()) return; e.preventDefault(); MB3.zoom = Math.max(0.5, Math.min(8, MB3.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
     c.addEventListener('dblclick', () => { if (!active()) return; MB3.yaw = 2.95; MB3.pitch = 0.1; MB3.zoom = 1; touch(); });
-    c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); MB3.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
+    c.addEventListener('pointerdown', e => { if (MB3.flat) return; if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); MB3.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });  // flat: nothing to steer
     c.addEventListener('pointermove', e => {
       const now = pt(e);
       if (MB3.drag) { MB3.yaw += (now[0] - MB3.drag[0]) * 0.008; MB3.pitch = Math.max(-1.4, Math.min(1.4, MB3.pitch + (now[1] - MB3.drag[1]) * 0.008)); MB3.drag = now; touch(); return; }
@@ -1320,6 +1366,7 @@ PAGE = r"""<!doctype html>
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (MB3.hover != null) { MB3.hover = null; touch(); } });
   })();
+  document.addEventListener('click', e => { const a = e.target.closest('#mb-mode a'); if (a) { e.preventDefault(); e.stopPropagation(); setMBView(a.dataset.mb === '2d'); } }, true);
   function drawMB(d) {
     const c = $('mb'), cap = $('mb-cap'); if (!c) return;
     const mb = d.mb;
@@ -1328,7 +1375,9 @@ PAGE = r"""<!doctype html>
     const W = Math.max(200, fitWidth($('mb-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     MB3.d = d; MB3.dirty = true; mbKick();
-    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid; firing cells glow phosphor green, brighter the more they have learned. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Click it to steer (drag turns, wheel or pinch zooms, hover a cell; Esc or a click outside releases).`;
+    const mode = MB3.flat ? '<b>2D</b> &middot; <a href="#" data-mb="3d">3D</a>' : '<a href="#" data-mb="2d">2D</a> &middot; <b>3D</b>';
+    cap.innerHTML = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid; grey, lost; firing cells glow phosphor green, brighter the more they have learned. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. `
+      + (MB3.flat ? '' : 'Click it to steer (drag turns, wheel or pinch zooms, hover a cell; Esc or a click outside releases). ') + `<span id="mb-mode">${mode}</span>`;
   }
 
   // Its sense of space, rendered in 3D: the world as it reconstructs it. Its
