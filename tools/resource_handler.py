@@ -282,7 +282,8 @@ def run(dry_run: bool = False) -> None:
 
     fitness_improved = _recent_fitness_improved()
     request_count = _recent_request_count()
-    strained = _load_average_strain() or _free_memory_strain()
+    cpu_strained, mem_strained = _load_average_strain(), _free_memory_strain()
+    strained = cpu_strained
 
     # Hunger extinction. Real new food
     # resets it sharply; repeated unaccompanied requesting decays it
@@ -297,6 +298,15 @@ def run(dry_run: bool = False) -> None:
     current = _current_quota_pct()
     target = current
     reason = "no change"
+    # Two kinds of strain, two levers (2026-09-28 infrastructure review): a
+    # busy CPU thins its "oxygen" (the quota, below); short memory shrinks its
+    # "space" -- how many worker bodies it may run at once -- and leaves the
+    # quota alone (cutting CPU frees no memory: 7elwe sat at half a core for
+    # hours with 7-10 cores idle while a browser used the RAM).
+    space_cap = max(1, (os.cpu_count() or 2) - 1)
+    state_now = _read_json(HANDLER_STATE_PATH, {}) or {}
+    space = int(state_now.get("last_space", space_cap))
+    space = max(1, space - 1) if mem_strained else min(space_cap, space + 1)  # a body at a time, like the quota's steps
     limits = _read_json(HOST_LIMITS_PATH, {}) or {}
     if isinstance(limits.get("max_quota_pct"), (int, float)):
         global MAX_QUOTA_PCT
@@ -311,7 +321,7 @@ def run(dry_run: bool = False) -> None:
         # "own den" signal, never negotiable regardless of how well
         # the organism is doing.
         target = max(MIN_QUOTA_PCT, current - STEP_PCT)
-        reason = "real system strain (load or memory) -- cutting back regardless of fitness"
+        reason = "real CPU strain (load) -- cutting back regardless of fitness"
     elif idle >= 1.0 and current < MAX_QUOTA_PCT:
         target = min(MAX_QUOTA_PCT, current + IDLE_STEP_PCT)
         reason = f"{idle:.1f} idle cores -- granting one more"
@@ -329,7 +339,8 @@ def run(dry_run: bool = False) -> None:
 
     print(f"[resource_handler] current={current}% target={target}% satiation={satiation:.3f} "
           f"responsiveness={responsiveness:.3f} strained={strained} "
-          f"fitness_improved={fitness_improved} requests={request_count} idle_cores={idle:.2f} ceiling={MAX_QUOTA_PCT}%")
+          f"fitness_improved={fitness_improved} requests={request_count} idle_cores={idle:.2f} ceiling={MAX_QUOTA_PCT}% "
+          f"memory_short={mem_strained} space={space}/{space_cap} workers")
     print(f"[resource_handler] {reason}")
 
     if not dry_run:
@@ -339,7 +350,8 @@ def run(dry_run: bool = False) -> None:
             "satiation": satiation,
             "last_run_unix": time.time(),
             "last_quota_pct": target,
-            "last_reason": reason,
+            "last_space": space,
+            "last_reason": reason + (" (memory short: space cut to %d workers)" % space if mem_strained else ""),
         })
 
 

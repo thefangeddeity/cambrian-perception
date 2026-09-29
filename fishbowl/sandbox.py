@@ -80,6 +80,16 @@ def save_episodes(arrays: dict) -> None:
             time.sleep(0.05)
 
 
+def load_space(default: int) -> int:
+    """How many worker bodies resource_handler.py last allowed it (its
+    "space": shrunk when memory is short) -- read-only."""
+    data = _read_json(HANDLER_STATE_PATH, None) if HANDLER_STATE_PATH.exists() else None
+    try:
+        return max(1, int(data["last_space"]))
+    except (TypeError, KeyError, ValueError):
+        return int(default)
+
+
 def save_live_status(data: dict) -> None:
     """
     A small, frequently-updated snapshot for anything polling this

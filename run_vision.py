@@ -1126,6 +1126,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # Real current CPU quota (resource_handler.py's own record), prices
     # the look's size -- refreshed periodically below, never inferred.
     quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
+    space = sandbox.load_space(max(1, (os.cpu_count() or 2) - 1))  # worker bodies allowed (memory)
     # Energy is priced by the CPU share granted (capacity). The host's speed is
     # TIME, not price (a snail's neurons aren't dearer, its world is slower --
     # Healy et al. 2013): its brain's deadline (organism.py) uses this host's
@@ -1300,7 +1301,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             quota_pct = sandbox.load_quota_pct(REFERENCE_QUOTA_PCT)
             price_quota = quota_pct
             host_rate = min(host_rate, hostspeed.sec_per_mac())  # contention can only slow a reading
-        n_children = _n_children(quota_pct)
+            new_space = sandbox.load_space(space)
+            if new_space < space and workers:  # memory is short: fewer worker bodies (the pool is rebuilt smaller)
+                workers.close()
+                workers = None
+            space = new_space
+        n_children = min(_n_children(quota_pct), space)
         children = []
         for _ in range(n_children):
             child = genome.clone()
@@ -1368,7 +1374,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if n_children > 1 and workers is not False:
             try:
                 if workers is None:
-                    workers = _Workers(max(1, (os.cpu_count() or 2) - 1))
+                    workers = _Workers(max(1, min((os.cpu_count() or 2) - 1, space)))
                 if workers.publish(world):
                     futures = [workers.submit(c, price_quota, body_now, _fps(), memory_eval, host_rate) for c, _, _ in children]
             except Exception as e:  # no worker processes on this host: serial from here on
