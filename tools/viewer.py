@@ -1319,8 +1319,8 @@ PAGE = r"""<!doctype html>
     if (BZ.k > 1.01) { ctx.fillStyle = '#6a5550'; ctx.textAlign = 'right'; ctx.fillText(`${BZ.k.toFixed(1)}x  (double-click: fit)`, W - 8, H - 10); }
   }
   // Its brain in 3D: inputs on a plane at the left, hidden units on a sphere,
-  // outputs on a ring at the right; every wire drawn, faded by depth, with
-  // pulses of light for its signals. Drag to orbit, wheel or pinch to zoom, double-click to reset;
+  // outputs on a ring at the right; every wire drawn, faded by depth; every
+  // unit named. Drag to orbit, wheel or pinch to zoom, double-click to reset;
   // hovering a unit lights its links and dims the rest; idle, it drifts.
   const B3 = { on: true, yaw: 0.65, pitch: -0.28, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
   try { B3.on = localStorage.getItem('brain-view') !== '2d'; } catch (e) {}
@@ -1361,15 +1361,13 @@ PAGE = r"""<!doctype html>
     for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edges.push([nIn + h, nIn + nH + o, br.weights_ho[o][h], 0]);
     for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) if (r !== q) edges.push([nIn + q, nIn + r, br.weights_hh[r][q], 1]);
     let maxW = 1e-9; edges.forEach(e => { maxW = Math.max(maxW, Math.abs(e[2])); });
-    const hov = B3.hover, t = performance.now() / 1000;
+    const hov = B3.hover;
     // Every wire, faint to bright by strength, added light on light (additive
     // blending: bundles glow where they overlap, like the connectome renders);
     // each one bowed a little, its own way. A budget only for huge brains.
     const shown = edges.length > 6000 ? edges.slice().sort((x, y) => Math.abs(y[2]) - Math.abs(x[2])).slice(0, 6000) : edges;
     const hash = (x, y) => { const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); };
-    const actOf = k => (k >= nIn && k < nIn + nH) ? Math.abs(hid[k - nIn] || 0) : 0;
     ctx.globalCompositeOperation = 'lighter';
-    const curves = [];
     shown.forEach(([a, b, w, rec]) => {
       const A = P[a], B = P[b], s = Math.min(1, Math.abs(w) / maxW), fog = (A.fog + B.fog) / 2;
       const mine = hov == null || a === hov || b === hov;
@@ -1387,17 +1385,6 @@ PAGE = r"""<!doctype html>
       ctx.strokeStyle = `rgba(${col},${Math.min(1, alpha)})`;
       ctx.lineWidth = (0.5 + 1.8 * s) * (A.w + B.w) / 2;
       ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.quadraticCurveTo(cx, cy, B.sx, B.sy); ctx.stroke();
-      if (mine && s > 0.12) curves.push([A, B, cx, cy, s, col, fog, hash(b, a), actOf(rec ? a : b >= nIn + nH ? a : b)]);
-    });
-    // Signals: a pulse of light running down each strong wire, brighter where
-    // the unit it feeds (or, to the outputs, the unit it comes from) is active.
-    curves.forEach(([A, B, cx, cy, s, col, fog, ph, act]) => {
-      const u = (t * (0.35 + 0.3 * s) + ph) % 1, v = 1 - u;
-      const x = v * v * A.sx + 2 * v * u * cx + u * u * B.sx, y = v * v * A.sy + 2 * v * u * cy + u * u * B.sy;
-      const k = s * (0.25 + 0.75 * act) * fog;
-      const g = ctx.createRadialGradient(x, y, 0, x, y, 2 + 5 * k);
-      g.addColorStop(0, `rgba(255,255,255,${Math.min(1, 0.9 * k)})`); g.addColorStop(0.35, `rgba(${col},${Math.min(1, 0.7 * k)})`); g.addColorStop(1, `rgba(${col},0)`);
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 2 + 5 * k, 0, 7); ctx.fill();
     });
     // a soft glow behind each hidden unit, as bright as it is active
     P.forEach(q => {
@@ -1409,11 +1396,9 @@ PAGE = r"""<!doctype html>
     });
     ctx.globalCompositeOperation = 'source-over';
     const lit = new Set(hov != null ? shown.filter(e => e[0] === hov || e[1] === hov).flatMap(e => [e[0], e[1]]) : []);
-    // unhovered, only inputs with a strong link are named (hover names any)
-    const strong = new Set(); edges.forEach(e => { if (!e[3] && Math.abs(e[2]) > 0.35 * maxW) strong.add(e[0]); });
     const label = q => q.kind === 'in' ? (q.k < INPUT_NAMES.length ? INPUT_NAMES[q.k] : channelName(br, q.k - INPUT_NAMES.length, 'in'))
       : q.kind === 'out' ? (q.k < OUTPUT_NAMES.length ? OUTPUT_NAMES[q.k] : channelName(br, q.k - OUTPUT_NAMES.length, 'out'))
-      : `unit ${q.k + 1}  ${(hid[q.k] || 0).toFixed(2)}`;
+      : `h${q.k + 1} ${(hid[q.k] || 0).toFixed(2)}`;
     ctx.textBaseline = 'middle';
     P.map((q, idx) => [q, idx]).sort((a, b) => b[0].depth - a[0].depth).forEach(([q, idx]) => {
       const dim = hov != null && !lit.has(idx) && idx !== hov;
@@ -1423,8 +1408,8 @@ PAGE = r"""<!doctype html>
       else if (q.kind === 'out') { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; }
       else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
       ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
-      if (idx === hov || q.kind === 'out' && (hov == null || lit.has(idx)) || q.kind === 'in' && (hov == null ? strong.has(idx) : lit.has(idx))) {
-        ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : '10px') + ' monospace';
+      {  // every unit named; a hovered unit's neighbours stay bright, the rest dim with their wires
+        ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : q.kind === 'hid' ? '9px' : '10px') + ' monospace';
         ctx.fillStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'hid' ? '#a9bcc8' : '#b88a80';
         const text = label(q), tw = ctx.measureText(text).width;
         let right = q.sx >= W / 2;
@@ -1445,14 +1430,13 @@ PAGE = r"""<!doctype html>
   (() => {
     let last = performance.now();
     const tick = now => {
-      if (now - last < 32) { requestAnimationFrame(tick); return; }  // ~30 fps is plenty
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
       const c = $('brain'), r = c && c.getBoundingClientRect();
       if (B3.on && BZ.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) {
         const idle = now - B3.touched > 4000 && B3.hover == null && !BZ.pts.size;
         B3.vyaw += ((idle ? 0.12 : 0) - B3.vyaw) * Math.min(1, dt * 1.5);
         B3.yaw += B3.vyaw * dt;
-        B3.dirty = false; drawBrain3D();  // its signals always run
+        if (Math.abs(B3.vyaw) > 1e-4 || B3.dirty) { B3.dirty = false; drawBrain3D(); }
       }
       requestAnimationFrame(tick);
     };
