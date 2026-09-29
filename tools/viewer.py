@@ -734,7 +734,17 @@ PAGE = r"""<!doctype html>
     <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
   </div>
-  <div class="panel" id="field-panel">
+  <div class="panel" id="space-panel">
+    <h2>its sense of space</h2>
+    <canvas id="space"></canvas>
+    <div class="cap" id="space-cap">--</div>
+  </div>
+  <div class="panel" id="tree-panel">
+    <h2>its perception tree</h2>
+    <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
+    <div id="trees"></div>
+  </div>
+  <div class="panel" id="field-panel" style="grid-column: 1 / -1">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
     <div class="cap" id="layers">Layers:
@@ -746,16 +756,6 @@ PAGE = r"""<!doctype html>
     <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; <b style="color:#9ccf7a">dotted</b> = a plant (nectar); red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
     <div class="cap" id="senses-strip"></div>
-  </div>
-  <div class="panel" id="tree-panel">
-    <h2>its perception tree</h2>
-    <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
-    <div id="trees"></div>
-  </div>
-  <div class="panel" id="space-panel" style="grid-column: 1 / -1">
-    <h2>its sense of space</h2>
-    <canvas id="space"></canvas>
-    <div class="cap" id="space-cap">--</div>
   </div>
   <div class="panel" id="brain-panel">
     <h2>its brain</h2>
