@@ -238,7 +238,7 @@ class LiveLife:
             self.cortex = Cortex()
         self._last_boxes = None
         self.lived_at = time.time()
-        self.path = collections.deque(maxlen=300)  # its path-integrated positions, one a look, for the navigation card
+        self.trail = collections.deque(maxlen=300)  # its path-integrated positions, one a look, for the navigation card
         self.timing = {"field": 0.0, "organism": 0.0, "cortex": 0.0, "backlog": 0.0}
         self.stage = 0              # how much it has shed (SHED[:stage]); run_vision pauses evolution at 1
         self._stage_changed = time.time()
@@ -526,7 +526,7 @@ class LiveLife:
                 self.last, self.last_time = index, arrived
                 self.lived_at = time.time()  # its watchdog's sign of life
                 if org.ec is not None and out["gazed"]:
-                    self.path.append(tuple(org.ec.position))
+                    self.trail.append(tuple(org.ec.position))
             missed = org.missed - missed0
             batch["sums"]["sips"] += org.sips - sips0
             for key, now_v, then_v in zip(("img_n", "img_sx", "img_sy", "img_sxx", "img_syy", "img_sxy"), org.imagery_sums, img0):
@@ -641,7 +641,7 @@ class LiveLife:
             "eating": [r["eat"] for r in shown], "snacks": [r["snack"] for r in shown],
             "asleep_frames": [r["asleep"] for r in shown], "alarm_frames": [r["alarm"] for r in shown],
             "contact_frames": [r.get("contact", 0) for r in shown], "ahead_boxes": [r.get("ahead") for r in shown],
-            "path": [[round(float(x), 2), round(float(y), 2)] for x, y in self.path] if self.path else None,
+            "path": [[round(float(x), 2), round(float(y), 2)] for x, y in self.trail] if self.trail else None,
             "prey_boxes": [r["boxes"] for r in shown], "plant_boxes": [r["plants"] for r in shown], "thing_boxes": [r.get("things", []) for r in shown],
             "field_events": [r["ev"] for r in shown],
             "tree_guess": None, "teacher_label": None,  # graded only in evolution's runs
