@@ -287,10 +287,11 @@ LOCK_HUD_JS = r"""
       // generation raises it only for as long as it is remembered.
       clk.stale = (clk.stale || []).filter(([t]) => now - t < 30000);
       clk.target = Math.max(1.0, ...clk.stale.map(([, s]) => s), clk.stale.length ? 0 : age + 0.5);
-      // Below the floor: slow to half speed (never jump back). Above it: catch
-      // up, playing at up to 1.25x, until it reaches the floor.
+      // Below the floor: slow to half speed (never jump back). Above it: jump
+      // straight to the floor -- the present, as its body lives it (stale
+      // frames are skipped, never caught up on; a 2026-09-29 panel).
       if (clk.need < clk.target) clk.need = Math.min(clk.target, clk.need + dt * 0.5);
-      else clk.need = Math.max(clk.target, clk.need - dt * 0.25);
+      else clk.need = clk.target;
       catching = clk.need > clk.target + 0.2;
       delay = clk.need;
       const newest = d.world_first_index + lastIdx;
