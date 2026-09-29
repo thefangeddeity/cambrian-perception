@@ -1333,7 +1333,7 @@ PAGE = r"""<!doctype html>
     const at = (x, y, z) => proj(x, y, z - ZMAX / 2 - 0.5);
     let note = '';
     if (hz == null) {
-      note = 'no horizon yet: it learns its ground plane from the sizes of the hosts it sees';
+      note = 'no horizon yet: it learns its ground plane from the sizes of the hosts and plants it sees';
     } else {
       // its height data: hosts (their real height, at their base) and parallax (nearness, per cell)
       const boxes = (d.prey_boxes && d.prey_boxes.length) ? d.prey_boxes[d.prey_boxes.length - 1] : [];
@@ -1341,6 +1341,12 @@ PAGE = r"""<!doctype html>
       (boxes || []).forEach(([cls, conf, x0, y0, x1, y1]) => {
         const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
         pts.push([g0[0], g0[1], (y1 - y0) * g0[1] * 1.6, 'host', x0, x1, y1, conf]);
+      });
+      // plants: rooted, so their bases mark ground too (they measure it as hosts do)
+      const plb = (d.plant_boxes && d.plant_boxes.length) ? d.plant_boxes[d.plant_boxes.length - 1] : [];
+      (plb || []).forEach(([cls, conf, x0, y0, x1, y1]) => {
+        const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
+        pts.push([g0[0], g0[1], (y1 - y0) * g0[1] * 1.6, 'plant', x0, x1, y1, conf]);
       });
       if (sn.parallax) sn.parallax.forEach((v, k) => {
         if (v <= 0.05) return;
@@ -1370,17 +1376,18 @@ PAGE = r"""<!doctype html>
       // the data themselves, drawn over the membrane at full strength (UX panel:
       // show the data; the membrane is only a reading of it)
       pts.forEach(q => {
-        if (q[3] === 'host') {  // standing at its distance, its real height
+        if (q[3] === 'host' || q[3] === 'plant') {  // standing at its distance, its real height
           const [x, z, hgt, , x0, x1, y1, conf] = q, g0 = place(x0, y1), g1 = place(x1, y1); if (!g0 || !g1) return;
           const c4 = [at(g0[0], 0, g0[1]), at(g1[0], 0, g1[1]), at(g1[0], hgt, g1[1]), at(g0[0], hgt, g0[1])];
-          ctx.fillStyle = `rgba(255, 111, 138, ${0.2 + 0.35 * conf})`; ctx.strokeStyle = 'rgba(255, 111, 138, 0.95)'; ctx.lineWidth = 1.5;
+          const rgb = q[3] === 'plant' ? '156, 207, 122' : '255, 111, 138';
+          ctx.fillStyle = `rgba(${rgb}, ${0.2 + 0.35 * conf})`; ctx.strokeStyle = `rgba(${rgb}, 0.95)`; ctx.lineWidth = 1.5;
           ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
         } else {  // parallax: a column on its cell
           const a2 = at(q[0], 0, q[1]), b2 = at(q[0], q[2], q[1]);
           ctx.strokeStyle = `rgba(127, 212, 255, ${0.5 + 0.8 * q[2]})`; ctx.lineWidth = 3 * a2[3]; ctx.beginPath(); ctx.moveTo(a2[0], a2[1]); ctx.lineTo(b2[0], b2[1]); ctx.stroke();
         }
       });
-      note = `ground plane learned from hosts' sizes, horizon ${Math.round(100 * hz)}% down the frame; pink: hosts standing at their distance and height; a faint membrane drawn through them (and any parallax) reads the height data as a surface`
+      note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; pink: hosts, green: plants, standing at their distance and height; a faint membrane drawn through them (and any parallax) reads the height data as a surface`
              + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));
     }
     // inset: the lines its trees read on its eye

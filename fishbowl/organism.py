@@ -351,7 +351,24 @@ SIGNAL_KEYS = ("expansion", "motion_energy", "motion_cx", "motion_cy", "field_li
 # weights are inherited (genome.colliculus); host size's weight is the cat's
 # size gate, evolvable either way (a cat wants small and fast, a mosquito big).
 COLLICULAR_FEATURES = ("motion", "mismatch", "parallax", "host", "host size", "plant")
-GROUND_CLASSES = sorted(prey_lib.PREY_CLASSES)  # the classes whose sizes measure its ground plane
+# The classes whose sizes measure its ground plane: its hosts, and its plants
+# (rooted: a plant's base is where the ground is). Plants vary in size far
+# more than a host class does, so each class's horizon counts by how well its
+# own line fits (inverse variance, horizon() below): a class that fits badly
+# -- flowers up on a bush, pots on a sill -- counts for little, by evidence.
+GROUND_CLASSES = sorted(prey_lib.PREY_CLASSES) + [prey_lib.PLANT_CLASS]
+GROUND_COLS = 7  # n, sum y, sum h, sum y^2, sum y*h; then m, sum of squared residuals (against the fit then)
+
+
+def _ground_shape(a) -> np.ndarray:
+    """Ground sums at the current shape (older memories had no plant row or residual columns)."""
+    a = np.zeros((0, GROUND_COLS)) if a is None or len(a) == 0 else np.atleast_2d(np.array(a, dtype=float))
+    if a.shape == (len(GROUND_CLASSES), GROUND_COLS):
+        return a
+    out = np.zeros((len(GROUND_CLASSES), GROUND_COLS))
+    r, c = min(a.shape[0], out.shape[0]), min(a.shape[1], GROUND_COLS)
+    out[:r, :c] = a[:r, :c]
+    return out
 
 
 class Organism:
@@ -430,7 +447,7 @@ class Organism:
         # (people and geese differ in size), running sums of (base y, height)
         # give a line whose zero is the horizon. Kept per scene (item 12).
         g_mem = memory[11] if memory is not None and len(memory) > 11 else None
-        self.ground = np.array(g_mem, dtype=float) if g_mem is not None and len(g_mem) else np.zeros((len(GROUND_CLASSES), 5))
+        self.ground = _ground_shape(g_mem)
         self.colliculus = np.array(getattr(g, "colliculus", [0.0] * 6), dtype=float)
         self.priority_map = None
         self.uncertainty = 0.0   # running mean of its mushroom body's prediction errors (at its own learning rate)
@@ -859,8 +876,8 @@ class Organism:
                     self.mb.learn_heads(kc_active, targets, self.learning_rate, self.n_heads)
                 self._remember((kc_active.copy(), reward, cell), abs(err),
                                (self.feed_index, state.cx, state.cy, state.extent))
-            if boxes:
-                self._learn_ground(boxes)
+            if boxes or plants:
+                self._learn_ground((boxes or []) + (plants or []))
             proto_macs = 0
             if self.imagery and len(kc_active) and self.learning_rate > 0.0:
                 # its imagery: what the eye sees now, on the prototypes' grid;
@@ -1068,30 +1085,52 @@ class Organism:
         return ((c + 0.5) / cols - state.cx, (r + 0.5) / rows - state.cy, float(np.clip(s[k], 0.0, 1.0))), feats.size
 
     def _learn_ground(self, boxes: list) -> None:
-        """Each host a measuring stick: its base's height in the frame and its
-        own height, into its class's running sums (n, y, h, y^2, y*h), weighted
-        by the detector's confidence."""
+        """Each host or plant a measuring stick: its base's height in the frame
+        and its own height, into its class's running sums (n, y, h, y^2, y*h),
+        weighted by the detector's confidence; and how far it sat from its
+        class's line as fitted then (the residual, for how much to trust it)."""
+        self.ground = _ground_shape(self.ground)
         for c, conf, x0, y0, x1, y1 in boxes:
             if int(c) in GROUND_CLASSES and y1 > y0:
                 k, w = GROUND_CLASSES.index(int(c)), float(conf)
-                self.ground[k] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+                fit = self._ground_fit(self.ground[k])
+                if fit is not None:
+                    a, b = fit
+                    self.ground[k, 5:7] += w * np.array([1.0, ((y1 - y0) - (a * y1 + b)) ** 2])
+                self.ground[k, :5] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+
+    @staticmethod
+    def _ground_fit(row):
+        """A class's line height = a y + b, or None until it has three members spread in depth."""
+        n, sy, sh, syy, syh = row[:5]
+        if n < 3:
+            return None
+        vy = syy / n - (sy / n) ** 2
+        if vy <= 1e-6:
+            return None
+        a = (syh / n - (sy / n) * (sh / n)) / vy
+        return (a, sh / n - a * sy / n) if a > 0 else None
 
     def horizon(self) -> float | None:
-        """Where its ground plane meets the sky (0 = top of the frame), from
-        each class's line height = a (y - horizon), weighted by evidence; None
-        until a class has enough spread in where its members stand."""
+        """Where its ground plane meets the sky (0 = top of the frame): each
+        class's line height = a (y - horizon) gives a horizon, and they combine
+        by inverse variance -- the textbook calibration variance of a line's
+        zero, (mse / a^2)(1/n + (mean y - horizon)^2 / (n var y)) -- so a class
+        whose members fit their line badly counts for little. None until a
+        class has spread in where its members stand and a few residuals."""
+        self.ground = _ground_shape(self.ground)
         est, wsum = 0.0, 0.0
-        for n, sy, sh, syy, syh in self.ground:
-            if n < 3:
+        for row in self.ground:
+            fit = self._ground_fit(row)
+            m, rss = row[5], row[6]
+            if fit is None or m < 3:
                 continue
+            a, b = fit
+            n, sy, syy = row[0], row[1], row[3]
             vy = syy / n - (sy / n) ** 2
-            if vy <= 1e-6:
-                continue
-            a = (syh / n - (sy / n) * (sh / n)) / vy
-            if a <= 0:
-                continue
-            b = sh / n - a * sy / n
-            est, wsum = est + n * (-b / a), wsum + n
+            hz = -b / a
+            var = (max(rss / m, 1e-8) / (a * a)) * (1.0 / n + (sy / n - hz) ** 2 / (n * vy))
+            est, wsum = est + hz / var, wsum + 1.0 / var
         return float(np.clip(est / wsum, -1.0, 1.0)) if wsum else None
 
     def _ground_sense(self, cy: float) -> tuple[float, float]:

@@ -327,7 +327,10 @@ can afford more and bigger ones.
   thing's height in the frame grows in proportion to how far below the
   horizon its base stands; per class, a running line through (base, height)
   gives the horizon. Senses: how near the ground at its gaze is, and where
-  the horizon is. Kept per scene.
+  the horizon is. Kept per scene. Plants measure it too (rooted: a plant's base is
+  ground), each class's horizon counted by inverse variance -- the textbook
+  calibration variance of a line's zero -- so a class whose members fit their
+  line badly (flowers up on a bush, pots on a sill) counts for little.
 - **Parallax** (moving cameras): with the camera's own motion undone, what is
   left of each cell's change over what changed at all (+ sensor noise): 0 for
   the scene sliding past, towards 1 for what is nearer or moving on its own.
