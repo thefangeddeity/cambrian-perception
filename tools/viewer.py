@@ -1145,11 +1145,10 @@ PAGE = r"""<!doctype html>
     // (green food, red danger, amber learned-bad food); faint unless firing.
     let fmax = 1e-6, gmax = 1e-6;
     for (let k = 0; k < Math.min(n, mb.live); k++) { if (food) fmax = Math.max(fmax, Math.abs(food[k])); if (danger) gmax = Math.max(gmax, Math.max(0, danger[k])); }
-    const BONE = [150, 132, 122], GREEN = [90, 235, 110], RED = [255, 70, 50], AMBER = [255, 175, 40];
-    const cellRGB = k => {  // bone while it has learned nothing, towards its colour as it learns
-      const f = food ? food[k] / fmax : 0, g = danger ? Math.max(0, danger[k]) / gmax : 0;
-      const [t, to] = g >= Math.abs(f) ? [g, RED] : f >= 0 ? [f, GREEN] : [-f, AMBER];
-      return BONE.map((b, i) => Math.round(b + (to[i] - b) * Math.min(1, t)));
+    const cellRGB = (k, lit) => {  // dim, bright when firing; green / red / amber by what it learned
+      const f = food ? food[k] / fmax : 0, g = danger ? Math.max(0, danger[k]) / gmax : 0, base = lit ? 150 : 30;
+      return [Math.min(255, Math.round(base + 200 * Math.max(g, f < 0 ? -f : 0))),
+              Math.min(255, Math.round(base + 200 * Math.max(0, f) + (f < 0 ? 110 * -f : 0))), base];
     };
     // the peduncle and the two lobes: a stalk down from the calyx, then a fork
     const PED = [0, -0.05, 0], MED = [0.95, 0.55, 0], VER = [-0.35, 0.95, 0.35];
@@ -1179,14 +1178,14 @@ PAGE = r"""<!doctype html>
     pts.forEach(([k, q]) => {
       const fog = Math.max(0.35, Math.min(1, 0.7 - 0.4 * q[2]));
       if (k >= mb.live) { ctx.fillStyle = `rgba(70,70,70,${0.6 * fog})`; ctx.fillRect(q[0] - dot / 2, q[1] - dot / 2, dot, dot); return; }
-      const cc = cellRGB(k), lit = on.has(k), a = (lit ? 1 : 0.5) * fog;
+      const lit = on.has(k), cc = cellRGB(k, lit), a = fog;
       ctx.fillStyle = `rgba(${cc[0]},${cc[1]},${cc[2]},${a})`;
       const z = lit ? dot * 1.8 : dot;
       ctx.fillRect(q[0] - z / 2, q[1] - z / 2, z, z);
     });
     if (on.size) {  // the firing cells glow
       ctx.globalCompositeOperation = 'lighter';
-      on.forEach(k => { if (k >= n) return; const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), r = 5 * dot, cc = cellRGB(k); const gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); gr.addColorStop(0, `rgba(${cc[0]},${cc[1]},${cc[2]},0.4)`); gr.addColorStop(1, `rgba(${cc[0]},${cc[1]},${cc[2]},0)`); ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, 2 * r, 2 * r); });
+      on.forEach(k => { if (k >= n) return; const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), r = 5 * dot, cc = cellRGB(k, true); const gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); gr.addColorStop(0, `rgba(${cc[0]},${cc[1]},${cc[2]},0.4)`); gr.addColorStop(1, `rgba(${cc[0]},${cc[1]},${cc[2]},0)`); ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, 2 * r, 2 * r); });
       ctx.globalCompositeOperation = 'source-over';
     }
     // the two readouts
@@ -1244,7 +1243,7 @@ PAGE = r"""<!doctype html>
     const W = Math.max(200, fitWidth($('mb-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     MB3.d = d; MB3.dirty = true; mbKick();
-    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: bone = nothing yet, green food, red danger, amber food it learned to avoid (bright = firing). ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
+    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid; bright = firing. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
   }
 
   // The retina panel runs on the same replay clock as the picture and the
