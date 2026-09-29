@@ -661,6 +661,7 @@ PAGE = r"""<!doctype html>
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
+  canvas.steer { cursor: pointer; } canvas.steer.steering { outline: 1px solid #9a6f67; outline-offset: -1px; cursor: grab; }
   #brain-mode a { color: #b88a80; } #brain-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
@@ -752,7 +753,7 @@ PAGE = r"""<!doctype html>
   <div class="panel" id="brain-panel">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. Click it to steer (Esc releases). <span id="brain-mode"></span></div>
   </div>
   <div class="panel" id="mb-panel">
     <h2>its mushroom body</h2>
@@ -1127,6 +1128,17 @@ PAGE = r"""<!doctype html>
   // firing now glow and send their axons down the peduncle, which splits into
   // the medial lobe (its food-value readout) and the vertical lobe (danger).
   // Orbit, zoom, hover as the brain; it redraws on new data or a touch.
+  // Steerable graphics (brain, mushroom body, tree): the page keeps its own
+  // scroll and pinch-zoom until you click or tap a graphic; then the wheel,
+  // drag and pinch steer it (a thin outline shows which). Clicking outside it
+  // or Esc releases it -- the "cooperative gestures" of web maps. Clicking a
+  // graphic never expands its card (click its title or caption for that).
+  const STEER = { el: null };
+  function steerable(c) { c.classList.add('steer'); c.style.touchAction = 'auto'; return () => STEER.el === c; }
+  function steerOn(c) { if (STEER.el && STEER.el !== c) steerOff(); STEER.el = c; c.style.touchAction = 'none'; c.classList.add('steering'); }
+  function steerOff() { if (!STEER.el) return; STEER.el.style.touchAction = 'auto'; STEER.el.classList.remove('steering'); STEER.el = null; }
+  document.addEventListener('pointerdown', e => { if (STEER.el && e.target !== STEER.el) steerOff(); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && STEER.el) { steerOff(); e.stopImmediatePropagation(); } }, true);
   const MB3 = { yaw: 2.95, pitch: 0.1, zoom: 1, loop: false, dirty: true, d: null, drag: null, pos: null, n: 0, hover: null };
   function mbPositions(n) {
     const pos = new Float32Array(n * 3), ga = Math.PI * (3 - Math.sqrt(5));
@@ -1230,12 +1242,12 @@ PAGE = r"""<!doctype html>
   }
   (() => {
     const c = $('mb'); if (!c) return;
-    c.style.touchAction = 'none'; c.style.cursor = 'grab';
+    const active = steerable(c);
     const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
     const touch = () => { MB3.touched = performance.now(); MB3.dirty = true; mbKick(); };
-    c.addEventListener('wheel', e => { e.preventDefault(); MB3.zoom = Math.max(0.5, Math.min(8, MB3.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
-    c.addEventListener('dblclick', () => { MB3.yaw = 2.95; MB3.pitch = 0.1; MB3.zoom = 1; touch(); });
-    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); MB3.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
+    c.addEventListener('wheel', e => { if (!active()) return; e.preventDefault(); MB3.zoom = Math.max(0.5, Math.min(8, MB3.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
+    c.addEventListener('dblclick', () => { if (!active()) return; MB3.yaw = 2.95; MB3.pitch = 0.1; MB3.zoom = 1; touch(); });
+    c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); MB3.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
     c.addEventListener('pointermove', e => {
       const now = pt(e);
       if (MB3.drag) { MB3.yaw += (now[0] - MB3.drag[0]) * 0.008; MB3.pitch = Math.max(-1.4, Math.min(1.4, MB3.pitch + (now[1] - MB3.drag[1]) * 0.008)); MB3.drag = now; touch(); return; }
@@ -1244,7 +1256,7 @@ PAGE = r"""<!doctype html>
       for (let k = 0; k < MB3.n; k++) { const q = MB3.proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), dd = Math.hypot(q[0] - now[0], q[1] - now[1]); if (dd < bd) { bd = dd; best = k; } }
       if (best !== MB3.hover) { MB3.hover = best; touch(); }
     });
-    const up = () => { MB3.drag = null; c.style.cursor = 'grab'; };
+    const up = () => { MB3.drag = null; c.style.cursor = ''; };
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
     c.addEventListener('pointerleave', () => { if (MB3.hover != null) { MB3.hover = null; touch(); } });
   })();
@@ -1256,7 +1268,7 @@ PAGE = r"""<!doctype html>
     const W = Math.max(200, fitWidth($('mb-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     MB3.d = d; MB3.dirty = true; mbKick();
-    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid; firing cells glow phosphor green, brighter the more they have learned. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
+    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid; firing cells glow phosphor green, brighter the more they have learned. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Click it to steer (drag turns, wheel or pinch zooms, hover a cell; Esc or a click outside releases).`;
   }
 
   // The retina panel runs on the same replay clock as the picture and the
@@ -1471,8 +1483,9 @@ PAGE = r"""<!doctype html>
   // outputs on a ring at the right; every wire drawn, faded by depth; every
   // unit named. Drag to orbit, wheel or pinch to zoom, double-click to reset;
   // hovering a unit lights its links and dims the rest; idle, it drifts.
-  const B3 = { on: true, yaw: 2.69, pitch: -0.08, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
-  try { B3.on = localStorage.getItem('brain-view') !== '2d'; } catch (e) {}
+  const B3 = { on: false, yaw: 2.69, pitch: -0.08, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
+  B3.on = false;  // 2D by default; 3D is the option
+  try { B3.on = localStorage.getItem('brain-view') === '3d'; } catch (e) {}
   function brain3DLayout(nIn, nH, nOut) {
     const pts = [], rows = Math.ceil(nIn / 3);  // three columns, each a run of senses in order
     for (let i = 0; i < nIn; i++) {
@@ -1609,8 +1622,8 @@ PAGE = r"""<!doctype html>
   brain3DKick();
   function setBrainView(on) {
     B3.on = on; try { localStorage.setItem('brain-view', on ? '3d' : '2d'); } catch (e) {}
-    const m = $('brain-mode'); if (m) m.innerHTML = on ? '<b>3D</b> &middot; <a href="#">2D</a>' : '<a href="#">3D</a> &middot; <b>2D</b>';
-    const c = $('brain'); if (c) c.style.cursor = on ? 'grab' : 'zoom-in';
+    const m = $('brain-mode'); if (m) m.innerHTML = on ? '<a href="#">2D</a> &middot; <b>3D</b>' : '<b>2D</b> &middot; <a href="#">3D</a>';
+
     if (BZ.d) drawBrain(BZ.d);
   }
   // Zoom the brain: wheel (or pinch) zooms about the pointer, drag pans,
@@ -1626,20 +1639,22 @@ PAGE = r"""<!doctype html>
   function brainPoint(e) { const c = $('brain'), r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; }
   (() => {
     const c = $('brain'); if (!c) return;
-    c.style.touchAction = 'none'; c.style.cursor = B3.on ? 'grab' : 'zoom-in';
+    const active = steerable(c);
     const m = $('brain-mode'); if (m) m.addEventListener('click', e => { e.preventDefault(); if (e.target.tagName === 'A') setBrainView(!B3.on); });
     setBrainView(B3.on);
     c.addEventListener('wheel', e => {
+      if (!active()) return;
       e.preventDefault(); B3.touched = performance.now(); brain3DKick();
       if (B3.on) { B3.zoom = Math.max(0.5, Math.min(6, B3.zoom * Math.exp(-e.deltaY * 0.0015))); drawBrain3D(); return; }
       const [x, y] = brainPoint(e); brainZoomTo(BZ.k * Math.exp(-e.deltaY * 0.0015), x, y);
     }, { passive: false });
     c.addEventListener('dblclick', () => {
+      if (!active()) return;
       if (B3.on) { B3.yaw = 2.69; B3.pitch = -0.08; B3.zoom = 1; drawBrain3D(); return; }
       BZ.k = 1; BZ.x = BZ.y = 0; if (BZ.d) drawBrain(BZ.d);
     });
     c.addEventListener('pointerleave', () => { if (B3.hover != null) { B3.hover = null; B3.dirty = true; brain3DKick(); } });
-    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; B3.touched = performance.now(); brain3DKick(); if (B3.on) c.style.cursor = 'grabbing'; });
+    c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; B3.touched = performance.now(); brain3DKick(); if (B3.on) c.style.cursor = 'grabbing'; });
     c.addEventListener('pointermove', e => {
       if (!BZ.pts.has(e.pointerId)) {
         if (B3.on) { const [x, y] = brainPoint(e), h = brain3DAt(x, y); if (h !== B3.hover) { B3.hover = h; B3.dirty = true; brain3DKick(); } }
@@ -1661,7 +1676,7 @@ PAGE = r"""<!doctype html>
       }
       if (BZ.k > 1) { BZ.x += now[0] - prev[0]; BZ.y += now[1] - prev[1]; brainZoomTo(BZ.k, 0, 0); }
     });
-    const up = e => { BZ.pts.delete(e.pointerId); BZ.pinch = null; if (B3.on) c.style.cursor = 'grab'; };
+    const up = e => { BZ.pts.delete(e.pointerId); BZ.pinch = null; c.style.cursor = ''; };
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
   })();
 
@@ -1770,32 +1785,33 @@ PAGE = r"""<!doctype html>
   }
   function renderTrees(trees, stats, limits) {
     const box = $('trees');
-    const N = (D && D.receptors) || 12, key = N + JSON.stringify(trees);
+    const TW = Math.max(300, Math.floor(fitWidth($('tree-panel'), quadAspect())));
+    const N = (D && D.receptors) || 12, key = N + ':' + TW + JSON.stringify(trees);  // its size too: an expanded card redraws
     if (box.dataset.key === key) return;  // unchanged: keep the view as it is
     box.dataset.key = key; box.innerHTML = '';
     for (const name of Object.keys(trees)) {
       const wrap = document.createElement('div');
       const s = stats && stats[name];
-      wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''} &middot; drag to turn, wheel to zoom</div>`;
-      const c = document.createElement('canvas'); c.style.width = '100%'; c.style.touchAction = 'none'; c.style.cursor = 'grab';
+      wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''} &middot; click it to steer (drag turns, wheel or pinch zooms; Esc releases)</div>`;
+      const c = document.createElement('canvas'); c.style.width = '100%'; const active = steerable(c);
       wrap.appendChild(c); box.appendChild(wrap);
-      const W = Math.max(300, Math.floor(box.clientWidth || 600));
+      const W = TW;
       c.width = W; c.height = Math.round(W * quadAspect());
       const old = TREE3[name] || {};
       const T = TREE3[name] = { canvas: c, lay: coneLayout(trees[name], N / 2), yaw: old.yaw ?? 0.35, pitch: old.pitch ?? 0.3, zoom: old.zoom ?? 1,
                                 vyaw: 0, touched: performance.now() - 4000, hover: null, drag: null, loop: false, dirty: true, P: [] };
       const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
       const touch = () => { T.touched = performance.now(); T.dirty = true; treeKick(name); };
-      c.addEventListener('wheel', e => { e.preventDefault(); T.zoom = Math.max(0.4, Math.min(6, T.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
-      c.addEventListener('dblclick', () => { T.yaw = 0.35; T.pitch = 0.3; T.zoom = 1; touch(); });
-      c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); T.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
+      c.addEventListener('wheel', e => { if (!active()) return; e.preventDefault(); T.zoom = Math.max(0.4, Math.min(6, T.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
+      c.addEventListener('dblclick', () => { if (!active()) return; T.yaw = 0.35; T.pitch = 0.3; T.zoom = 1; touch(); });
+      c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); T.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
       c.addEventListener('pointermove', e => {
         const now = pt(e);
         if (T.drag) { T.yaw += (now[0] - T.drag[0]) * 0.008; T.pitch = Math.max(-1.4, Math.min(1.4, T.pitch + (now[1] - T.drag[1]) * 0.008)); T.drag = now; touch(); return; }
         let best = null, bd = 16; T.P.forEach((q, i) => { const dd = Math.hypot(q.sx - now[0], q.sy - now[1]); if (dd < bd) { bd = dd; best = i; } });
         if (best !== T.hover) { T.hover = best; touch(); }
       });
-      const up = () => { T.drag = null; c.style.cursor = 'grab'; };
+      const up = () => { T.drag = null; c.style.cursor = ''; };
       c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
       c.addEventListener('pointerleave', () => { if (T.hover != null) { T.hover = null; touch(); } });
       drawTree3D(name); treeKick(name);
@@ -1907,7 +1923,7 @@ PAGE = r"""<!doctype html>
     requestAnimationFrame(redrawAll);
   }
   document.addEventListener('click', e => {
-    if (e.target.closest('input, button, label, a, select, textarea, iframe')) return;
+    if (e.target.closest('input, button, label, a, select, textarea, iframe, canvas.steer')) return;
     const p = e.target.closest('.panel');
     if (p) setMax(p);
   });
