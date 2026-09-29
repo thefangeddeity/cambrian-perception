@@ -1512,25 +1512,134 @@ PAGE = r"""<!doctype html>
   // Trees (every tree the genome has).
   const PLANE_NAMES = ['now', 'prev', 'rg', 'by'];
   function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'cell' ? `${PLANE_NAMES[n.index] || 'p' + n.index}(${n.kx},${n.ky})` : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
-  function layout(n, depth, order) {
-    if (!n.children || n.children.length === 0) return { node: n, depth, x: order.next++, children: [] };
-    const kids = n.children.map(c => layout(c, depth + 1, order));
-    return { node: n, depth, x: kids.reduce((s, k) => s + k.x, 0) / kids.length, children: kids };
+  // Its perception trees in 3D: a cone tree (Robertson, Mackinlay & Card
+  // 1991) -- each node's children on a circle below it -- growing down onto
+  // its eye: a leaf that reads a receptor plugs into the retina grid at the
+  // bottom, at the receptor it reads (plane: now / previous look / colour).
+  // Drag to orbit, wheel or pinch to zoom, double-click to reset; hover names
+  // a node; it drifts for 20 s after a touch, then is still.
+  const TREE3 = {};
+  const PLANE_COL = ['255,226,214', '154,111,103', '255,95,162', '120,160,255'];
+  function coneLayout(root) {
+    const pts = [], links = [];
+    const leaves = n => n.children && n.children.length ? n.children.reduce((t, c) => t + leaves(c), 0) : 1;
+    let maxK = 1;
+    (function scan(n) { if (n.kind === 'cell') maxK = Math.max(maxK, Math.abs(n.kx) + 1, Math.abs(n.ky) + 1); (n.children || []).forEach(scan); })(root);
+    let depthMax = 0;
+    (function place(n, x, y, z, r, depth, parent) {
+      const idx = pts.length;
+      depthMax = Math.max(depthMax, depth);
+      pts.push({ n, x, y, z, depth, retina: false });
+      if (parent != null) links.push([parent, idx]);
+      const kids = n.children || [];
+      const total = kids.reduce((t, c) => t + leaves(c), 0);
+      let acc = 0;
+      kids.forEach(c => {
+        const share = leaves(c), ang = 2 * Math.PI * (acc + share / 2) / Math.max(1, total) + depth * 0.7;
+        acc += share;
+        const rr = kids.length === 1 ? 0 : r;
+        place(c, x + rr * Math.cos(ang), y + 0.34, z + rr * Math.sin(ang), r * 0.62, depth + 1, idx);
+      });
+    })(root, 0, 0, 0, 0.55, 0, null);
+    // receptor leaves drop onto the retina plane below the deepest level
+    const floor = 0.34 * (depthMax + 1);
+    pts.forEach(q => { if (q.n.kind === 'cell') { q.retina = true; q.x = 0.9 * (q.n.kx + 0.5) / maxK; q.z = 0.9 * (q.n.ky + 0.5) / maxK; q.y = floor; } });
+    const mid = floor / 2;
+    pts.forEach(q => { q.y -= mid; });
+    return { pts, links, floor: floor - mid, maxK };
   }
-  function maxDepthOf(l) { return l.children.length ? 1 + Math.max(...l.children.map(maxDepthOf)) : 0; }
+  function drawTree3D(name) {
+    const T = TREE3[name]; if (!T) return;
+    const c = T.canvas, W = c.width, H = c.height, ctx = c.getContext('2d');
+    ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    const cy = Math.cos(T.yaw), sy = Math.sin(T.yaw), cp = Math.cos(T.pitch), sp = Math.sin(T.pitch);
+    const L = T.lay, span = Math.max(1.2, 2 * Math.abs(L.floor) + 0.4), scale = Math.min(W, H) / span * 0.8 * T.zoom, F = 3.4;
+    const proj = (x, y, z) => {
+      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+      const y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, w = F / (F + z2);
+      return [W / 2 + x1 * scale * w, H / 2 + y2 * scale * w, z2, w];
+    };
+    // the retina: a faint grid of the receptors the tree can reach
+    const k = L.maxK, g = 0.9;
+    ctx.strokeStyle = 'rgba(52,68,85,0.55)'; ctx.lineWidth = 1;
+    for (let i = -k; i <= k; i++) {
+      const u = g * i / k;
+      let a1 = proj(u, L.floor, -g), a2 = proj(u, L.floor, g); ctx.beginPath(); ctx.moveTo(a1[0], a1[1]); ctx.lineTo(a2[0], a2[1]); ctx.stroke();
+      a1 = proj(-g, L.floor, u); a2 = proj(g, L.floor, u); ctx.beginPath(); ctx.moveTo(a1[0], a1[1]); ctx.lineTo(a2[0], a2[1]); ctx.stroke();
+    }
+    const P = L.pts.map(q => { const [sx, sy2, d, w] = proj(q.x, q.y, q.z); return Object.assign(q, { sx, sy: sy2, d, w, fog: Math.max(0.3, Math.min(1, 0.7 - 0.4 * d)) }); });
+    const hov = T.hover;
+    ctx.globalCompositeOperation = 'lighter';
+    L.links.forEach(([a, b]) => {
+      const A = P[a], B = P[b], lit = hov === a || hov === b;
+      ctx.strokeStyle = B.retina ? `rgba(${PLANE_COL[B.n.index] || '200,200,200'},${(lit ? 0.9 : 0.45) * B.fog})` : `rgba(127,212,255,${(lit ? 0.9 : 0.4) * (A.fog + B.fog) / 2})`;
+      ctx.lineWidth = (lit ? 2.2 : 1.3) * (A.w + B.w) / 2;
+      if (B.retina) ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy); ctx.stroke(); ctx.setLineDash([]);
+    });
+    ctx.globalCompositeOperation = 'source-over';
+    const many = P.length > 60;
+    P.map((q, i) => [q, i]).sort((x, y) => y[0].d - x[0].d).forEach(([q, i]) => {
+      const op = q.n.kind === 'op', r = (q.retina ? 5 : op ? 15 : 12) * q.w * Math.sqrt(T.zoom);
+      ctx.globalAlpha = q.fog;
+      if (q.retina) { ctx.fillStyle = `rgb(${PLANE_COL[q.n.index] || '200,200,200'})`; ctx.fillRect(q.sx - r, q.sy - r / 2, 2 * r, r); }
+      else { ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#ffe2d6' : '#ffb4a6'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(q.sx, q.sy, r, 0, 7); ctx.fill(); ctx.stroke(); }
+      if (!many || i === hov || op) {
+        ctx.fillStyle = q.retina ? `rgb(${PLANE_COL[q.n.index] || '200,200,200'})` : '#cfe3f0';
+        ctx.font = (i === hov ? 'bold 12px' : '11px') + ' monospace'; ctx.textBaseline = 'middle';
+        if (q.retina) { ctx.textAlign = 'center'; ctx.fillText(nodeLabel(q.n), q.sx, q.sy + r + 9); }
+        else { ctx.textAlign = 'center'; ctx.fillText(nodeLabel(q.n), q.sx, q.sy); }
+      }
+    });
+    ctx.globalAlpha = 1;
+    T.P = P;
+  }
+  function treeKick(name) {
+    const T = TREE3[name]; if (!T || T.loop) return;
+    T.loop = true;
+    let last = performance.now();
+    const tick = now => {
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      const since = now - T.touched, drifting = since > 4000 && since < 24000 && T.hover == null && !T.drag;
+      T.vyaw += ((drifting ? 0.12 : 0) - T.vyaw) * Math.min(1, dt * 1.5);
+      T.yaw += T.vyaw * dt;
+      const r = T.canvas.getBoundingClientRect();
+      if ((Math.abs(T.vyaw) > 1e-4 || T.dirty) && r.bottom > 0 && r.top < innerHeight && !document.hidden) { T.dirty = false; drawTree3D(name); }
+      if (since < 24000 || Math.abs(T.vyaw) > 1e-4 || T.dirty) requestAnimationFrame(tick); else { T.vyaw = 0; T.loop = false; }
+    };
+    requestAnimationFrame(tick);
+  }
   function renderTrees(trees, stats, limits) {
-    const box = $('trees'); box.innerHTML = '';
+    const box = $('trees');
+    const key = JSON.stringify(trees);
+    if (box.dataset.key === key) return;  // unchanged: keep the view as it is
+    box.dataset.key = key; box.innerHTML = '';
     for (const name of Object.keys(trees)) {
       const wrap = document.createElement('div');
       const s = stats && stats[name];
-      wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''}</div>`;
-      const c = document.createElement('canvas'); wrap.appendChild(c); box.appendChild(wrap);
-      const order = { next: 0 }, laid = layout(trees[name], 0, order), leaves = Math.max(1, order.next), md = maxDepthOf(laid);
-      c.width = Math.max(300, (leaves + 1) * 52); c.height = Math.max(180, (md + 2) * 58);
-      const ctx = c.getContext('2d'); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, c.width, c.height);
-      const xs = c.width / (leaves + 1), ys = c.height / (md + 2), pos = l => [(l.x + 1) * xs, (l.depth + 1) * ys];
-      (function edges(l) { const [px, py] = pos(l); for (const k of l.children) { const [qx, qy] = pos(k); ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(qx, qy); ctx.stroke(); edges(k); } })(laid);
-      (function nodes(l) { const [x, y] = pos(l); const op = l.node.kind === 'op'; ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#ffe2d6' : '#ffb4a6'; ctx.beginPath(); ctx.arc(x, y, 18, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#cfe3f0'; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(nodeLabel(l.node), x, y); l.children.forEach(nodes); })(laid);
+      wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''} &middot; drag to turn, wheel to zoom</div>`;
+      const c = document.createElement('canvas'); c.style.width = '100%'; c.style.touchAction = 'none'; c.style.cursor = 'grab';
+      wrap.appendChild(c); box.appendChild(wrap);
+      const W = Math.max(300, Math.floor(box.clientWidth || 600));
+      c.width = W; c.height = Math.round(W * quadAspect());
+      const old = TREE3[name] || {};
+      const T = TREE3[name] = { canvas: c, lay: coneLayout(trees[name]), yaw: old.yaw ?? 0.5, pitch: old.pitch ?? 0.35, zoom: old.zoom ?? 1,
+                                vyaw: 0, touched: performance.now() - 4000, hover: null, drag: null, loop: false, dirty: true, P: [] };
+      const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
+      const touch = () => { T.touched = performance.now(); T.dirty = true; treeKick(name); };
+      c.addEventListener('wheel', e => { e.preventDefault(); T.zoom = Math.max(0.4, Math.min(6, T.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
+      c.addEventListener('dblclick', () => { T.yaw = 0.5; T.pitch = 0.35; T.zoom = 1; touch(); });
+      c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); T.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
+      c.addEventListener('pointermove', e => {
+        const now = pt(e);
+        if (T.drag) { T.yaw += (now[0] - T.drag[0]) * 0.008; T.pitch = Math.max(-1.4, Math.min(1.4, T.pitch + (now[1] - T.drag[1]) * 0.008)); T.drag = now; touch(); return; }
+        let best = null, bd = 16; T.P.forEach((q, i) => { const dd = Math.hypot(q.sx - now[0], q.sy - now[1]); if (dd < bd) { bd = dd; best = i; } });
+        if (best !== T.hover) { T.hover = best; touch(); }
+      });
+      const up = () => { T.drag = null; c.style.cursor = 'grab'; };
+      c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+      c.addEventListener('pointerleave', () => { if (T.hover != null) { T.hover = null; touch(); } });
+      drawTree3D(name); treeKick(name);
     }
   }
 
