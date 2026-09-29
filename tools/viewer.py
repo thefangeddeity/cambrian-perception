@@ -1118,25 +1118,133 @@ PAGE = r"""<!doctype html>
     });
   }
   function int8s(b64) { if (!b64) return null; const s = atob(b64); return Int8Array.from(s, ch => ch.charCodeAt(0)); }
+  // Its mushroom body in 3D, laid out as an insect's (Menzel): the Kenyon
+  // cells in the calyx, a cup at the top, each coloured by what it has
+  // learned (green food, red danger; grey once lost to wasting); the cells
+  // firing now glow and send their axons down the peduncle, which splits into
+  // the medial lobe (its food-value readout) and the vertical lobe (danger).
+  // Orbit, zoom, hover as the brain; it redraws on new data or a touch.
+  const MB3 = { yaw: 0.6, pitch: 0.25, zoom: 1, vyaw: 0, touched: performance.now() - 4000, loop: false, dirty: true, d: null, drag: null, pos: null, n: 0, hover: null };
+  function mbPositions(n) {
+    const pos = new Float32Array(n * 3), ga = Math.PI * (3 - Math.sqrt(5));
+    for (let k = 0; k < n; k++) {  // a cup: the upper part of a sphere, cells spread evenly over it and through its wall
+      const t = (k + 0.5) / n, y = 1 - 0.75 * t, rr = Math.sqrt(Math.max(0, 1 - y * y)), th = ga * k;
+      const wall = 0.82 + 0.18 * ((k * 0.618034) % 1);
+      pos[3 * k] = 0.62 * wall * rr * Math.cos(th); pos[3 * k + 1] = -0.55 - 0.45 * wall * y; pos[3 * k + 2] = 0.62 * wall * rr * Math.sin(th);
+    }
+    return pos;
+  }
+  function drawMB3D() {
+    const d = MB3.d, c = $('mb'); if (!d || !d.mb || !c) return;
+    const mb = d.mb, n = mb.n, W = c.width, H = c.height, ctx = c.getContext('2d');
+    if (MB3.n !== n) { MB3.pos = mbPositions(n); MB3.n = n; }
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
+    const cy = Math.cos(MB3.yaw), sy = Math.sin(MB3.yaw), cp = Math.cos(MB3.pitch), sp = Math.sin(MB3.pitch);
+    const scale = Math.min(W, H) * 0.42 * MB3.zoom, F = 3.4;
+    const proj = (x, y, z) => {
+      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, w = F / (F + z2);
+      return [W / 2 + x1 * scale * w, H / 2 + y2 * scale * w, z2, w];
+    };
+    const food = int8s(mb.food), danger = int8s(mb.danger), on = new Set(mb.active || []);
+    // the peduncle and the two lobes: a stalk down from the calyx, then a fork
+    const PED = [0, -0.05, 0], MED = [0.95, 0.55, 0], VER = [-0.35, 0.95, 0.35];
+    const tube = (a, b2, col, wd) => { const A = proj(...a), B = proj(...b2); ctx.strokeStyle = col; ctx.lineWidth = wd * (A[3] + B[3]) / 2; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke(); };
+    ctx.lineCap = 'round';
+    tube([0, -0.5, 0], PED, 'rgba(90,110,125,0.35)', 14); tube(PED, MED, 'rgba(90,110,125,0.3)', 11); tube(PED, VER, 'rgba(90,110,125,0.3)', 11);
+    // cells, far to near
+    const P = MB3.pos, pts = [];
+    for (let k = 0; k < n; k++) { const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]); pts.push([k, q]); }
+    pts.sort((x, y) => y[1][2] - x[1][2]);
+    const dot = Math.max(1.2, Math.min(4, 900 / Math.sqrt(n + 1) * 0.05)) * Math.sqrt(MB3.zoom);
+    ctx.globalCompositeOperation = 'lighter';
+    // the firing cells' axons: down the peduncle, into each lobe by what they carry
+    let fsum = 0, gsum = 0;
+    on.forEach(k => {
+      if (k >= n) return;
+      const f = food ? food[k] / 127 : 0, g = danger ? danger[k] / 127 : 0; fsum += f; gsum += g;
+      const A = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), B = proj(...PED);
+      ctx.strokeStyle = 'rgba(255,240,200,0.10)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+    });
+    if (on.size) {
+      const ped = proj(...PED), m = proj(...MED), v = proj(...VER), fa = Math.min(1, Math.abs(fsum) / Math.max(1, on.size) * 3), ga2 = Math.min(1, Math.abs(gsum) / Math.max(1, on.size) * 3);
+      ctx.strokeStyle = `rgba(${fsum >= 0 ? '120,230,120' : '255,153,0'},${0.15 + 0.7 * fa})`; ctx.lineWidth = 2 + 6 * fa; ctx.beginPath(); ctx.moveTo(ped[0], ped[1]); ctx.lineTo(m[0], m[1]); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,70,50,${0.15 + 0.7 * ga2})`; ctx.lineWidth = 2 + 6 * ga2; ctx.beginPath(); ctx.moveTo(ped[0], ped[1]); ctx.lineTo(v[0], v[1]); ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    pts.forEach(([k, q]) => {
+      const fog = Math.max(0.35, Math.min(1, 0.7 - 0.4 * q[2]));
+      if (k >= mb.live) { ctx.fillStyle = `rgba(60,60,60,${0.5 * fog})`; ctx.fillRect(q[0] - dot / 2, q[1] - dot / 2, dot, dot); return; }
+      const f = food ? Math.max(0, food[k] / 127) : 0, g = danger ? Math.max(0, danger[k] / 127) : 0, lit = on.has(k), base = lit ? 150 : 30;
+      ctx.fillStyle = `rgba(${Math.round(base + 200 * g)},${Math.round(base + 200 * f)},${base},${fog})`;
+      const z = lit ? dot * 1.8 : dot;
+      ctx.fillRect(q[0] - z / 2, q[1] - z / 2, z, z);
+    });
+    if (on.size) {  // the firing cells glow
+      ctx.globalCompositeOperation = 'lighter';
+      on.forEach(k => { if (k >= n) return; const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), r = 5 * dot; const gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); gr.addColorStop(0, 'rgba(255,240,200,0.35)'); gr.addColorStop(1, 'rgba(255,240,200,0)'); ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, 2 * r, 2 * r); });
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    // the two readouts
+    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    [[MED, 'food value', d.food_value, '120,230,120'], [VER, 'danger', d.danger_value, '255,90,70']].forEach(([pt, name, val, col]) => {
+      const q = proj(...pt), r = 9 * q[3] * Math.sqrt(MB3.zoom);
+      ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = `rgb(${col})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = `rgb(${col})`; ctx.textAlign = q[0] > W / 2 ? 'left' : 'right';
+      ctx.fillText(`${name}${val != null ? ' ' + Number(val).toFixed(2) : ''}`, q[0] + (q[0] > W / 2 ? r + 5 : -r - 5), q[1]);
+    });
+    const lab = proj(0, -1.12, 0); ctx.fillStyle = '#9a6f67'; ctx.textAlign = 'center'; ctx.fillText('calyx: Kenyon cells', lab[0], lab[1]);
+    const pl = proj(...PED); ctx.textAlign = 'left'; ctx.fillText('peduncle', pl[0] + 10, pl[1]);
+    if (MB3.hover != null && MB3.hover < n) {
+      const k = MB3.hover, q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]);
+      ctx.fillStyle = '#ffe2d6'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
+      ctx.fillText(`cell ${k}: food ${food ? (food[k] / 127).toFixed(2) : '--'}, danger ${danger ? (danger[k] / 127).toFixed(2) : '--'}${on.has(k) ? ', firing' : ''}${k >= mb.live ? ', lost' : ''}`, q[0] + 8, q[1] - 8);
+    }
+    MB3.proj = proj;
+  }
+  function mbKick() {
+    if (MB3.loop) return;
+    MB3.loop = true;
+    let last = performance.now();
+    const tick = now => {
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      const since = now - MB3.touched, drifting = since > 4000 && since < 24000 && !MB3.drag && MB3.hover == null;
+      MB3.vyaw += ((drifting ? 0.12 : 0) - MB3.vyaw) * Math.min(1, dt * 1.5);
+      MB3.yaw += MB3.vyaw * dt;
+      const c = $('mb'), r = c && c.getBoundingClientRect();
+      if ((Math.abs(MB3.vyaw) > 1e-4 || MB3.dirty) && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { MB3.dirty = false; drawMB3D(); }
+      if (since < 24000 || Math.abs(MB3.vyaw) > 1e-4 || MB3.dirty) requestAnimationFrame(tick); else { MB3.vyaw = 0; MB3.loop = false; }
+    };
+    requestAnimationFrame(tick);
+  }
+  (() => {
+    const c = $('mb'); if (!c) return;
+    c.style.touchAction = 'none'; c.style.cursor = 'grab';
+    const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
+    const touch = () => { MB3.touched = performance.now(); MB3.dirty = true; mbKick(); };
+    c.addEventListener('wheel', e => { e.preventDefault(); MB3.zoom = Math.max(0.5, Math.min(8, MB3.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
+    c.addEventListener('dblclick', () => { MB3.yaw = 0.6; MB3.pitch = 0.25; MB3.zoom = 1; touch(); });
+    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); MB3.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
+    c.addEventListener('pointermove', e => {
+      const now = pt(e);
+      if (MB3.drag) { MB3.yaw += (now[0] - MB3.drag[0]) * 0.008; MB3.pitch = Math.max(-1.4, Math.min(1.4, MB3.pitch + (now[1] - MB3.drag[1]) * 0.008)); MB3.drag = now; touch(); return; }
+      if (!MB3.proj || !MB3.pos) return;
+      let best = null, bd = 8; const P = MB3.pos;
+      for (let k = 0; k < MB3.n; k++) { const q = MB3.proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), dd = Math.hypot(q[0] - now[0], q[1] - now[1]); if (dd < bd) { bd = dd; best = k; } }
+      if (best !== MB3.hover) { MB3.hover = best; touch(); }
+    });
+    const up = () => { MB3.drag = null; c.style.cursor = 'grab'; };
+    c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+    c.addEventListener('pointerleave', () => { if (MB3.hover != null) { MB3.hover = null; touch(); } });
+  })();
   function drawMB(d) {
     const c = $('mb'), cap = $('mb-cap'); if (!c) return;
     const mb = d.mb;
     if (!mb) { c.style.display = 'none'; cap.textContent = ''; return; }
     c.style.display = '';
-    const W = Math.max(200, c.parentElement.clientWidth - 24), n = mb.n;
-    const cols = Math.max(8, Math.ceil(Math.sqrt(n * W / 150))), rows = Math.ceil(n / cols), sz = W / cols, H = Math.ceil(rows * sz);
+    const W = Math.max(200, c.parentElement.clientWidth - 24), H = Math.round(W * 0.6);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-    const ctx = c.getContext('2d'); ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
-    const food = int8s(mb.food), danger = int8s(mb.danger), on = new Set(mb.active || []);
-    for (let k = 0; k < n; k++) {
-      const x = (k % cols) * sz, y = Math.floor(k / cols) * sz;
-      if (k >= mb.live) { ctx.fillStyle = '#111'; ctx.fillRect(x, y, sz - 1, sz - 1); continue; }
-      const f = food ? Math.max(0, food[k] / 127) : 0, g = danger ? Math.max(0, danger[k] / 127) : 0;
-      const lit = on.has(k), base = lit ? 150 : 35;
-      ctx.fillStyle = `rgb(${Math.round(base + 200 * g)}, ${Math.round(base + 200 * f)}, ${base})`;
-      ctx.fillRect(x, y, sz - 1, sz - 1);
-    }
-    cap.textContent = `Mushroom body: ${n} cells, ${(mb.active || []).length} firing. Green = food, red = danger. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn.`;
+    MB3.d = d; MB3.dirty = true; mbKick();
+    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing. Green = food, red = danger. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
   }
 
   // The retina panel runs on the same replay clock as the picture and the

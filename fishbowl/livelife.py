@@ -137,6 +137,7 @@ def _circuits(org: Organism) -> dict:
         out["mb"] = {"n": mb.n_kc, "live": org.live_kc, "active": [int(k) for k in org.last_kc],
                      "food": food, "danger": danger,
                      "cost_share": round(share, 4)}
+        out["food_value"], out["danger_value"] = round(float(org.food_value), 3), round(float(org.danger_value), 3)
     # its latest replayed memory on its eye: each reactivated Kenyon cell's 7
     # receptor positions, back-projected onto its n x n gaze (not a picture it
     # makes: which parts of its eye the memory is built from)
