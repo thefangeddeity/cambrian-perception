@@ -5,8 +5,9 @@ below its cognition -- transforms it has no access to, as ours are (Marr's
 & Mishkin). Its ground plane and terrain map live in the organism (they are
 senses too); this keeps the rest, for the live organism only:
 
-  - tracks: each thing it sees, followed from frame to frame (SORT's rule,
-    Bewley et al. 2016: same class, box overlap IoU >= 0.3)
+  - tracks: each thing it sees, followed from frame to frame (SORT, Bewley et
+    al. 2016: same class, box overlap IoU >= 0.3; real after 3 detections,
+    ended by a missed one)
   - on its ground: where each tracked thing stands (in camera heights, from the
     horizon), its true height, its speed across the ground
   - gait: the rhythm of the motion inside its box (Johansson's biological
@@ -26,8 +27,8 @@ every detection -- true height and colour; step rate and speed are kept on
 each individual but not matched on until their own spread is measured. Nothing here is evolved, fed to its brain, or charged for yet: the
 panel's order was to let us watch it first.
 Assumptions (listed for the constants audit): focal length ~ the frame's
-height (ground distances); a track is lost after TRACK_LOST_S unseen; gait is
-looked for between 0.5 and 4 Hz (walking to trotting, people and pets).
+height (ground distances); gait is looked for between 0.5 and 4 Hz (walking
+to trotting, people and pets).
 """
 from __future__ import annotations
 
@@ -39,10 +40,9 @@ import numpy as np
 from . import prey as prey_lib
 
 IOU_MATCH = 0.3        # SORT's association threshold
-TRACK_LOST_S = 2.0     # unseen this long: the track ends
-MATURE_S = 2.0         # a track signs (is matched to an individual) after this long
-GAIT_WINDOW_S = 4.0    # the stretch of motion its gait is read from
+MAX_AGE, MIN_HITS = 1, 3  # SORT's defaults: a track ends after a detection it missed; it is real (and signs) after 3
 GAIT_HZ = (0.5, 4.0)   # the cadences looked for
+GAIT_WINDOW_S = 2.0 / GAIT_HZ[0]  # two periods of the slowest gait
 CHI2_95 = {1: 3.841, 2: 5.991, 3: 7.815, 4: 9.488}
 LIBRARY_MAX = 64
 MET_AGAIN_S = 60.0     # the events log notes a re-meeting only after this long apart       # individuals remembered (the least seen, longest ago, go first)
@@ -110,6 +110,7 @@ class Track:
         self.hist_d: list = []        # each detection's colour distance from the track's mean so far
         self.who = None               # the individual it was matched to
         self.signed = False
+        self.hits, self.misses = 0, 0  # fresh detections it matched, and missed in a row
 
     def signature(self) -> dict:
         sig = {}
@@ -189,6 +190,8 @@ class Cortex:
             else:
                 free.remove(best)
             tr = best
+            if fresh:
+                tr.hits, tr.misses = tr.hits + 1, 0
             tr.box, tr.last = box, t
             if motion is not None:
                 h, w = motion.shape[:2]
@@ -199,7 +202,8 @@ class Cortex:
             if not fresh:
                 continue
             cut_base, cut_top = prey_lib.cut_by_frame(b, grey.shape[1] / max(1, grey.shape[0]) if grey is not None else 16 / 9)
-            if horizon is not None and not cut_base and not cut_top and box[3] - horizon > 0.02:
+            px = max(1.0, grey.shape[1] / max(1, grey.shape[0]) if grey is not None else 16 / 9) / prey_lib.INPUT_SIZE
+            if horizon is not None and not cut_base and not cut_top and box[3] - horizon > px:  # a base at least a detector pixel below the horizon
                 depth = 1.0 / (box[3] - horizon)   # camera heights (focal length ~ frame height)
                 tr.heights.append((box[3] - box[1]) * depth)
                 tr.ground.append((t, ((box[0] + box[2]) / 2 - 0.5) * depth, depth))
@@ -213,9 +217,12 @@ class Cortex:
                     tr.hist_d.append(_bhatt(hs[1], tr.hist[1]))
                     tr.n_hist += 1
                     tr.hist[1][:] += (hs[1] - tr.hist[1]) / tr.n_hist
-            if not tr.signed and tr.cls in prey_lib.PREY_CLASSES and t - tr.first >= MATURE_S:  # individuals: living things
+            if not tr.signed and tr.cls in prey_lib.PREY_CLASSES and tr.hits >= MIN_HITS:  # individuals: living things
                 self._sign(tr, t)
-        for tr in [tr for tr in self.tracks if t - tr.last > TRACK_LOST_S]:
+        if fresh:
+            for tr in free:  # tracks no fresh box matched
+                tr.misses += 1
+        for tr in [tr for tr in self.tracks if tr.misses > MAX_AGE]:
             self._learn_within(tr)
             if tr.signed:
                 self._learn(tr, t)

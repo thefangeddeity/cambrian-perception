@@ -936,6 +936,28 @@ def _unpack_scenes(packed):
     return {"current": int(packed["current"]), "library": lib}
 
 
+def _default_brain(genome) -> None:
+    """A fresh install's founder (a 2026-09-29 panel): a random genome with
+    every seed set applied (tools/seed.py) -- random, as Dennett's compromise
+    asks, but with every capacity switched on for evolution to prune -- and
+    recorded in state/seeded.txt, so none is applied twice."""
+    import random as _random
+    from tools import seed as seeds
+    lines = []
+    for name, fn in seeds.SEED_SETS.items():
+        done = fn(genome, _random.Random(f"{seeds.SEED}:{name}:{time.time_ns()}"))
+        lines.append(f"{name}: " + "; ".join(done or ["nothing needed"]))
+    # and, as a young brain does, it overproduces at random (tools/seed.py)
+    lines.append("founder, at random: " + "; ".join(seeds.random_draws(genome, _random.Random(time.time_ns()))))
+    try:
+        sandbox.STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(sandbox.STATE_DIR / "seeded.txt", "a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+    except OSError:
+        pass
+    print("A default brain: a random founder, every seed set applied.")
+
+
 def memory_from_checkpoint(checkpoint: dict | None):
     """The memory tuple (evaluate_genome's order) saved in a checkpoint, or None."""
     if not checkpoint or not checkpoint.get("memory"):
@@ -1134,6 +1156,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                          "refusing to overwrite the lineage with a fresh genome.")
     else:
         genome = G.random_genome(rng, n_vars=n_vars, receptors=fovea.DEFAULT_RECEPTORS)
+        _default_brain(genome)
 
 
     # NEVER trust a best_fitness carried over from a different world

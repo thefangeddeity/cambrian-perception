@@ -1165,6 +1165,12 @@ PAGE = r"""<!doctype html>
   // drag and pinch steer it (a thin outline shows which). Clicking outside it
   // or Esc releases it -- the "cooperative gestures" of web maps. Clicking a
   // graphic never expands its card (click its title or caption for that).
+  // A phone (a touch screen that small): the 3D views are made for it --
+  // fewer labels (the tapped unit's and the outputs'), nodes scaled to the
+  // canvas, coarser meshes -- and the brain opens in 2D (its own choice, kept
+  // apart from a desktop's).
+  const MOBILE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+  const SMALL = W => Math.min(1, W / 600);  // node sizes scale with a small canvas
   const STEER = { el: null };
   function steerable(c) { c.classList.add('steer'); c.style.touchAction = 'auto'; return () => STEER.el === c; }
   function steerOn(c) { if (STEER.el && STEER.el !== c) steerOff(); STEER.el = c; c.style.touchAction = 'none'; c.classList.add('steering'); }
@@ -1248,7 +1254,7 @@ PAGE = r"""<!doctype html>
     // the two readouts
     ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
     [[MED, 'food value', d.food_value, '120,230,120'], [VER, 'danger', d.danger_value, '255,90,70']].forEach(([pt, name, val, col]) => {
-      const q = proj(...pt), r = 9 * q[3] * Math.sqrt(MB3.zoom);
+      const q = proj(...pt), r = 9 * q[3] * Math.sqrt(MB3.zoom) * (MOBILE ? SMALL(W) : 1);
       ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = `rgb(${col})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = `rgb(${col})`; ctx.textAlign = q[0] > W / 2 ? 'left' : 'right';
       ctx.fillText(`${name}${val != null ? ' ' + Number(val).toFixed(2) : ''}`, q[0] + (q[0] > W / 2 ? r + 5 : -r - 5), q[1]);
@@ -1354,7 +1360,7 @@ PAGE = r"""<!doctype html>
       // the mesh reads its map -- already blended in its mind (neighbouring
       // cells share evidence: the ground is continuous) -- each node back to
       // the frame (depth z at frame row hz + (1 - hz) / z), read bilinearly
-      const NU = 24, NZ = 16, cells = [];
+      const NU = MOBILE ? 16 : 24, NZ = MOBILE ? 10 : 16, cells = [];
       terr.forEach((t, k) => { if (t) cells.push([0, 0, t[0] * HCAM]); });
       const cellE = (r, c) => { r = Math.max(0, Math.min(rows - 1, r)); c = Math.max(0, Math.min(cols - 1, c)); const t = terr[r * cols + c]; return t ? t[0] * HCAM : 0; };
       const groundAt = (x, z) => {
@@ -1682,7 +1688,8 @@ PAGE = r"""<!doctype html>
   // hovering a unit lights its links and dims the rest; idle, it drifts.
   const B3 = { on: false, yaw: 2.69, pitch: -0.08, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
   B3.on = false;  // 2D by default; 3D is the option
-  try { B3.on = localStorage.getItem('brain-view') === '3d'; } catch (e) {}
+  const BRAIN_VIEW_KEY = MOBILE ? 'brain-view-phone' : 'brain-view';
+  try { B3.on = localStorage.getItem(BRAIN_VIEW_KEY) === '3d'; } catch (e) {}
   function brain3DLayout(nIn, nH, nOut) {
     const pts = [], rows = Math.ceil(nIn / 3);  // three columns, each a run of senses in order
     for (let i = 0; i < nIn; i++) {
@@ -1778,13 +1785,13 @@ PAGE = r"""<!doctype html>
     ctx.textBaseline = 'middle';
     P.map((q, idx) => [q, idx]).sort((a, b) => b[0].depth - a[0].depth).forEach(([q, idx]) => {
       const dim = hov != null && !lit.has(idx) && idx !== hov;
-      const r = (q.kind === 'hid' ? 8 : q.kind === 'out' ? 10 : 5) * q.w * Math.sqrt(B3.zoom);
+      const r = (q.kind === 'hid' ? 8 : q.kind === 'out' ? 10 : 5) * q.w * Math.sqrt(B3.zoom) * (MOBILE ? SMALL(W) : 1);
       ctx.globalAlpha = q.fog * (dim ? 0.3 : 1);
       if (q.kind === 'hid') { const a = hid[q.k] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; }
       else if (q.kind === 'out') { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; }
       else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
       ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
-      {  // every unit named; a hovered unit's neighbours stay bright, the rest dim with their wires
+      if (!MOBILE || q.kind === 'out' || idx === hov || (hov != null && lit.has(idx))) {  // every unit named (on a phone: outputs, and the tapped unit's neighbourhood); a hovered unit's neighbours stay bright, the rest dim with their wires
         ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : q.kind === 'hid' ? '9px' : '10px') + ' monospace';
         ctx.fillStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'hid' ? '#a9bcc8' : '#b88a80';
         const text = label(q), tw = ctx.measureText(text).width;
@@ -1818,7 +1825,7 @@ PAGE = r"""<!doctype html>
   }
   brain3DKick();
   function setBrainView(on) {
-    B3.on = on; try { localStorage.setItem('brain-view', on ? '3d' : '2d'); } catch (e) {}
+    B3.on = on; try { localStorage.setItem(BRAIN_VIEW_KEY, on ? '3d' : '2d'); } catch (e) {}
     const m = $('brain-mode'); if (m) m.innerHTML = on ? '<a href="#">2D</a> &middot; <b>3D</b>' : '<b>2D</b> &middot; <a href="#">3D</a>';
 
     if (BZ.d) drawBrain(BZ.d);

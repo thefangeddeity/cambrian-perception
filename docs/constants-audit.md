@@ -190,6 +190,50 @@ yardsticks are found.
 | space (worker bodies) | cores - 1, -1 per run while memory is short, +1 when not | B | memory strain shrinks the worker pool ("space"), CPU strain cuts the quota ("oxygen"); cutting CPU frees no memory (2026-09-28 infrastructure review) |
 | `LOAD_STRAIN_PER_CORE`, `FREE_MEM_STRAIN_MB`, `HUNGER_DECAY` | 1.3, 800, 0.85 | **G** | |
 
+### Ground, terrain, nearness (fishbowl/organism.py, fishbowl/prey.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| horizon pooling | inverse variance + random effects | S | calibration variance of a line's zero; DerSimonian & Laird 1986 |
+| residuals before a class counts | 3 | B | the least a line's scatter can be read from |
+| frame-cut margin | one detector pixel, max(1, w/h) / 640 | S | the detector's own resolution, letterboxed |
+| terrain clip | +-1 camera height | B | display and sense range; pinhole geometry below it |
+| terrain blend | Gaussian, 1 cell | S | the map's own resolution (Grimson's interpolation) |
+| terrain shrink | the kernel's centre weight | S | one measurement counts as in its own cell |
+| nearness terrain clip | +-0.9 | B | keeps / (1 - e) finite |
+
+### Its visual cortex (fishbowl/cortex.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| `IOU_MATCH` | 0.3 | S | SORT's association threshold (Bewley et al. 2016) |
+| `CHI2_95` | 3.84 ... | S | the chi-square table |
+| gait band `GAIT_HZ` | 0.5 - 4 Hz | S | step rates of walking to trotting people and pets |
+| white-noise band | 2 / sqrt(N) | S | the autocorrelation's textbook significance |
+| colour histogram | 8 hue x 4 saturation (16 grey) | **G** | the panel: fine as a start; measure how often individuals split or merge wrongly |
+| `MAX_AGE`, `MIN_HITS` | 1, 3 detections | S | SORT's defaults (was 2 s and 2 s: guesses, replaced after the panel) |
+| `GAIT_WINDOW_S` | 2 / 0.5 Hz = 4 s | S | two periods of the slowest gait, from `GAIT_HZ` |
+| `LIBRARY_MAX` | 64 | B | memory bound; the least seen, longest ago go first |
+| `MET_AGAIN_S` | 60 s | B | the events log's rarity only; no behaviour |
+| per-track history | 50 detections | B | memory bound |
+| height needs a base below the horizon | one detector pixel | S | the detector's resolution (was 0.02, a guess) |
+
+### Seeding (tools/seed.py, run_vision._default_brain; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| seeded input weights | N(0, 0.05) | S | the brain's own mutation step |
+| seeded traits | three of their own mutation steps | S | Dennett's compromise: random, from each trait's own walk |
+| receptor leaves | each constant leaf with even odds, at least one | **G** | the panel: acceptable (a coin, not a tuned count) |
+| founder: archetype heads | 1 - 4 | B | the heads' structural range |
+| founder: scenes | three of its mutation steps from 1 | S | was 1 - 8, a guess |
+| founder: plasticity | its birth distribution | S | |
+
+### Viewer only (tools/viewer.py)
+
+Display constants (mesh density, blend widths, the phone's 820 px and 600 px
+thresholds) shape pictures, not the organism, and are listed in the code.
+
 ## The biggest open item
 
 The fitness function's weights (run_vision.py) are the largest concentration of

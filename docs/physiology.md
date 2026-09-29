@@ -362,6 +362,14 @@ can afford more and bigger ones.
   its gaze, read from its feet on its ground plane and terrain (else the ground
   at its gaze): 1 at the frame's bottom edge, 0 at the horizon. Born unwired;
   seed set "2026-09-29 nearness" wires it.
+- **A default brain** (2026-09-29): a fresh install's founder is a random
+  genome with every seed set applied and, as a young brain overproduces, the
+  seeded values drawn at random from each trait's own distribution
+  (`tools/seed.py random_draws`); its prices prune what doesn't pay. Seed set
+  "2026-09-29 everything" switches on, at random, whatever else can evolve and
+  is still off (replay backup, dream steps, colour, any unwired input, and
+  receptor leaves where a tree reads only constants -- a tree that never reads
+  its eye can never grow a line).
 - **Parallax** (moving cameras): with the camera's own motion undone, what is
   left of each cell's change over what changed at all (+ sensor noise): 0 for
   the scene sliding past, towards 1 for what is nearer or moving on its own.

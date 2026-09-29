@@ -6,6 +6,7 @@ priced, so what doesn't pay gets pruned, and every seed value comes from the
 trait's own birth or mutation distribution a few steps along, never tuned).
 
     python tools/seed.py <state dir>     # with its organism stopped; backs up first
+    python tools/seed.py <state dir> --random-draws   # also redraw the seeded values at random
 
 It edits state/checkpoint.json's genome once (marked by state/seeded.txt); the same
 deterministic draws on every host, so the race's replicates stay comparable.
@@ -119,21 +120,89 @@ def seed_nearness(g, rng: random.Random) -> list[str]:
     return []
 
 
+def seed_everything(g, rng: random.Random) -> list[str]:
+    """Everything else that can evolve and is still off (2026-09-29; the
+    panel, with Dennett's compromise: seeded, but at random): each switched on
+    by a random walk of three of its own mutation steps from off. What a
+    lineage had seeded and evolution since pruned stays pruned (seed sets
+    apply once); all of it is priced, so what doesn't pay is pruned again."""
+    walk = lambda steps: [rng.choice((-1, 1)) for _ in range(steps)]  # noqa: E731
+    from fishbowl import genome as G
+    done = []
+    if g.replay_backup == 0.0:
+        g.replay_backup = float(min(1.0, abs(sum(rng.gauss(0.0, G.TRAIT_SIGMA) for _ in range(3)))))
+        done.append(f"replay backup {g.replay_backup:.2f}")
+    if g.dream_steps == 0:
+        g.dream_steps = max(1, abs(sum(walk(3))))  # a walk of three +-1 steps, reflected at off
+        done.append(f"dream steps {g.dream_steps}")
+    if g.colour_channels == 0:
+        g.colour_channels = rng.choice((1, 2))
+        done.append(f"colour channels {g.colour_channels}")
+    # its brain: any input still unwired, wired at the mutation step
+    w = g.brain.weights_ih
+    cols = [c for c in range(w.shape[1]) if not w[:, c].any()]
+    for c in cols:
+        w[:, c] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+    if cols:
+        done.append(f"{len(cols)} more inputs wired")
+    # its perception trees: constant leaves become receptors at random (each
+    # with even odds, at least one per tree) -- a tree reading its eye can
+    # grow pools, and pools lines; one that reads only constants never can
+    n_side = g.receptors
+    for name, tree in g.trees.items():
+        leaves, stack = [], [tree]
+        while stack:
+            node = stack.pop()
+            if node.kind == "const":
+                leaves.append(node)
+            stack.extend(node.children)
+        if not leaves:
+            continue
+        pick = [n for n in leaves if rng.random() < 0.5] or [rng.choice(leaves)]
+        for node in pick:
+            node.kind, node.index, node.value = "cell", rng.randrange(1 + g.colour_channels), 0.0
+            node.kx, node.ky = rng.randrange(n_side) - n_side // 2, rng.randrange(n_side) - n_side // 2
+        done.append(f"tree {name}: {len(pick)} receptor leaves")
+    return done
+
+
+def random_draws(g, rng: random.Random) -> list[str]:
+    """What the seed sets set to one value (so the fleet's replicate lineages
+    stay comparable), drawn at random from each trait's own distribution
+    instead -- as a young brain overproduces (Huttenlocher; Changeux) and its
+    prices prune: apical gain a three-step walk, plasticity its birth
+    distribution, 1-4 archetype heads of random classes (the heads' structural
+    range), scenes a three-step walk from 1. A fresh install's founder gets these
+    (run_vision.py); `--random-draws` gives them to a living lineage."""
+    from fishbowl import genome as G, prey as prey_lib
+    from fishbowl.mushroom import MAX_HEADS
+    g.brain.apical = abs(sum(rng.gauss(0.0, G.TRAIT_SIGMA) for _ in range(3)))
+    g.plasticity = float(G.LEARNING_MIN * (G.LEARNING_MAX / G.LEARNING_MIN) ** rng.random())
+    classes = sorted(prey_lib.PREY_CLASSES) + [prey_lib.PLANT_CLASS]
+    g.archetypes = rng.randint(1, MAX_HEADS)
+    g.archetype_classes = [rng.choice(classes) for _ in range(MAX_HEADS)]
+    g.scenes = 1 + sum(rng.random() < 0.5 for _ in range(3))  # three of its +1 / -1 mutation steps from 1, reflected at 1
+    return [f"apical {g.brain.apical:.2f}", f"plasticity {g.plasticity:.3f}",
+            f"{g.archetypes} archetype heads {g.archetype_classes[:g.archetypes]}", f"{g.scenes} scenes"]
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
-             "2026-09-29 nearness": seed_nearness}
+             "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything}
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    draws = "--random-draws" in sys.argv
+    if len(args) != 1:
         print(__doc__)
         return 2
-    state = Path(sys.argv[1])
+    state = Path(args[0])
     path = state / "checkpoint.json"
     mark = state / "seeded.txt"  # its own file: a checkpoint save would drop a mark inside it
     applied = {line.split(":")[0] for line in mark.read_text(encoding="utf-8").splitlines() if line.strip()} if mark.exists() else set()
     todo = [name for name in SEED_SETS if name not in applied]
-    if not todo:
+    if not todo and not draws:
         print("every seed set already applied: nothing to do -- evolution prunes from here")
         return 0
     c = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -148,6 +217,8 @@ def main() -> int:
     for name in todo:
         done = SEED_SETS[name](g, random.Random(f"{SEED}:{name}"))
         lines.append(f"{name}: " + "; ".join(done or ["nothing needed"]))
+    if draws:
+        lines.append(f"random draws {time.strftime('%Y-%m-%d %H:%M')}: " + "; ".join(random_draws(g, random.Random(time.time_ns()))))
     c["genome"] = g.to_dict()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(c), encoding="utf-8")
