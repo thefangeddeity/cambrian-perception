@@ -57,7 +57,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
-            "mutate_setpoints")
+            "mutate_setpoints", "mutate_bore")
 STABILIZER_SIGMA = 0.1
 MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
@@ -76,7 +76,7 @@ MAX_REPLAYS = 16                 # replays per look: a bound only -- the price a
 MIN_VIGILANCE, MAX_VIGILANCE = 0.25, 4.0   # bounds only: a quarter to four times as easily woken
 # Prey sense (run_vision.py): 0 = eyes only, 1 = scent (prey somewhere in
 # view), 2 = + a coarse direction to it. mutate_prey_sense steps it by one.
-MAX_PREY_SENSE = 2
+MAX_PREY_SENSE = 3  # 3 = + the velocity of the host it follows (2026-09-28 audit: pursuit)
 # Structural additions that change nothing at birth AND cost nothing until
 # used (run_vision.py keeps them on a tie, so they can drift until they are
 # useful). Not grow_kc or grow_unit (2026-09-28, a panel): Kenyon cells and
@@ -224,6 +224,7 @@ class Genome:
         recall: int = 0,
         scenes: int = 1,
         sleep_set: int = 0,
+        bore: float = 1.0,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
     ):
@@ -258,6 +259,8 @@ class Genome:
         # Sleep programming (born 0: off): how many of its waking looks it keeps
         # to test its own tree edits against while it sleeps.
         self.sleep_set = int(np.clip(sleep_set, 0, MAX_SLEEP_SET))
+        # Its proboscis's bore (state.py: flow ~ bore^4, upkeep ~ bore^2); born 1.
+        self.bore = float(np.clip(bore, PUMP_GUARD[0], PUMP_GUARD[1]))
         # Its fuel set points (state.py), inherited, born at the rulebook's
         # values: blood sugar below `mobilize` counts as fasted (glucagon),
         # above `store` a surplus goes to fat (insulin). 0 < mobilize < store < 1.
@@ -344,6 +347,7 @@ class Genome:
             self.recall,
             self.scenes,
             self.sleep_set,
+            self.bore,
             self.mobilize,
             self.store,
         )
@@ -550,6 +554,9 @@ class Genome:
             old = self.plant_sense
             self.plant_sense = int(np.clip(old + rng.choice((-1, 1)), 0, 2))
             return "prey", (choice if self.plant_sense != old else "noop_inapplicable")
+        if choice == "mutate_bore":  # log-normal steps, like the pump's
+            self.bore = float(np.clip(self.bore * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), PUMP_GUARD[0], PUMP_GUARD[1]))
+            return "pump", choice
         if choice == "mutate_setpoints":
             # One operator steps both lines (Wagner: many small traits dilute the
             # search); a step that would cross them (or leave 0..1) doesn't apply.
@@ -761,6 +768,7 @@ class Genome:
             "recall": self.recall,
             "scenes": self.scenes,
             "sleep_set": self.sleep_set,
+            "bore": self.bore,
             "mobilize": self.mobilize,
             "store": self.store,
         }
@@ -831,6 +839,7 @@ class Genome:
             recall=int(data.get("recall", 0)),
             scenes=int(data.get("scenes", 1)),
             sleep_set=int(data.get("sleep_set", 0)),
+            bore=float(data.get("bore", 1.0)),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),
         )

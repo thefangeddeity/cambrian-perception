@@ -60,6 +60,26 @@ def load_quota_pct(default: float) -> float:
         return float(default)
 
 
+EPISODES_PATH = STATE_DIR / "episodes.npz"
+
+
+def save_episodes(arrays: dict) -> None:
+    """The live organism's episodes and sleep test set (livelife.py): numbers
+    only -- Kenyon-cell codes, rewards, field cells, and its sample of looks
+    as 8-bit receptor levels (its own coarse retina, not camera frames). Temp
+    file + atomic replace, like everything else written here."""
+    import numpy as np
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    temp = EPISODES_PATH.with_name("episodes.tmp.npz")
+    np.savez_compressed(temp, **arrays)
+    for attempt in range(20):
+        try:
+            temp.replace(EPISODES_PATH)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+
+
 def save_live_status(data: dict) -> None:
     """
     A small, frequently-updated snapshot for anything polling this

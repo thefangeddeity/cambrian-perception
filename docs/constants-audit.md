@@ -99,6 +99,12 @@ yardsticks are found.
 | scene match | r > 1.96 / sqrt(N_eff), N_eff = N (1 - ra rb) / (1 + ra rb) | S | the 5% test with Bretherton et al. (1999)'s effective sample size for autocorrelated fields |
 | `MAX_SCENES` | 64 | B | a safety bound; matching's price limits the library |
 | `MAX_SLEEP_SET` | 1024 | B | a safety bound on its sleep test set; the edits tested on it are what it pays |
+| `ENGORGE_S` | 90 s | S | a mosquito engorges in ~1.5 min (Clements 1992; Chadee & Beier 1995: 1-2.5 min): the tube's flow at bore 1 |
+| bore upkeep | bore^2 x `PUMP_UPKEEP_SHARE` | P | tissue to keep scales with the tube's cross-section; reuses the pump's upkeep share |
+| `GONOTROPHIC_S` | 3 days | S | blood meal to eggs (Clements 1992: 2-4 days) |
+| protein in the drive | 0.3 | P | weighted like the fat stores (reused) |
+| episode capacity | one per Kenyon cell | B | a sparse associative memory holds at least as many patterns as cells |
+| `MIN_METABOLISM` | 1e-3 (was 0.1) | B | a numerical guard; a slow brain misses looks instead |
 | sleep set steps | 0 <-> 16, then doubling / halving | B | a mutation's step size (a set of 16 looks is the smallest worth testing on); the size itself evolves |
 | `SLEEP_ONSET_*`, `SLEEP_END_*`, `NIGHT_LIGHT`, `DAY_LIGHT` | 0.15/0.45, 0.01/0.04, 0.15/0.5 | **G** | Borbely's two thresholds; published threshold values are for humans in normalised units, not yet mapped |
 

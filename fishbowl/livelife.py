@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import fovea, prey as prey_lib
+from . import fovea, prey as prey_lib, sandbox
 from .field import FieldSignals
 from .metrics import HourlyMetrics
 from .mushroom import PROTO_SIDE
@@ -38,6 +38,7 @@ from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENC
                        Organism, kc_macs)
 from .state import EMPTY_G, LEGACY_UNIT
 
+EPISODES_EVERY_S = 600.0  # its episodes and sleep test set go to disk this often, and when it stops
 KEEP = 150            # frames shown to the viewer (~20 s of kept frames): enough for its replay delay
 WRITE_EVERY_S = 1.0   # how often the viewer's file is rewritten (it is in RAM where the host has /dev/shm)
 
@@ -181,6 +182,8 @@ class LiveLife:
         self.lock = threading.Lock()
         self.quota_pct, self.sec_per_mac = quota_pct, sec_per_mac
         self.org = self._organism(genome, body, memory, fps)
+        self._episodes_saved = time.time()
+        self._load_episodes()
         self.field = FieldSignals()
         self.last = None          # the feed's index of the last frame it lived
         self.last_time = None     # when that frame arrived
@@ -229,6 +232,54 @@ class LiveLife:
     def stop(self) -> None:
         self._stop = True
         self._thread.join(timeout=10.0)
+        self._save_episodes()
+
+    # ---- its episodes and sleep test set survive a restart (2026-09-28 audit) --
+    def _load_episodes(self) -> None:
+        org = self.org
+        try:
+            with np.load(sandbox.EPISODES_PATH) as z:
+                n_kc = org.mb.n_kc
+                lens, flat = z["lens"], z["codes"]
+                codes = np.split(flat, np.cumsum(lens)[:-1]) if len(lens) else []
+                cells = [None if r < 0 else (int(r), int(c)) for r, c in z["cells"]]
+                eps = [(code[code < n_kc].astype(int), float(rw), cell) for code, rw, cell in zip(codes, z["rewards"], cells)]
+                cap = max(1, org.live_kc or n_kc)
+                keep = sorted(range(len(eps)), key=lambda i: -float(z["priority"][i]))[:cap]
+                keep.sort()
+                org.episodes = [eps[i] for i in keep]
+                org.priority = [float(z["priority"][i]) for i in keep]
+                org.episode_meta = [None] * len(org.episodes)  # the frames they formed on are gone
+                if org.sleep_set and "test_planes" in z and len(z["test_planes"]):
+                    planes = z["test_planes"].astype(np.float32) / 127.0
+                    org.test_set = [(planes[i:i + 1], z["test_plain"][i:i + 1].astype(float), float(z["test_labels"][i]))
+                                    for i in range(min(len(planes), org.sleep_set))]
+                    org.test_seen = int(z["test_seen"]) if "test_seen" in z else len(org.test_set)
+            print(f"Its memories: {len(org.episodes)} episodes and {len(org.test_set)} test looks back from disk.")
+        except FileNotFoundError:
+            pass
+        except (OSError, KeyError, ValueError) as e:
+            print(f"Its saved episodes couldn't be read ({e}); starting without them.")
+
+    def _save_episodes(self) -> None:
+        with self.lock:
+            org = self.org
+            eps, pri = list(org.episodes), list(org.priority)
+            tests = list(org.test_set)
+            seen = org.test_seen
+        if not eps and not tests:
+            return
+        lens = np.array([len(e[0]) for e in eps], dtype=np.int32)
+        codes = np.concatenate([e[0] for e in eps]).astype(np.uint16) if eps else np.zeros(0, np.uint16)
+        cells = np.array([(-1, -1) if e[2] is None else e[2] for e in eps], dtype=np.int16).reshape(-1, 2)
+        data = {"lens": lens, "codes": codes, "rewards": np.array([e[1] for e in eps], dtype=np.float32),
+                "cells": cells, "priority": np.array(pri[:len(eps)], dtype=np.float32), "test_seen": np.int64(seen)}
+        shapes = {t[0].shape for t in tests}
+        if tests and len(shapes) == 1 and len({t[1].shape for t in tests}) == 1:
+            data["test_planes"] = np.clip(np.round(np.concatenate([t[0] for t in tests]) * 127), -127, 127).astype(np.int8)
+            data["test_plain"] = np.concatenate([t[1] for t in tests]).astype(np.float32)
+            data["test_labels"] = np.array([t[2] for t in tests], dtype=np.float32)
+        sandbox.save_episodes(data)
 
     # ---- its life, frame by frame ----------------------------------------------
     def _run(self) -> None:
@@ -239,6 +290,9 @@ class LiveLife:
                     time.sleep(0.02)
                     continue
                 self._live(items)
+                if time.time() - self._episodes_saved >= EPISODES_EVERY_S:
+                    self._episodes_saved = time.time()
+                    self._save_episodes()
                 if time.time() - self._written >= WRITE_EVERY_S:
                     self._write()
         except Exception as e:  # its death must not take evolution with it; the run's end reports it

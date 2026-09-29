@@ -285,3 +285,25 @@ panel, Sterling & Laughlin): a step per node per look, plus each receptor a
 that averages a square patch of receptors on one plane: a receptive field in
 a single block, so evolution (and sleep programming) can find one in a
 single step instead of chaining a dozen adds (Wagner, Land).
+
+## After the 2026-09-28 audit
+
+- **Its proboscis is a tube.** However strong its pump, flow through a tube
+  is bounded by its bore (Poiseuille: flow ~ bore^4). At the inherited bore 1
+  a full gut takes about 90 s, as a mosquito's engorgement does (Clements
+  1992; Chadee & Beier 1995). A wider bore is more tissue to keep (upkeep ~
+  bore^2, at the pump's upkeep share). Nectar comes through the same tube.
+- **Protein: what blood has that nectar hasn't.** A protein store (one
+  gut-full of blood = a clutch's worth) fills only from blood and is spent
+  over a gonotrophic cycle, about 3 days (Clements 1992). Keeping it up is
+  part of its drive, weighted like its fat stores; it feels it. Sugar keeps
+  it alive; blood is what it's for.
+- **No metabolism floor.** A slow animal's brain runs slower (processing
+  speed scales with metabolic rate): its thinking takes longer against each
+  look's deadline and it misses looks. Only a numerical guard remains.
+- **Memories survive a restart.** Its episodes (about one per Kenyon cell;
+  when full, the least surprising gives way: Mattar & Daw 2018) and its
+  sleep test set are saved every 10 minutes and when it stops.
+- **It teaches itself awake too**, in the quiet moments it replays in.
+- **Pursuit:** prey sense level 3 adds the velocity of the host it follows,
+  matched between detections by overlapping boxes.

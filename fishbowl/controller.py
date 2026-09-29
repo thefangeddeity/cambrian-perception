@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 43  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y
+BASE_INPUTS = 46  # 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
@@ -83,6 +83,8 @@ PLACE_INPUTS = (29, 30, 31)
 INTRUDER_INPUT = 32
 DANGER_INPUT = 33  # its aversive compartment's learned danger of what it sees (fishbowl/mushroom.py)
 PLANT_INPUTS = (34, 35, 36)  # its plant sense (genome.plant_sense): scent, then a coarse direction
+PROTEIN_INPUT = 43  # its protein store (for eggs; only blood fills it)
+VELOCITY_INPUTS = (44, 45)  # the followed host's velocity (prey sense level 3)
 RECALL_INPUTS = (40, 41, 42)  # what the memory its view recalls held, and where it happened (pattern completion)
 MISMATCH_INPUTS = (37, 38, 39)  # how much of its field differs from its slow model of the room, and where (orienting)
 INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
@@ -106,7 +108,7 @@ INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y"
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
                "prey scent", "prey dir x", "prey dir y", "food value", "place dx", "place dy", "place value",
                "intruder", "danger", "plant scent", "plant dir x", "plant dir y", "mismatch", "mismatch dx", "mismatch dy",
-               "recalled value", "recalled dx", "recalled dy")
+               "recalled value", "recalled dx", "recalled dy", "protein", "host vx", "host vy")
 OUTPUT_NAMES = ("pan", "tilt", "zoom", "alarm", "tempo", "sleep")
 
 
@@ -209,6 +211,8 @@ class MosquitoBrain:
         recalled: float = 0.0,
         recalled_dx: float = 0.0,
         recalled_dy: float = 0.0,
+        host_vx: float = 0.0,
+        host_vy: float = 0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -228,6 +232,7 @@ class MosquitoBrain:
             plant_scent, plant_dx, plant_dy,  # its plant sense (nectar)
             mismatch, mismatch_dx, mismatch_dy,  # its field vs its slow model of the room, and where (orienting)
             recalled, recalled_dx, recalled_dy,  # the episode its view recalls: what it held, where it was
+            state.protein, host_vx, host_vy,  # protein for eggs; the followed host's velocity (prey sense 3)
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):
@@ -282,7 +287,7 @@ class MosquitoBrain:
 
     def prey_synapses(self, level: int) -> float:
         """Weight on the prey-sense inputs it has (level 1: scent; 2: + direction)."""
-        live = list(PREY_INPUTS[:1] if level == 1 else PREY_INPUTS if level >= 2 else ())
+        live = list(PREY_INPUTS[:1] if level == 1 else PREY_INPUTS if level >= 2 else ()) + (list(VELOCITY_INPUTS) if level >= 3 else [])
         return float(np.abs(self.weights_ih[:, live]).sum()) if live else 0.0
 
     # ---- growable hidden layer ----------------------------------------------------

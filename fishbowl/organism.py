@@ -394,6 +394,7 @@ class Organism:
         self.scene = int(lib["current"]) if lib else 0
         self.scene_switches = 0
         self._index, self._indexed, self._index_of = {}, 0, None
+        self._stale = 0        # episode slots replaced since the recall index was built
         self.recalled = None   # the episode recalled this look (index), or None
         self.recalls = 0       # looks that recalled something, this life
         self.feed_index = None      # the feed's index of the frame being lived (set by a live actor)
@@ -412,6 +413,7 @@ class Organism:
         # Host defense: the host at its mouth last look (a swat is that host
         # coming at it), and the frames of the looks it was swatted on.
         self.prev_mouth_box = None
+        self.followed = None   # the host it follows: (its box, when the box last changed, velocity) -- prey sense 3
         self.swats = 0
         self.swat_frames: list = []
         self.food_value = 0.0
@@ -451,6 +453,7 @@ class Organism:
         self.seq = 0
         self.vigilance = float(getattr(g, "vigilance", 1.0))
         self.body.pump = float(getattr(g, "pump", self.body.pump))
+        self.body.bore = float(getattr(g, "bore", 1.0))
         # Place map and the people-expectation maps (day, night): memory,
         # carried like the rest (items 4-6 of memory); sized on the first frame.
         extra = list(memory[3:6]) if memory is not None and len(memory) > 5 else [None, None, None]
@@ -593,6 +596,7 @@ class Organism:
         mismatch_dy = float(sig["mismatch_cy"]) - state.cy
         self.mismatch = mismatch
         scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
+        host_vx, host_vy = self._host_velocity(boxes) if self.prey_level >= 3 else (0.0, 0.0)
         plant_scent, plant_dx, plant_dy = prey_sense(plants or [], state.cx, state.cy, self.plant_level, None)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
         kc_active = self.mb.active(v, n, self.live_kc) if (not was_asleep or dreaming) else np.zeros(0, dtype=int)
@@ -617,14 +621,17 @@ class Organism:
                 self.recalls += 1
         # Replay (awake in a quiet moment, or asleep once settled): it takes
         # time from this look's deadline and costs thinking energy.
-        replay_macs = self._replay(was_asleep and body.sleep_clock > SLEEP_SETTLE_S,
-                                   not was_asleep and not boxes and not body.big_change(loom, periph_motion, self.vigilance))
+        quiet = not was_asleep and not boxes and not body.big_change(loom, periph_motion, self.vigilance)
+        replay_macs = self._replay(was_asleep and body.sleep_clock > SLEEP_SETTLE_S, quiet)
+        if quiet:  # a quiet waking moment: it can try an edit to its tree as it does asleep (awake consolidation)
+            replay_macs += self._sleep_program()
         if was_asleep and body.sleep_clock > SLEEP_SETTLE_S:
             replay_macs += self._dream()
             replay_macs += self._sleep_program()
         replay_macs += recall_macs + scene_macs
         if (self.sec_per_mac and self.last_out is not None
-                and self.sec_per_mac * (brain.macs() + replay_macs) > self.last_interval / max(1.0, self.fps)):
+                and self.sec_per_mac / max(1e-3, body.metabolism) * (brain.macs() + replay_macs)
+                > self.last_interval / max(1.0, self.fps)):  # its brain runs at the pace its metabolism powers
             out = self.last_out  # still thinking: this look is missed
             self.missed += 1
         else:
@@ -633,7 +640,7 @@ class Organism:
                 periph_dx, periph_dy, state.vx, state.vy, self.prev_response, field_light, scent, prey_dx, prey_dy,
                 self.food_value, place_dx, place_dy, place_value, self.intruder, self.danger_value,
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
-                recalled, recalled_dx, recalled_dy,
+                recalled, recalled_dx, recalled_dy, host_vx, host_vy,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -733,9 +740,8 @@ class Organism:
             if len(kc_active) and self.learning_rate > 0.0:
                 err = self.mb.learn(kc_active, reward, self.learning_rate)
                 self.value_errors.append(abs(err))
-                self.episodes.append((kc_active.copy(), reward, cell))
-                self.priority.append(abs(err))
-                self.episode_meta.append((self.feed_index, state.cx, state.cy, state.extent))
+                self._remember((kc_active.copy(), reward, cell), abs(err),
+                               (self.feed_index, state.cx, state.cy, state.extent))
             proto_macs = 0
             if self.imagery and len(kc_active) and self.learning_rate > 0.0:
                 # its imagery: what the eye sees now, on the prototypes' grid;
@@ -905,13 +911,60 @@ class Organism:
         self._stash()
         return {"current": self.scene, "library": [dict(s) for s in self.scenes]}
 
+    def _host_velocity(self, boxes: list) -> tuple[float, float]:
+        """The velocity of the host it follows (frame fractions per second,
+        clipped to +-1): its preferred host now, matched to the one it followed
+        by overlapping boxes; measured when the detector's box moves, held in
+        between (detections come every fraction of a second to seconds)."""
+        if not boxes:
+            self.followed = None
+            return 0.0, 0.0
+        w = (lambda c: self.host_pref.get(int(c), 1.0)) if self.host_pref else (lambda c: 1.0)
+        best = max(boxes, key=lambda b: w(b[0]) * b[1] * (b[4] - b[2]) * (b[5] - b[3]))
+        box = tuple(best[2:6])
+        if self.followed is not None:
+            old, t, v = self.followed
+            overlap = min(box[2], old[2]) > max(box[0], old[0]) and min(box[3], old[3]) > max(box[1], old[1])
+            if overlap and box == old:
+                return v
+            if overlap and self.lived_s > t:
+                dt = self.lived_s - t
+                v = (float(np.clip(((box[0] + box[2]) - (old[0] + old[2])) / 2 / dt, -1, 1)),
+                     float(np.clip(((box[1] + box[3]) - (old[1] + old[3])) / 2 / dt, -1, 1)))
+                self.followed = (box, self.lived_s, v)
+                return v
+        self.followed = (box, self.lived_s, (0.0, 0.0))
+        return 0.0, 0.0
+
+    def _remember(self, episode, priority: float, meta) -> None:
+        """A new episode. Its memory holds about one episode per Kenyon cell (a
+        sparse associative memory holds at least as many patterns as it has
+        cells); when full, the least surprising one gives way (prioritized
+        consolidation: Mattar & Daw 2018) -- the new one takes its slot.
+        2026-09-28 audit: the list used to grow for the whole life."""
+        cap = max(1, self.live_kc or self.mb.n_kc)
+        while len(self.episode_meta) < len(self.episodes):
+            self.episode_meta.append(None)
+        if len(self.episodes) < cap:
+            self.episodes.append(episode)
+            self.priority.append(priority)
+            self.episode_meta.append(meta)
+            return
+        j = int(np.argmin(self.priority))
+        self.episodes[j], self.priority[j], self.episode_meta[j] = episode, priority, meta
+        self._stale += 1
+        if self._index_of is self.episodes:  # the recall index: the slot's new cells (its old ones go stale)
+            for k in episode[0].tolist():
+                self._index.setdefault(k, []).append(j)
+
     def _recall(self, code) -> tuple[int | None, int]:
         """Pattern completion: the episode whose code overlaps this one most,
         if more than two random codes of their sizes would (chance), the most
         recent of equals; and the multiply-adds it took (a stored cell
         compared, or indexed, is one)."""
         eps = self.episodes
-        if self._index_of is not eps or self._indexed > len(eps):
+        if self._index_of is not eps or self._indexed > len(eps) or self._stale > len(eps) // 8:
+            self._stale = 0
             self._index, self._indexed, self._index_of = {}, 0, eps  # a new life's (or trimmed) episodes
         macs = 0
         for e in range(self._indexed, len(eps)):
@@ -1114,7 +1167,7 @@ class Organism:
             self.nectar[k] += refill * (1.0 - self.nectar[k])
         if p.get("sip"):
             crop = self.nectar.get(p["sip"], 1.0)
-            took = body.feed_nectar(body.pump * crop * seconds / LEGACY_UNIT)
+            took = body.feed_nectar(body.flow * crop * seconds / LEGACY_UNIT)
             self.nectar[p["sip"]] = max(0.0, crop - took * LEGACY_UNIT / (NECTAR_CROP * GUT_CAP))
             if took > 0:
                 self.sips += 1

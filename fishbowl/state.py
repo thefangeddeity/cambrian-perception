@@ -92,7 +92,12 @@ WAKE_FLOOR = 0.6
 TEMPO_SHARE = 0.4
 # Metabolic strategy (genome.metabolism: the resting and sleeping burn's
 # multiplier, 0.1 = ectotherm .. 1 = endotherm):
-MIN_METABOLISM = 0.1   # an ectotherm rests at ~1/10 of an endotherm's rate (Bennett & Ruben 1979: 5-10x; the upper end)
+# No floor on metabolic strategy (2026-09-28 audit: the old 0.1 floor was
+# binding on two lineages -- design, not physics): a cold, slow animal's brain
+# runs slower (neural processing speed scales with metabolic rate; Seebacher),
+# so it misses looks (organism.py), and evolution finds its own floor. Only a
+# numerical guard remains.
+MIN_METABOLISM = 1e-3
 # No upper limit but a numerical guard: a body can run hotter than a newborn
 # (hummingbirds, shrews), paying a higher resting burn for a higher aerobic
 # ceiling -- Bennett & Ruben's aerobic-capacity trade, which is what this
@@ -127,6 +132,21 @@ PREY_FOOD_PER_LOOK = 1.2e-3      # MEAL (legacy units) x prey under the gaze cen
 # until the gut is full -- so gazing faster doesn't eat faster, and staying
 # on a host pays. A faster pump is more muscle to keep (Sterling & Laughlin):
 PUMP_REF = PREY_FOOD_PER_LOOK * LEGACY_UNIT * 15.0  # B/s: the old per-look meal at a look every frame (15/s) -- a newborn's
+# Its proboscis is a narrow tube: however strong the pump, flow through a tube
+# is bounded by its bore (Poiseuille: flow ~ bore^4). At the inherited bore 1
+# a full gut takes ENGORGE_S -- a mosquito engorges in about 1.5 minutes
+# (Clements 1992; Chadee & Beier 1995: 1-2.5 min). The bore is inherited
+# (genome.bore, born 1); a wider tube is more tissue to keep (upkeep ~ its
+# cross-section, bore^2, at the pump's upkeep share). 2026-09-28 audit.
+# Protein (2026-09-28 audit; Cahill, Vosshall, Dawkins): blood carries what
+# nectar can't -- the protein that makes eggs. A protein store (0..1, one
+# gut-full of blood = a full clutch's worth) fills only from blood and is
+# spent over a gonotrophic cycle (blood meal to eggs: ~3 days, Clements 1992;
+# 2-4 days). Keeping it up is part of its drive, weighted like its fat stores;
+# it feels it (a brain input). Born full (teneral reserves).
+GONOTROPHIC_S = 3 * 24 * 3600.0
+ENGORGE_S = 90.0
+TUBE_FLOW = GUT_CAP / ENGORGE_S  # B/s through the reference bore
 PUMP_UPKEEP_SHARE = 0.05  # assumption: a pump at PUMP_REF costs 5% of the resting burn (the brain's measured share, Mink 1981)
 # Sleep pressure (Process S): the two-process model's fitted time constants
 # (Daan, Beersma & Borbely 1984) -- rising with time awake, x brain load here.
@@ -181,6 +201,8 @@ class MosquitoState:
     debt: float = 0.0          # anaerobic debt (0..1 = exhausted), felt as fatigue, repaid over hours
     metabolism: float = 1.0    # its inherited metabolic strategy (genome.metabolism; set by the organism, not saved)
     pump: float = PUMP_REF     # its feeding pump's rate, B/s (genome.pump; set by the organism, not saved)
+    bore: float = 1.0          # its proboscis's bore, relative (genome.bore; set by the organism, not saved)
+    protein: float = 1.0       # protein from blood, for eggs (0..1 of a clutch); born full, spent over a gonotrophic cycle
     mobilize: float = MOBILIZE_BELOW  # its fasted line (glucagon), inherited (genome.mobilize; set by the organism, not saved)
     store: float = STORE_ABOVE        # its storage line (insulin -> fat), inherited (genome.store; set by the organism, not saved)
     bite_blood: float = 0.0    # blood (legacy units) taken in the bite going on now: what a swat takes back
@@ -205,7 +227,7 @@ class MosquitoState:
         stores term, so building stores shows up within a window; wasting
         (tissue burned for a brain with no sugar) is felt like fatigue."""
         fed = min(1.0, self.energy + 0.5 * self.gut)
-        return ((1.0 - fed) ** 2 + 0.3 * (1.0 - self.stores) ** 2
+        return ((1.0 - fed) ** 2 + 0.3 * (1.0 - self.stores) ** 2 + 0.3 * (1.0 - self.protein) ** 2
                 + self.threat ** 2 + self.tiredness ** 2 + 0.3 * self.sleep_pressure ** 2 + self.wasting ** 2)
 
     @property
@@ -300,6 +322,7 @@ class MosquitoState:
         """
         seconds = dt_seconds if dt_seconds is not None else dt / 15.0
         asleep = self.asleep >= 0.5
+        self.protein = max(0.0, self.protein - seconds / GONOTROPHIC_S)  # eggs made from it
         self.sleep_clock += seconds
 
         def leak(old: float, decay: float, target: float) -> float:
@@ -352,7 +375,8 @@ class MosquitoState:
         self.lactate += excess * (ANAEROBIC_FUEL_RATIO - 1.0)
         self.debt = _clamp(self.debt + excess / (ceiling * BURST_S))
         # its feeding pump's upkeep (muscle: scales with its metabolic strategy)
-        aerobic_need = rest + aerobic_act + refill + PUMP_UPKEEP_SHARE * WAKE_FLOOR * m * (self.pump / PUMP_REF) * seconds
+        aerobic_need = (rest + aerobic_act + refill
+                        + PUMP_UPKEEP_SHARE * WAKE_FLOOR * m * (self.pump / PUMP_REF + self.bore ** 2) * seconds)
         brain = aperture_cost * LEGACY_UNIT
         if self.degraded:  # soft floor: an empty body runs on less
             f = 0.5 + 0.5 * self.energy / EMPTY_G
@@ -440,13 +464,19 @@ class MosquitoState:
         # Curiosity rises with real time, falls with what it took in.
         self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.25 * _clamp(tracking_quality))
 
+    @property
+    def flow(self) -> float:
+        """What reaches its gut, B/s: its pump, but never more than its tube carries."""
+        return min(self.pump, TUBE_FLOW * self.bore ** 4)
+
     def feed_host(self, confidence: float, seconds: float) -> None:
         """A bite as a flow: a host under its mouth for `seconds`, blood at
         its pump's rate x the catch's confidence (awake, past grogginess)."""
         if self.can_eat:
             before = self.gut
-            self._swallow(self.pump * _clamp(confidence) * max(0.0, seconds) * self.efficiency / LEGACY_UNIT)
+            self._swallow(self.flow * _clamp(confidence) * max(0.0, seconds) * self.efficiency / LEGACY_UNIT)
             self.bite_blood += (self.gut - before) * GUT_CAP / LEGACY_UNIT
+            self.protein = _clamp(self.protein + (self.gut - before))  # a gut-full of blood is a clutch's protein
 
     def swat(self) -> float:
         """Host defense (a 2026-09-28 panel): the host it is biting came at
@@ -495,7 +525,7 @@ class MosquitoState:
     # ---- persistence --------------------------------------------------
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
               "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt",
-              "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch")
+              "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch", "protein")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
