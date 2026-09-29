@@ -652,6 +652,7 @@ PAGE = r"""<!doctype html>
   .video16x9 iframe, .video16x9 img, .video16x9 canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
   .video16x9 canvas { pointer-events: none; }
   .quad > .panel > canvas, .quad > .panel > .video16x9 { margin-bottom: 8px; }
+  .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   .quad { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
   .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
@@ -757,17 +758,20 @@ PAGE = r"""<!doctype html>
     <canvas id="mb"></canvas>
     <div class="cap" id="mb-cap"></div>
   </div>
-  <div class="panel" id="dream-panel">
-    <h2>sleep, replay &amp; dreams</h2>
-    <div class="cap" id="sleep-line">--</div>
-    <div class="sleep-views">
-      <div><canvas id="replay-eye" width="192" height="192" class="px"></canvas><div class="cap">recalled</div></div>
-      <div><canvas id="replay-recon" width="192" height="192" class="px"></canvas><div class="cap" id="recon-cap">mind's eye</div></div>
-      <div><canvas id="replay-seen" width="192" height="192"></canvas><div class="cap" id="seen-cap">what it saw</div></div>
+  <div class="stack" id="left-stack">
+    <div class="panel" id="dream-panel">
+      <h2>sleep, replay &amp; dreams</h2>
+      <div class="cap" id="sleep-line">--</div>
+      <div class="sleep-views">
+        <div><canvas id="replay-eye" width="192" height="192" class="px"></canvas><div class="cap">recalled</div></div>
+        <div><canvas id="replay-recon" width="192" height="192" class="px"></canvas><div class="cap" id="recon-cap">mind's eye</div></div>
+        <div><canvas id="replay-seen" width="192" height="192"></canvas><div class="cap" id="seen-cap">what it saw</div></div>
+      </div>
+      <div class="cap" id="replay-eye-cap" style="margin-top:4px"></div>
+      <canvas id="dream-map" class="px" style="margin-top:10px; display:block; margin-left:auto; margin-right:auto"></canvas>
+      <div class="cap">Paths on its place map: blue NREM, violet REM, grey awake replay; gold imagined (dreamt through its maps).</div>
     </div>
-    <div class="cap" id="replay-eye-cap" style="margin-top:4px"></div>
-    <canvas id="dream-map" class="px" style="margin-top:10px; display:block; margin-left:auto; margin-right:auto"></canvas>
-    <div class="cap">Paths on its place map: blue NREM, violet REM, grey awake replay; gold imagined (dreamt through its maps).</div>
+    <div class="stack" id="charts-side"></div>
   </div>
   <div class="panel" id="body-panel">
     <h2>body</h2>
@@ -1846,8 +1850,24 @@ PAGE = r"""<!doctype html>
 
   // Tap/click any panel to maximize it; tap again (or Esc) to restore.
   // Controls inside a panel (inputs, buttons, links) keep working.
+  // No wasted space: the charts nearest the body's subject move up under the
+  // sleep card, beside the tall body card, as many as fit; the rest stay below.
+  const SIDE_ORDER = ['c-body', 'c-drive', 'c-pace', 'c-move', 'c-look', 'c-quota', 'c-tree', 'c-fit', 'c-delta'];
+  function balanceSide() {
+    const side = $('charts-side'), main = $('charts'), body = $('body-panel'), left = $('left-stack'), quad = document.querySelector('.quad');
+    if (!side || !main || !body || !left || !quad) return;
+    const panelOf = id => { const c = $(id); return c && c.closest('.panel'); };
+    [...side.children].forEach(el => main.appendChild(el));  // all back, then in their order
+    CHARTS.forEach(ch => { const pn = panelOf(ch.id); if (pn) main.appendChild(pn); });
+    if (getComputedStyle(quad).gridTemplateColumns.split(' ').length < 2 || document.body.classList.contains('has-max')) return;
+    for (const id of SIDE_ORDER) {
+      const pn = panelOf(id); if (!pn) continue;
+      if (left.offsetHeight + pn.offsetHeight + 16 <= body.offsetHeight) side.appendChild(pn); else break;
+    }
+  }
   function redrawAll() {
     if (D) { drawBody(D); drawBrain(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
+    balanceSide();
     if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, lastHistory));
   }
   function setMax(panel) {
@@ -1871,6 +1891,7 @@ PAGE = r"""<!doctype html>
       const h = await (await fetch('/history')).json();
       const recs = h.records || []; recs.label_left = h.span_generations ? `${h.span_generations} generations ago` : 'older';
       lastHistory = recs;
+      balanceSide();  // the body card fills in with data: rebalance as it grows
       CHARTS.forEach(ch => ch.mutations ? mutChart(ch, recs) : lineChart(ch, recs));
     } catch (e) { }
     setTimeout(fetchHistory, 20000);
