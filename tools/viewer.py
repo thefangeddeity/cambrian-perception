@@ -421,23 +421,24 @@ LOCK_HUD_JS = r"""
     const host = canvas && canvas.parentElement; if (!host) return;
     if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host._hudT = performance.now();
-    const spots = { ar: ['rtl', 'top:14px;right:24px;text-align:right', AR_FONT, toArabic],
-                    uk: ['ltr', 'bottom:14px;left:24px;text-align:left', 'monospace', toUkrainian],
-                    tw: ['ltr', 'bottom:14px;right:24px;text-align:right', TW_FONT, toTaiwanese] };
+    const hk = canvas._hudK || 1, m = Math.round(14 * hk), side = Math.round(24 * hk), lh = Math.round(16 * hk);
+    const spots = { ar: ['rtl', `top:${m}px;right:${side}px;text-align:right`, AR_FONT, toArabic],
+                    uk: ['ltr', `bottom:${m}px;left:${side}px;text-align:left`, 'monospace', toUkrainian],
+                    tw: ['ltr', `bottom:${m}px;right:${side}px;text-align:right`, TW_FONT, toTaiwanese] };
     rows = rows.filter(r => r[3] !== 'telemetry').map(([t, c, f]) => [t, c, f.replace(/(\d+)px/, (_, n) => Math.round(n * 0.85) + 'px')]);
     Object.entries(spots).forEach(([key, [dir, where, family, conv]]) => {
       let el = host.querySelector(':scope > .hud-' + key);
       if (!el) {
         el = document.createElement('div'); el.className = 'hud-' + key + ' hud-lang'; el.dir = dir;
-        el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;opacity:0.72;'
-          + `text-shadow:1px 1px 3px #000,1px 1px 1px #000,0 0 6px ${HUD_GLOW};` + where;
         host.appendChild(el);
       }
+      el.style.cssText = 'position:absolute;pointer-events:none;white-space:pre;opacity:0.72;'
+        + `text-shadow:1px 1px 3px #000,1px 1px 1px #000,0 0 6px ${HUD_GLOW};` + where;
       el.style.display = '';
       // every row, blank ones too (WARN blinking off), so each line stays level with the English
       // the bottom blocks run upward (mirror images of the top ones): first row at the bottom
       const html = (key === 'ar' ? rows : rows.slice().reverse()).map(([t, colour, font]) =>
-        `<div style="color:${colour};font:${font.replace('monospace', family)};line-height:16px;height:16px">${t ? esc(conv(t)) : '&nbsp;'}</div>`).join('');
+        `<div style="color:${colour};font:${font.replace('monospace', family)};line-height:${lh}px;height:${lh}px">${t ? esc(conv(t)) : '&nbsp;'}</div>`).join('');
       if (el._html !== html) { el._html = html; el.innerHTML = html; }
     });
   }
@@ -559,7 +560,10 @@ LOCK_HUD_JS = r"""
         st[last] = gazeFrame;
       });
     }
-    ctx.font = '11px monospace'; ctx.textBaseline = 'middle';
+    // its text scales with the picture: full size from 560 px wide, down to 60% on a phone
+    const hk = Math.max(0.6, Math.min(1, bw / 560)), hpx = n => Math.max(7, Math.round(n * hk)), lh = 16 * hk, y0 = 18 * hk;
+    ctx.canvas._hudK = hk;
+    ctx.font = `${hpx(11)}px monospace`; ctx.textBaseline = 'middle';
     // LIVE: the organism acting live (fishbowl/livelife.py)
     const tag = (fs.delay != null ? (d.live_actor ? 'LIVE' : 'DELAYED') : 'REPLAY') + (opts && opts.gen ? `  gen ${d.generation !== undefined ? Number(d.generation).toLocaleString() : '--'}` : '');
     lockShadow(ctx, true);
@@ -567,32 +571,32 @@ LOCK_HUD_JS = r"""
     // changing numbers move away from the edge), mirrored in Arabic top right,
     // right-justified as Arabic reads.
     const tw = ctx.measureText(tag).width, tx = bw / 2 - (tw + 9) / 2;
-    ctx.fillStyle = blink ? HUD_HOT : HUD_ASH; ctx.beginPath(); ctx.arc(tx + 4, 18, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = HUD_SYS; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13, 18);
+    ctx.fillStyle = blink ? HUD_HOT : HUD_ASH; ctx.beginPath(); ctx.arc(tx + 4, y0, 4 * hk, 0, 7); ctx.fill();
+    ctx.fillStyle = HUD_SYS; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13 * hk, y0);
     // Left-hand readout, top to bottom: mode + ID, delay, (operators only)
     // its perception tree's own guess next to the teacher's -- green when
     // they agree -- then locks (meals: a LOCK
     // held as one feeding bout -- the HUD's own word, so a viewer needs no
     // mosquito to read it), then its warning.
-    const rows = [[L.mode + lockIdText(L.id), col, 'bold 14px monospace'],
-                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_SYS, '11px monospace']];
+    const rows = [[L.mode + lockIdText(L.id), col, `bold ${hpx(14)}px monospace`],
+                  [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_SYS, `${hpx(11)}px monospace`]];
     if (opts && opts.internals && fs.guess != null && fs.label != null) {
-      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_AGREE : HUD_DISAGREE, '10px monospace', 'telemetry']);
+      rows.push([`own guess ${fs.guess.toFixed(2)} / teacher ${fs.label.toFixed(2)}`, Math.abs(fs.guess - fs.label) < 0.15 ? HUD_AGREE : HUD_DISAGREE, `${hpx(10)}px monospace`, 'telemetry']);
     }
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
-    rows.push([`locks ${boutText('meal', st.meals)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
+    rows.push([`locks ${boutText('meal', st.meals)}`, HUD_BEHAV, `${hpx(10)}px monospace`, 'telemetry']);
     // something approaching its gaze: how soon it arrives, in its own looks (Lee's tau)
-    if (fs.contact > 0) rows.push([`contact ~${Math.max(1, Math.round(1 / fs.contact))} looks`, HUD_WARN, 'bold 11px monospace']);
+    if (fs.contact > 0) rows.push([`contact ~${Math.max(1, Math.round(1 / fs.contact))} looks`, HUD_WARN, `bold ${hpx(11)}px monospace`]);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
     // it warns, a dim lamp otherwise. The client page never shows it.
-    if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', HUD_WARN, 'bold 12px monospace']
-                                                  : ['WARN', HUD_ASH, 'bold 12px monospace']);
+    if (opts && opts.internals) rows.push(fs.warn ? [blink ? 'WARN' : '', HUD_WARN, `bold ${hpx(12)}px monospace`]
+                                                  : ['WARN', HUD_ASH, `bold ${hpx(12)}px monospace`]);
     ctx.textAlign = 'left';
     // each line twice: its drop shadow, then its phosphor bloom on top
-    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
+    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16 * hk, y0 + lh * k); });
     ctx.save(); ctx.shadowColor = HUD_GLOW; ctx.shadowBlur = 6; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
-    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16, 18 + 16 * k); });
+    rows.forEach(([text, colour, font], k) => { ctx.font = font; ctx.fillStyle = colour; ctx.fillText(text, 16 * hk, y0 + lh * k); });
     ctx.restore();
     hudOverlay(ctx.canvas, rows);  // Arabic, Ukrainian, Taiwanese: page text over the HUD
     lockShadow(ctx, false);
