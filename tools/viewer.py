@@ -1328,7 +1328,7 @@ PAGE = r"""<!doctype html>
     const pts = [], rows = Math.ceil(nIn / 3);  // three columns, each a run of senses in order
     for (let i = 0; i < nIn; i++) {
       const col = Math.floor(i / rows), r = i % rows;
-      pts.push({ kind: 'in', k: i, x: -1.2, y: -1.05 + 2.1 * r / Math.max(1, rows - 1), z: (col - 1) * 0.42 });
+      pts.push({ kind: 'in', k: i, x: -1.2, y: -0.92 + 1.84 * r / Math.max(1, rows - 1), z: (col - 1) * 0.42 });
     }
     const ga = Math.PI * (3 - Math.sqrt(5));  // a Fibonacci sphere: even spacing for any count
     for (let h = 0; h < nH; h++) {
@@ -1396,8 +1396,11 @@ PAGE = r"""<!doctype html>
       if (idx === hov || q.kind === 'out' && (hov == null || lit.has(idx)) || q.kind === 'in' && (hov == null ? strong.has(idx) : lit.has(idx))) {
         ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : '10px') + ' monospace';
         ctx.fillStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'hid' ? '#a9bcc8' : '#b88a80';
-        const right = q.sx >= W / 2; ctx.textAlign = right ? 'left' : 'right';
-        ctx.fillText(label(q), q.sx + (right ? 1 : -1) * (r + 5), q.sy);
+        const text = label(q), tw = ctx.measureText(text).width;
+        let right = q.sx >= W / 2;
+        if (!right && q.sx - r - 5 - tw < 2) right = true; else if (right && q.sx + r + 5 + tw > W - 2) right = false;  // never off the edge
+        ctx.textAlign = right ? 'left' : 'right';
+        ctx.fillText(text, q.sx + (right ? 1 : -1) * (r + 5), q.sy);
       }
     });
     ctx.globalAlpha = 1;
