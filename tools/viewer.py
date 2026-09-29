@@ -1475,17 +1475,6 @@ PAGE = r"""<!doctype html>
     }
     return pts;
   }
-  // Labels go on top of every wire: drawn last, where they are, each with a
-  // dark outline so no edge runs over its text.
-  function drawLabels(ctx, items) {
-    ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-    items.forEach(it => {
-      ctx.font = it.font; ctx.textAlign = it.align; ctx.globalAlpha = it.alpha ?? 1;
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(5,7,10,0.9)'; ctx.strokeText(it.text, it.x, it.y);
-      ctx.fillStyle = it.color; ctx.fillText(it.text, it.x, it.y);
-    });
-    ctx.globalAlpha = 1;
-  }
   // The largest on-screen distance from the centre a point within radius R
   // of it can reach under perspective F, at any rotation (per unit of scale).
   function reach3D(R, F) {
@@ -1562,7 +1551,6 @@ PAGE = r"""<!doctype html>
       : q.kind === 'out' ? (q.k < OUTPUT_NAMES.length ? OUTPUT_NAMES[q.k] : channelName(br, q.k - OUTPUT_NAMES.length, 'out'))
       : `h${q.k + 1} ${(hid[q.k] || 0).toFixed(2)}`;
     ctx.textBaseline = 'middle';
-    const labels = [];
     P.map((q, idx) => [q, idx]).sort((a, b) => b[0].depth - a[0].depth).forEach(([q, idx]) => {
       const dim = hov != null && !lit.has(idx) && idx !== hov;
       const r = (q.kind === 'hid' ? 8 : q.kind === 'out' ? 10 : 5) * q.w * Math.sqrt(B3.zoom);
@@ -1577,12 +1565,11 @@ PAGE = r"""<!doctype html>
         const text = label(q), tw = ctx.measureText(text).width;
         let right = q.sx >= W / 2;
         if (!right && q.sx - r - 5 - tw < 2) right = true; else if (right && q.sx + r + 5 + tw > W - 2) right = false;  // never off the edge
-        labels.push({ text, x: q.sx + (right ? 1 : -1) * (r + 5), y: q.sy, align: right ? 'left' : 'right', font: ctx.font,
-                      color: ctx.fillStyle, alpha: dim ? 0.4 : Math.max(0.85, q.fog) });
+        ctx.textAlign = right ? 'left' : 'right';
+        ctx.fillText(text, q.sx + (right ? 1 : -1) * (r + 5), q.sy);
       }
     });
     ctx.globalAlpha = 1;
-    drawLabels(ctx, labels);
     B3.pts = P;
   }
   function brain3DAt(x, y) {
@@ -1737,7 +1724,7 @@ PAGE = r"""<!doctype html>
       ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy); ctx.stroke(); ctx.setLineDash([]);
     });
     ctx.globalCompositeOperation = 'source-over';
-    const many = P.length > 60, labels = [];
+    const many = P.length > 60;
     P.map((q, i) => [q, i]).sort((x, y) => y[0].d - x[0].d).forEach(([q, i]) => {
       const op = q.n.kind === 'op', r = (q.retina ? 5 : op ? 15 : 12) * q.w * Math.sqrt(T.zoom);
       ctx.globalAlpha = q.fog;
@@ -1749,11 +1736,11 @@ PAGE = r"""<!doctype html>
       if (!many || i === hov || op) {
         ctx.fillStyle = q.retina ? `rgb(${PLANE_COL[q.n.index] || '200,200,200'})` : '#cfe3f0';
         ctx.font = (i === hov ? 'bold 12px' : '11px') + ' monospace'; ctx.textBaseline = 'middle';
-        labels.push({ text: nodeLabel(q.n), x: q.sx, y: q.retina ? q.sy + r + 9 : q.sy, align: 'center', font: ctx.font, color: ctx.fillStyle });
+        if (q.retina) { ctx.textAlign = 'center'; ctx.fillText(nodeLabel(q.n), q.sx, q.sy + r + 9); }
+        else { ctx.textAlign = 'center'; ctx.fillText(nodeLabel(q.n), q.sx, q.sy); }
       }
     });
     ctx.globalAlpha = 1;
-    drawLabels(ctx, labels);
     T.P = P;
   }
   function treeKick(name) {
