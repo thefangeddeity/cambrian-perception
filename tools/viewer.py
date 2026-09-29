@@ -654,12 +654,8 @@ PAGE = r"""<!doctype html>
   .quad > .panel > canvas, .quad > .panel > .video16x9 { margin-bottom: 8px; }
   .quad { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
   .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
-  .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-  .vision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 1fr); gap: 16px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
-  .vision > .charts { margin-top: 0; align-content: start; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }  /* beside its body */
-  @media (min-width: 1251px) { #look-panel { order: 1; } #field-panel { order: 2; } #dream-panel { order: 3; } }  /* desktop: camera | gaze, then visual field | replay & dreams; its brain in the row below */
-  @media (max-width: 1250px) { .vision, .quad { grid-template-columns: 1fr; } #look-panel { order: 1; } #field-panel { order: 2; } #dream-panel { order: 3; } }
+  @media (max-width: 1250px) { .quad { grid-template-columns: 1fr; } }  /* narrow: one column, in the same order */
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
@@ -705,8 +701,10 @@ PAGE = r"""<!doctype html>
   <span class="chip" id="h-stale"></span>
 </header>
 
-<!-- The four views: what the camera (or stream) shows, its gaze, its visual
-     field, its replay and dreams; its brain opens the row below. -->
+<!-- The page follows the signal through the animal (UX panel, 2026-09-28):
+     what it sees (the stream, its gaze); perceiving (its visual field, its
+     perception tree); thinking and memory (its brain, its mushroom body); its
+     inner life (sleep, replay and dreams; its body); then the charts. -->
 <div class="quad">
   <div class="panel" id="live-panel">
     <h2 id="live-title">live view</h2>
@@ -727,6 +725,12 @@ PAGE = r"""<!doctype html>
       <div id="submit-status" class="cap" style="margin-top:6px"></div>
     </div>
   </div>
+  <div class="panel" id="look-panel">
+    <h2>gaze</h2>
+    <canvas id="look" class="px"></canvas>
+    <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
+    <div class="cap" style="margin-top:8px" id="look-scale"></div>
+  </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
@@ -737,6 +741,21 @@ PAGE = r"""<!doctype html>
 </div>
     <div class="cap">What its wide-field eyes sense: where things move, as heat (<span id="field-px">--</span>). Box = its gaze; <b style="color:#ff6f8a">dashed</b> = a host; <b style="color:#9ccf7a">dotted</b> = a plant (nectar); red frame = something looming.</div>
     <div class="cap" id="replay-clock">--</div>
+  </div>
+  <div class="panel" id="tree-panel">
+    <h2>its perception tree</h2>
+    <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
+    <div id="trees"></div>
+  </div>
+  <div class="panel" id="brain-panel">
+    <h2>its brain</h2>
+    <canvas id="brain" height="520"></canvas>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
+  </div>
+  <div class="panel" id="mb-panel">
+    <h2>its mushroom body</h2>
+    <canvas id="mb"></canvas>
+    <div class="cap" id="mb-cap"></div>
   </div>
   <div class="panel" id="dream-panel">
     <h2>sleep, replay &amp; dreams</h2>
@@ -750,31 +769,7 @@ PAGE = r"""<!doctype html>
     <canvas id="dream-map" class="px" style="margin-top:10px; display:block; margin-left:auto; margin-right:auto"></canvas>
     <div class="cap">Paths on its place map: blue NREM, violet REM, grey awake replay; gold imagined (dreamt through its maps).</div>
   </div>
-  <div class="panel" id="look-panel">
-    <h2>gaze</h2>
-    <canvas id="look" class="px"></canvas>
-    <div class="cap">Its eye (<span id="look-px">--</span>), rebuilt from the frame on screen; colour only in the cone patch.</div>
-    <div class="cap" style="margin-top:8px" id="look-scale"></div>
-  </div>
-</div>
-
-<div class="vision">
-  <div class="panel" id="brain-panel">
-    <h2>its brain</h2>
-    <canvas id="brain" height="520"></canvas>
-    <canvas id="mb" height="150" style="margin-top:6px"></canvas>
-    <div class="cap" id="mb-cap"></div>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
-  </div>
-  <div class="stack">
-    <div class="panel">
-      <h2>its perception tree</h2>
-      <div class="cap">Its guess, from its receptors: a host in my gaze? Graded by YOLO.</div>
-      <div id="trees"></div>
-    </div>
-  </div>
-
-  <div class="panel">
+  <div class="panel" id="body-panel">
     <h2>body</h2>
     <div class="cap">Gut &rarr; blood sugar &rarr; stores.</div>
     <div id="gauges"></div>
@@ -791,8 +786,8 @@ PAGE = r"""<!doctype html>
       <div id="movement"></div>
     </div>
   </div>
-  <div class="charts" id="charts"></div>
 </div>
+<div class="charts" id="charts"></div>
 
 <div class="panel" style="margin-top:16px">
   <h2>what drives it</h2>
@@ -1241,7 +1236,7 @@ PAGE = r"""<!doctype html>
     const mb = d.mb;
     if (!mb) { c.style.display = 'none'; cap.textContent = ''; return; }
     c.style.display = '';
-    const W = Math.max(200, c.parentElement.clientWidth - 24), H = Math.round(W * 0.6);
+    const W = Math.max(200, fitWidth($('mb-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     MB3.d = d; MB3.dirty = true; mbKick();
     cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Green = food, red = danger. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
@@ -1477,6 +1472,24 @@ PAGE = r"""<!doctype html>
     }
     return pts;
   }
+  // Labels go on top of every wire: drawn last, where they are, each with a
+  // dark outline so no edge runs over its text.
+  function drawLabels(ctx, items) {
+    ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    items.forEach(it => {
+      ctx.font = it.font; ctx.textAlign = it.align; ctx.globalAlpha = it.alpha ?? 1;
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(5,7,10,0.9)'; ctx.strokeText(it.text, it.x, it.y);
+      ctx.fillStyle = it.color; ctx.fillText(it.text, it.x, it.y);
+    });
+    ctx.globalAlpha = 1;
+  }
+  // The largest on-screen distance from the centre a point within radius R
+  // of it can reach under perspective F, at any rotation (per unit of scale).
+  function reach3D(R, F) {
+    let m = 0;
+    for (let i = 0; i <= 60; i++) { const z = -R + 2 * R * i / 60; m = Math.max(m, Math.sqrt(Math.max(0, R * R - z * z)) * F / (F - z)); }
+    return m;
+  }
   function drawBrain3D() {
     const d = BZ.d, br = d && d.brain, c = $('brain'); if (!br || !c) return;
     const W = c.width, H = c.height, ctx = c.getContext('2d');
@@ -1484,7 +1497,17 @@ PAGE = r"""<!doctype html>
     const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
     const P = brain3DLayout(nIn, nH, nOut), hid = d.brain_hidden || [];
     const cy = Math.cos(B3.yaw), sy = Math.sin(B3.yaw), cp = Math.cos(B3.pitch), sp = Math.sin(B3.pitch);
-    const scale = Math.min(W * 0.75, H) * 0.46 * B3.zoom, F = 3.2;
+    const F = 3.2;
+    // Fit, whatever the rotation: its farthest unit's distance from the
+    // centre (and the nearest a unit can come, for perspective), with room
+    // for the widest label on either side.
+    let R3 = 0.1; P.forEach(q => { R3 = Math.max(R3, Math.hypot(q.x, q.y, q.z)); });
+    ctx.font = '11px monospace';
+    let Lw = 0;
+    for (let i = 0; i < nIn; i++) Lw = Math.max(Lw, ctx.measureText(i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in')).width);
+    for (let o = 0; o < nOut; o++) Lw = Math.max(Lw, ctx.measureText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out')).width);
+    const reach = reach3D(R3, F), fit = Math.min((W / 2 - Lw - 24) / reach, (H / 2 - 14) / reach);
+    const scale = Math.max(20, fit) * B3.zoom;
     P.forEach(q => {
       const x1 = q.x * cy + q.z * sy, z1 = -q.x * sy + q.z * cy;
       const y2 = q.y * cp - z1 * sp, z2 = q.y * sp + z1 * cp;
@@ -1536,6 +1559,7 @@ PAGE = r"""<!doctype html>
       : q.kind === 'out' ? (q.k < OUTPUT_NAMES.length ? OUTPUT_NAMES[q.k] : channelName(br, q.k - OUTPUT_NAMES.length, 'out'))
       : `h${q.k + 1} ${(hid[q.k] || 0).toFixed(2)}`;
     ctx.textBaseline = 'middle';
+    const labels = [];
     P.map((q, idx) => [q, idx]).sort((a, b) => b[0].depth - a[0].depth).forEach(([q, idx]) => {
       const dim = hov != null && !lit.has(idx) && idx !== hov;
       const r = (q.kind === 'hid' ? 8 : q.kind === 'out' ? 10 : 5) * q.w * Math.sqrt(B3.zoom);
@@ -1550,11 +1574,12 @@ PAGE = r"""<!doctype html>
         const text = label(q), tw = ctx.measureText(text).width;
         let right = q.sx >= W / 2;
         if (!right && q.sx - r - 5 - tw < 2) right = true; else if (right && q.sx + r + 5 + tw > W - 2) right = false;  // never off the edge
-        ctx.textAlign = right ? 'left' : 'right';
-        ctx.fillText(text, q.sx + (right ? 1 : -1) * (r + 5), q.sy);
+        labels.push({ text, x: q.sx + (right ? 1 : -1) * (r + 5), y: q.sy, align: right ? 'left' : 'right', font: ctx.font,
+                      color: ctx.fillStyle, alpha: dim ? 0.4 : Math.max(0.85, q.fog) });
       }
     });
     ctx.globalAlpha = 1;
+    drawLabels(ctx, labels);
     B3.pts = P;
   }
   function brain3DAt(x, y) {
@@ -1689,7 +1714,12 @@ PAGE = r"""<!doctype html>
     const c = T.canvas, W = c.width, H = c.height, ctx = c.getContext('2d');
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     const cy = Math.cos(T.yaw), sy = Math.sin(T.yaw), cp = Math.cos(T.pitch), sp = Math.sin(T.pitch);
-    const L = T.lay, span = Math.max(1.2, 2 * Math.abs(L.floor) + 0.4), scale = Math.min(W, H) / span * 0.8 * T.zoom, F = 3.4;
+    const L = T.lay, F = 3.4;
+    let R3 = Math.hypot(0.9, L.floor, 0.9);  // the retina grid's corners
+    L.pts.forEach(q => { R3 = Math.max(R3, Math.hypot(q.x, q.y, q.z)); });
+    ctx.font = '11px monospace';
+    const Lw = Math.max(...L.pts.map(q => ctx.measureText(nodeLabel(q.n)).width), 20) / 2;
+    const reach = reach3D(R3, F), scale = Math.max(20, Math.min((W / 2 - Lw - 16) / reach, (H / 2 - 22) / reach)) * T.zoom;
     const proj = (x, y, z) => {
       const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
       const y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, w = F / (F + z2);
@@ -1714,7 +1744,7 @@ PAGE = r"""<!doctype html>
       ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy); ctx.stroke(); ctx.setLineDash([]);
     });
     ctx.globalCompositeOperation = 'source-over';
-    const many = P.length > 60;
+    const many = P.length > 60, labels = [];
     P.map((q, i) => [q, i]).sort((x, y) => y[0].d - x[0].d).forEach(([q, i]) => {
       const op = q.n.kind === 'op', r = (q.retina ? 5 : op ? 15 : 12) * q.w * Math.sqrt(T.zoom);
       ctx.globalAlpha = q.fog;
@@ -1726,11 +1756,11 @@ PAGE = r"""<!doctype html>
       if (!many || i === hov || op) {
         ctx.fillStyle = q.retina ? `rgb(${PLANE_COL[q.n.index] || '200,200,200'})` : '#cfe3f0';
         ctx.font = (i === hov ? 'bold 12px' : '11px') + ' monospace'; ctx.textBaseline = 'middle';
-        if (q.retina) { ctx.textAlign = 'center'; ctx.fillText(nodeLabel(q.n), q.sx, q.sy + r + 9); }
-        else { ctx.textAlign = 'center'; ctx.fillText(nodeLabel(q.n), q.sx, q.sy); }
+        labels.push({ text: nodeLabel(q.n), x: q.sx, y: q.retina ? q.sy + r + 9 : q.sy, align: 'center', font: ctx.font, color: ctx.fillStyle });
       }
     });
     ctx.globalAlpha = 1;
+    drawLabels(ctx, labels);
     T.P = P;
   }
   function treeKick(name) {
