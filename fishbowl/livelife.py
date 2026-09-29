@@ -169,7 +169,7 @@ def _circuits(org: Organism) -> dict:
             out["replay_eye"]["seen"] = {"i": int(meta[0]), "cx": round(meta[1], 4), "cy": round(meta[2], 4), "f": round(meta[3], 4)}
     # its newer senses, for the visual field card
     names = {**{int(k): v for k, v in prey_lib.PREY_CLASSES.items()}, prey_lib.PLANT_CLASS: "plant"}
-    out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3),
+    out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(),
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
                      "uncertainty": round(float(org.uncertainty), 3), "camera_moving": bool(org.cam_moving),

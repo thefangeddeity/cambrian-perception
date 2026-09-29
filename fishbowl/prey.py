@@ -72,6 +72,13 @@ NECTAR_OIV7 = {"Plant", "Tree", "Flower", "Houseplant", "Rose", "Lily", "Common 
                "Maple", "Willow", "Palm tree", "Christmas tree"}
 FLOWER_EVERY_S = 30.0
 
+def cut_by_frame(box) -> tuple[bool, bool]:
+    """(its base is cut off by the frame's bottom, its top by the frame's top):
+    within one detector pixel of the edge (boxes are clipped to the frame)."""
+    _, _, _, y0, _, y1 = box[:6]
+    return y1 >= 1.0 - 1.0 / INPUT_SIZE, y0 <= 1.0 / INPUT_SIZE
+
+
 def hosts_only(boxes):
     return [b for b in boxes or () if int(b[0]) != PLANT_CLASS]
 

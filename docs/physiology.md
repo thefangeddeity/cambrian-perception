@@ -330,7 +330,12 @@ can afford more and bigger ones.
   the horizon is. Kept per scene. Plants measure it too (rooted: a plant's base is
   ground), each class's horizon counted by inverse variance -- the textbook
   calibration variance of a line's zero -- so a class whose members fit their
-  line badly (flowers up on a bush, pots on a sill) counts for little.
+  line badly (flowers up on a bush, pots on a sill) counts for little. A thing
+  the frame cuts (its base below the bottom edge, or its top above the top)
+  measures nothing: where it stands, or its height, is unseen. The viewer
+  draws its ground through feet and roots: flat, bent where a thing stands
+  bigger or smaller than its kind's line predicts (elevation = camera height
+  x (1 - predicted / seen)).
 - **Parallax** (moving cameras): with the camera's own motion undone, what is
   left of each cell's change over what changed at all (+ sensor noise): 0 for
   the scene sliding past, towards 1 for what is nearer or moving on its own.

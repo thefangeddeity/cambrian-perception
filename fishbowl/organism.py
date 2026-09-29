@@ -1091,6 +1091,8 @@ class Organism:
         class's line as fitted then (the residual, for how much to trust it)."""
         self.ground = _ground_shape(self.ground)
         for c, conf, x0, y0, x1, y1 in boxes:
+            if any(prey_lib.cut_by_frame((c, conf, x0, y0, x1, y1))):
+                continue  # the frame cuts its base or its top: where it stands, or its height, is unseen
             if int(c) in GROUND_CLASSES and y1 > y0:
                 k, w = GROUND_CLASSES.index(int(c)), float(conf)
                 fit = self._ground_fit(self.ground[k])
@@ -1098,6 +1100,12 @@ class Organism:
                     a, b = fit
                     self.ground[k, 5:7] += w * np.array([1.0, ((y1 - y0) - (a * y1 + b)) ** 2])
                 self.ground[k, :5] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+
+    def ground_fits(self) -> dict:
+        """Each measuring class's line (height = a y + b), for the viewer."""
+        self.ground = _ground_shape(self.ground)
+        return {int(c): [round(float(v), 5) for v in f] for c, row in zip(GROUND_CLASSES, self.ground)
+                if (f := self._ground_fit(row)) is not None}
 
     @staticmethod
     def _ground_fit(row):

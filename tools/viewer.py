@@ -1333,61 +1333,71 @@ PAGE = r"""<!doctype html>
     const at = (x, y, z) => proj(x, y, z - ZMAX / 2 - 0.5);
     let note = '';
     if (hz == null) {
-      note = 'no horizon yet: it learns its ground plane from the sizes of the hosts and plants it sees';
+      note = 'no horizon yet: it learns its ground plane from the sizes of the hosts and plants it sees whole';
     } else {
-      // its height data: hosts (their real height, at their base) and parallax (nearness, per cell)
-      const boxes = (d.prey_boxes && d.prey_boxes.length) ? d.prey_boxes[d.prey_boxes.length - 1] : [];
-      const pts = [];  // [x, z, height, kind]
-      (boxes || []).forEach(([cls, conf, x0, y0, x1, y1]) => {
+      // Its ground (a 2026-09-29 space panel: the ground is what things stand
+      // on, so the surface goes through their feet and roots, never over their
+      // heads). Its plane is flat; each measuring stick -- a host or plant the
+      // frame doesn't cut -- also says where the ground is under it: standing
+      // bigger than its kind's line predicts for where its feet are, it is
+      // nearer than the plane puts it, so the ground there is raised (smaller:
+      // lowered). Pinhole geometry: elevation = camera height x (1 - predicted
+      // / seen); in the scene's units, camera height = 1.6 (1 - horizon).
+      const fits = sn.ground_fits || {}, HCAM = 1.6 * (1 - hz), pts = [];
+      const last = k => (d[k] && d[k].length) ? (d[k][d[k].length - 1] || []) : [];
+      [['host', last('prey_boxes')], ['plant', last('plant_boxes')]].forEach(([kind, bxs]) => bxs.forEach(([cls, conf, x0, y0, x1, y1]) => {
+        const cutBase = y1 >= 1 - 1 / 640, cutTop = y0 <= 1 / 640;
         const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
-        pts.push([g0[0], g0[1], (y1 - y0) * g0[1] * 1.6, 'host', x0, x1, y1, conf]);
-      });
-      // plants: rooted, so their bases mark ground too (they measure it as hosts do)
-      const plb = (d.plant_boxes && d.plant_boxes.length) ? d.plant_boxes[d.plant_boxes.length - 1] : [];
-      (plb || []).forEach(([cls, conf, x0, y0, x1, y1]) => {
-        const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
-        pts.push([g0[0], g0[1], (y1 - y0) * g0[1] * 1.6, 'plant', x0, x1, y1, conf]);
-      });
-      if (sn.parallax) sn.parallax.forEach((v, k) => {
-        if (v <= 0.05) return;
-        const r = Math.floor(k / cols), cc = k % cols, g = place((cc + 0.5) / cols, (r + 0.5) / rows);
-        if (g) pts.push([g[0], g[1], 0.6 * v, 'parallax']);
-      });
-      // the membrane: the ground mesh, raised at each node by a Gaussian blend of
-      // nearby data (each point's height x its falloff; the highest wins) --
-      // a viewer's smoothing (SIGMA is display, not model)
+        const f = fits[cls], seen = y1 - y0, pred = f ? f[0] * y1 + f[1] : null;
+        const elev = (!cutBase && !cutTop && pred != null && pred > 0 && seen > 0) ? Math.max(-1, Math.min(1, 1 - pred / seen)) * HCAM : null;
+        pts.push({ kind, x: g0[0], z: g0[1], hgt: seen * g0[1] * 1.6, x0, x1, y1, conf, elev, cutBase, cutTop });
+      }));
+      const sticks = pts.filter(q => q.elev != null);
+      // the ground surface: flat where it has no evidence, bent toward each
+      // stick's elevation near it (a kernel average that falls back to the
+      // plane away from data; SIGMA is display, not model)
       const SIGMA = 0.28, NU = 24, NZ = 16;
-      const heightAt = (x, z) => { let h = 0; for (const q of pts) { const dd = (x - q[0]) ** 2 + (z - q[1]) ** 2; h = Math.max(h, q[2] * Math.exp(-dd / (2 * SIGMA * SIGMA))); } return h; };
-      const tall = Math.max(1e-6, ...pts.map(q => q[2]));
+      const groundAt = (x, z) => { let sw = 0, se = 0; for (const q of sticks) { const w = Math.exp(-((x - q.x) ** 2 + (z - q.z) ** 2) / (2 * SIGMA * SIGMA)); sw += w; se += w * q.elev; } return se / Math.max(1, sw); };
+      const big = Math.max(1e-6, ...sticks.map(q => Math.abs(q.elev)));
       const node = [];
       for (let j = 0; j <= NZ; j++) {
         const z = 1 + (ZMAX - 1) * j / NZ, row = [];
-        for (let i = 0; i <= NU; i++) { const x = (i / NU - 0.5) * 1.6 * z, h = heightAt(x, z); row.push([at(x, h, z), h]); }
+        for (let i = 0; i <= NU; i++) { const x = (i / NU - 0.5) * 1.6 * z, h = groundAt(x, z); row.push([at(x, h, z), h]); }
         node.push(row);
       }
       const seg = (p, q) => {
-        const t = Math.min(1, (p[1] + q[1]) / 2 / tall);
-        ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${0.18 + 0.32 * t})`;  // faint: a reading of the data, not a veil over it
+        const t = Math.min(1, Math.abs(p[1] + q[1]) / 2 / big);
+        ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${0.3 + 0.3 * t})`;
         ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(q[0][0], q[0][1]); ctx.stroke();
       };
       ctx.lineWidth = 1;
       for (let j = NZ; j >= 0; j--) for (let i = 0; i < NU; i++) seg(node[j][i], node[j][i + 1]);
       for (let i = 0; i <= NU; i++) for (let j = NZ; j > 0; j--) seg(node[j][i], node[j - 1][i]);
-      // the data themselves, drawn over the membrane at full strength (UX panel:
-      // show the data; the membrane is only a reading of it)
-      pts.forEach(q => {
-        if (q[3] === 'host' || q[3] === 'plant') {  // standing at its distance, its real height
-          const [x, z, hgt, , x0, x1, y1, conf] = q, g0 = place(x0, y1), g1 = place(x1, y1); if (!g0 || !g1) return;
-          const c4 = [at(g0[0], 0, g0[1]), at(g1[0], 0, g1[1]), at(g1[0], hgt, g1[1]), at(g0[0], hgt, g0[1])];
-          const rgb = q[3] === 'plant' ? '156, 207, 122' : '255, 111, 138';
-          ctx.fillStyle = `rgba(${rgb}, ${0.2 + 0.35 * conf})`; ctx.strokeStyle = `rgba(${rgb}, 0.95)`; ctx.lineWidth = 1.5;
-          ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
-        } else {  // parallax: a column on its cell
-          const a2 = at(q[0], 0, q[1]), b2 = at(q[0], q[2], q[1]);
-          ctx.strokeStyle = `rgba(127, 212, 255, ${0.5 + 0.8 * q[2]})`; ctx.lineWidth = 3 * a2[3]; ctx.beginPath(); ctx.moveTo(a2[0], a2[1]); ctx.lineTo(b2[0], b2[1]); ctx.stroke();
-        }
+      // parallax: cyan columns on its cells (nearness, not ground)
+      if (sn.parallax) sn.parallax.forEach((v, k) => {
+        if (v <= 0.05) return;
+        const r = Math.floor(k / cols), cc = k % cols, g = place((cc + 0.5) / cols, (r + 0.5) / rows); if (!g) return;
+        const base = groundAt(g[0], g[1]), a2 = at(g[0], base, g[1]), b2 = at(g[0], base + 0.6 * v, g[1]);
+        ctx.strokeStyle = `rgba(127, 212, 255, ${0.5 + 0.5 * v})`; ctx.lineWidth = 3 * a2[3]; ctx.beginPath(); ctx.moveTo(a2[0], a2[1]); ctx.lineTo(b2[0], b2[1]); ctx.stroke();
       });
-      note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; pink: hosts, green: plants, standing at their distance and height; a faint membrane drawn through them (and any parallax) reads the height data as a surface`
+      // the things, standing on that ground at their distance and height; one
+      // the frame cuts is drawn dashed with its cut side open (its base is
+      // somewhere nearer, below the frame; or its top above it) and measures nothing
+      pts.forEach(q => {
+        const g0 = place(q.x0, q.y1), g1 = place(q.x1, q.y1); if (!g0 || !g1) return;
+        const base = groundAt(q.x, q.z), top = base + q.hgt, cut = q.cutBase || q.cutTop;
+        const c4 = [at(g0[0], base, g0[1]), at(g1[0], base, g1[1]), at(g1[0], top, g1[1]), at(g0[0], top, g0[1])];
+        const rgb = q.kind === 'plant' ? '156, 207, 122' : '255, 111, 138';
+        ctx.fillStyle = `rgba(${rgb}, ${cut ? 0.08 + 0.12 * q.conf : 0.2 + 0.35 * q.conf})`; ctx.strokeStyle = `rgba(${rgb}, 0.95)`; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.fill();
+        ctx.setLineDash(cut ? [4, 3] : []);
+        const edge = (i, j) => { ctx.beginPath(); ctx.moveTo(c4[i][0], c4[i][1]); ctx.lineTo(c4[j][0], c4[j][1]); ctx.stroke(); };
+        if (!q.cutBase) edge(0, 1); edge(1, 2); if (!q.cutTop) edge(2, 3); edge(3, 0);
+        ctx.setLineDash([]);
+      });
+      const nCut = pts.filter(q => q.cutBase || q.cutTop).length;
+      note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; the surface is its ground, through their feet and roots: flat where it has no evidence, raised or lowered where a thing stands bigger or smaller than its kind's line predicts; pink: hosts, green: plants, standing on it`
+             + (nCut ? `; dashed: ${nCut} cut by the frame's edge (measuring nothing)` : '')
              + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));
     }
     // inset: the lines its trees read on its eye
@@ -1413,17 +1423,37 @@ PAGE = r"""<!doctype html>
     const c = $('space'); if (!c) return;
     const active = steerable(c);
     const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
-    const redraw = () => { if (SP3.d) drawSpace(SP3.d); };
+    const redraw = () => { SP3.dirty = true; spaceKick(); };
+    const P = new Map(); let pinch = null;
     c.addEventListener('wheel', e => { if (!active()) return; e.preventDefault(); SP3.zoom = Math.max(0.4, Math.min(6, SP3.zoom * Math.exp(-e.deltaY * 0.0015))); redraw(); }, { passive: false });
     c.addEventListener('dblclick', () => { if (!active()) return; SP3.yaw = -0.5; SP3.pitch = 0.45; SP3.zoom = 1; redraw(); });
-    c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); SP3.drag = pt(e); });
+    c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); P.set(e.pointerId, pt(e)); pinch = null; c.style.cursor = 'grabbing'; });
     c.addEventListener('pointermove', e => {
-      if (!SP3.drag) return;
-      const now = pt(e); SP3.yaw += (now[0] - SP3.drag[0]) * 0.008; SP3.pitch = Math.max(0.05, Math.min(1.4, SP3.pitch + (now[1] - SP3.drag[1]) * 0.008)); SP3.drag = now; redraw();
+      if (!P.has(e.pointerId)) return;
+      const prev = P.get(e.pointerId), now = pt(e); P.set(e.pointerId, now);
+      if (P.size === 2) {  // two fingers zoom; they never turn it
+        const [a, b] = [...P.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (pinch) SP3.zoom = Math.max(0.4, Math.min(6, SP3.zoom * dist / pinch));
+        pinch = dist; redraw(); return;
+      }
+      if (P.size > 2) return;
+      SP3.yaw += (now[0] - prev[0]) * 0.008; SP3.pitch = Math.max(0.05, Math.min(1.4, SP3.pitch + (now[1] - prev[1]) * 0.008)); redraw();
     });
-    const up = () => { SP3.drag = null; };
+    const up = e => { P.delete(e.pointerId); pinch = null; if (!P.size) c.style.cursor = ''; };
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
   })();
+  function spaceKick() {  // drawn on the next frame, only while on screen and the tab is visible
+    if (SP3.loop) return;
+    SP3.loop = true;
+    requestAnimationFrame(() => {
+      const c = $('space'), r = c && c.getBoundingClientRect();
+      if (SP3.dirty && SP3.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { SP3.dirty = false; drawSpace(SP3.d); }
+      SP3.loop = false;
+    });
+  }
+  function spaceData(d) { SP3.d = d; SP3.dirty = true; spaceKick(); }
+  addEventListener('scroll', () => { if (SP3.dirty) spaceKick(); }, { passive: true });
+  document.addEventListener('visibilitychange', () => { if (SP3.dirty) spaceKick(); });
   // The retina panel runs on the same replay clock as the picture and the
   // visual field: its gaze where the replayed path has it, and its n x n
   // retina rebuilt here from the frame on screen with the same averaging its
@@ -2068,7 +2098,7 @@ PAGE = r"""<!doctype html>
   }
   const CH_EXTRA = {};
   function redrawAll() {
-    if (D) { drawBody(D); drawBrain(D); drawSenses(D); drawSpace(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
+    if (D) { drawBody(D); drawBrain(D); drawSenses(D); spaceData(D); if (D.trees) renderTrees(D.trees, D.tree_stats, D.tree_limits); }  // the retina panel redraws itself (drawLook, every frame)
     balanceSide();
     if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, ch.hourly ? lastHourly : lastHistory));
   }
@@ -2180,7 +2210,7 @@ PAGE = r"""<!doctype html>
         $('h-prey').textContent = ['eyes only', 'scent', 'scent + direction'][d.prey_sense ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? (d.host_cores ? `${(d.quota_pct / 100).toFixed(1)} of ${d.host_cores} cores` : d.quota_pct + '% of a core') : '--';  // systemd's % = one core
         $('h-stale').innerHTML = '';
-        drawBody(d); drawBrain(d); drawSenses(d); drawSpace(d); showLive(d);
+        drawBody(d); drawBrain(d); drawSenses(d); spaceData(d); showLive(d);
         if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
     } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }
