@@ -597,7 +597,7 @@ LOCK_HUD_JS = r"""
 # The client-facing page: only the picture and the target lock (its latest
 # run, replayed). The viewer ("/") is the operators' view with its insides.
 LIVE_PAGE = r"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>__HOST__ | CP</title>
 <style>
   html, body { margin: 0; height: 100%; background: #05080c; color: #f0d6cf; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
@@ -643,7 +643,7 @@ PAGE = r"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>__HOST__ | CP</title>
 <style>
   :root { --bg:#0b0706; --panel:#130b0a; --line:#2b1714; --text:#f0d6cf; --dim:#9a6f67; --cyan:#ffb4a6; --green:#ffe2d6; --orange:#ff7a45; --red:#ff3b28; --yellow:#ffb066; --violet:#e0909c; --pink:#ff6f8a; --magenta:#ff4f6f; }
@@ -660,14 +660,16 @@ PAGE = r"""<!doctype html>
   .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; cursor: zoom-out; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
   .panel.maximized:fullscreen { inset: 0; border-radius: 0; border: 0; box-shadow: none; }
   .panel.maximized::backdrop { background: var(--bg, #000); }
-  body.has-max { overflow: hidden; }
+  body.has-max { overflow: hidden; touch-action: none; }
   .video16x9 { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
   .video16x9 iframe, .video16x9 img, .video16x9 canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
   .video16x9 canvas { pointer-events: none; }
   /* the picture alone full screen (a click on it); where a browser can't, it fills the page */
   .video16x9 { cursor: zoom-in; }
-  .video16x9:fullscreen, .video16x9.filling { aspect-ratio: auto; cursor: zoom-out; }
-  .video16x9.filling { position: fixed; inset: 0; z-index: 1001; width: auto; }
+  .video16x9:fullscreen, .video16x9.filling { aspect-ratio: auto; cursor: zoom-out; background: #000; }
+  /* iPhone: no full screen for anything but <video>, so the picture is lifted out of the page and fills the
+     screen -- black to the edges, under the notch and the home bar, the page frozen behind it */
+  .video16x9.filling { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 2000; margin: 0; }
   .quad > .panel > canvas, .quad > .panel > .video16x9 { margin-bottom: 8px; }
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   #left-stack { align-self: start; }  /* its own height, so charts can fill the rest beside the body */
@@ -2141,6 +2143,24 @@ PAGE = r"""<!doctype html>
     balanceSide();
     if (lastHistory) CHARTS.forEach(ch => ch.mutations ? mutChart(ch, lastHistory) : lineChart(ch, ch.hourly ? lastHourly : lastHistory));
   }
+  // Where a browser has no full screen for it (an iPhone), the picture is lifted
+  // to the page's top level -- so no card or grid around it can box it in --
+  // and put back where it was.
+  const FILL = { home: null, next: null };
+  function fillScreen(el, on) {
+    if (on) {
+      FILL.home = el.parentNode; FILL.next = el.nextSibling;
+      document.body.appendChild(el);
+      el.classList.add('filling');
+      document.body.classList.add('has-max');
+    } else {
+      el.classList.remove('filling');
+      if (FILL.home) FILL.home.insertBefore(el, FILL.next);
+      FILL.home = FILL.next = null;
+      document.body.classList.remove('has-max');
+    }
+    requestAnimationFrame(redrawAll);
+  }
   function setMax(panel) {
     document.querySelectorAll('.panel.maximized').forEach(p => { if (p !== panel) p.classList.remove('maximized'); });
     const on = panel ? panel.classList.toggle('maximized') : false;
@@ -2162,9 +2182,9 @@ PAGE = r"""<!doctype html>
     const vid = e.target.closest('.video16x9');
     if (vid) {  // the video: the picture alone goes full screen, not its card
       if (document.fullscreenElement === vid) document.exitFullscreen().catch(() => {});
-      else if (vid.classList.contains('filling')) vid.classList.remove('filling');
-      else if (vid.requestFullscreen) vid.requestFullscreen({ navigationUI: 'hide' }).catch(() => vid.classList.add('filling'));
-      else vid.classList.add('filling');
+      else if (vid.classList.contains('filling')) fillScreen(vid, false);
+      else if (vid.requestFullscreen) vid.requestFullscreen({ navigationUI: 'hide' }).catch(() => fillScreen(vid, true));
+      else fillScreen(vid, true);
       requestAnimationFrame(redrawAll);
       return;
     }
