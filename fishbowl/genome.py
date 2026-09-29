@@ -57,7 +57,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
-            "mutate_setpoints", "mutate_bore", "mutate_archetypes")
+            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity")
 STABILIZER_SIGMA = 0.1
 MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
@@ -227,6 +227,7 @@ class Genome:
         bore: float = 1.0,
         archetypes: int = 0,
         archetype_classes: list | None = None,
+        plasticity: float = 0.0,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
     ):
@@ -266,6 +267,8 @@ class Genome:
         # Archetype heads (mushroom.py; born 0) and which detector class each is taught by.
         self.archetypes = int(np.clip(archetypes, 0, 4))
         self.archetype_classes = ([int(c) for c in (archetype_classes or [])] + [0, 0, 0, 0])[:4]
+        # Sleep distillation's rate (organism.py; born 0: its brain never learns in life).
+        self.plasticity = float(np.clip(plasticity, 0.0, LEARNING_MAX))
         # Its fuel set points (state.py), inherited, born at the rulebook's
         # values: blood sugar below `mobilize` counts as fasted (glucagon),
         # above `store` a surplus goes to fat (insulin). 0 < mobilize < store < 1.
@@ -355,6 +358,7 @@ class Genome:
             self.bore,
             self.archetypes,
             list(self.archetype_classes),
+            self.plasticity,
             self.mobilize,
             self.store,
         )
@@ -578,6 +582,18 @@ class Genome:
             old = self.plant_sense
             self.plant_sense = int(np.clip(old + rng.choice((-1, 1)), 0, 2))
             return "prey", (choice if self.plant_sense != old else "noop_inapplicable")
+        if choice == "mutate_apical":  # its pyramidal units' coincidence gain, stepped like a trait
+            self.brain.apical = float(self.brain.apical + rng.gauss(0.0, TRAIT_SIGMA))
+            return "brain", choice
+        if choice == "mutate_plasticity":  # drawn and stepped as the learning rates are
+            old = self.plasticity
+            if old <= 0.0:
+                self.plasticity = float(LEARNING_MIN * (LEARNING_MAX / LEARNING_MIN) ** rng.random())
+            else:
+                self.plasticity = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), LEARNING_MIN, LEARNING_MAX))
+                if rng.random() < 0.1:
+                    self.plasticity = 0.0  # it can be lost again
+            return "brain", (choice if self.plasticity != old else "noop_inapplicable")
         if choice == "mutate_archetypes":  # one more or fewer head, or a head taught by another class
             from .prey import PLANT_CLASS, PREY_CLASSES
             classes = sorted(PREY_CLASSES) + [PLANT_CLASS]
@@ -809,6 +825,7 @@ class Genome:
             "bore": self.bore,
             "archetypes": self.archetypes,
             "archetype_classes": list(self.archetype_classes),
+            "plasticity": self.plasticity,
             "mobilize": self.mobilize,
             "store": self.store,
         }
@@ -882,6 +899,7 @@ class Genome:
             bore=float(data.get("bore", 1.0)),
             archetypes=int(data.get("archetypes", 0)),
             archetype_classes=data.get("archetype_classes"),
+            plasticity=float(data.get("plasticity", 0.0)),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),
         )

@@ -138,7 +138,7 @@ REFERENCE_MACS = _macs(HIDDEN, BASE_INPUTS, BASE_OUTPUTS)  # the original brain:
 
 class MosquitoBrain:
     def __init__(self, weights_ih, weights_hh, weights_ho, bias_h, bias_o, channels: list[dict] | None = None,
-                 layers: list[dict] | None = None):
+                 layers: list[dict] | None = None, apical: float = 0.0):
         self.weights_ih = np.array(weights_ih, dtype=float)  # (hidden, inputs)
         self.weights_hh = np.array(weights_hh, dtype=float)  # (hidden, hidden)
         self.weights_ho = np.array(weights_ho, dtype=float)  # (outputs, hidden)
@@ -151,6 +151,15 @@ class MosquitoBrain:
         self.layers = [{"W": np.array(l["W"], dtype=float), "U": np.array(l["U"], dtype=float),
                         "b": np.array(l["b"], dtype=float), "gate": np.array(l["gate"], dtype=float).reshape(1)}
                        for l in (layers or [])]
+        # Pyramidal units (a 2026-09-29 panel; Larkum 2013): each hidden unit
+        # has a basal compartment (what the senses say, W_ih x) and an apical
+        # one (context: its own recurrent state, W_hh h). With apical gain a,
+        # h = tanh(b + basal + context + a * basal * tanh(context)): a unit
+        # fires far more when evidence and context agree (coincidence
+        # detection). Born 0 -- the old point neuron -- and evolvable.
+        self.apical = float(apical)
+        self.last_top = None     # what fed its outputs last step, and what they were (sleep distillation)
+        self.last_outputs = None
         # Hidden units still alive in a wasting body (fishbowl/organism.py); None = all.
         self.live_units: int | None = None
         self.reset_hidden()
@@ -260,7 +269,11 @@ class MosquitoBrain:
                 self.loop_in[k] = max(-1.0, min(1.0, base[ch["target"]] - self._pred[k]))
         x = np.concatenate([base, self.loop_in]) if self.channels else base
         # Recurrent hidden update h = tanh(W_ih x + W_hh h_prev + b_h); motor readout o = tanh(W_ho h + b_o).
-        self.hidden = np.tanh(self.bias_h + self.weights_ih @ x + self.weights_hh @ self.hidden)
+        basal, context = self.weights_ih @ x, self.weights_hh @ self.hidden
+        if self.apical:
+            self.hidden = np.tanh(self.bias_h + basal + context + self.apical * basal * np.tanh(context))
+        else:
+            self.hidden = np.tanh(self.bias_h + basal + context)
         live = self.live_units
         if live is not None and live < self.n_hidden:  # units lost to wasting are silent
             self.hidden[live:] = 0.0
@@ -273,6 +286,7 @@ class MosquitoBrain:
                     self.layer_hidden[k][live:] = 0.0
                 top = top + g * self.layer_hidden[k]
         outputs = np.tanh(self.bias_o + self.weights_ho @ top)
+        self.last_top, self.last_outputs = top, outputs
         for k, ch in enumerate(self.channels):
             o = outputs[BASE_OUTPUTS + k]
             if ch["kind"] == "predict":
@@ -288,7 +302,8 @@ class MosquitoBrain:
         to wasting cost nothing)."""
         h = self.n_hidden if self.live_units is None else max(0, min(self.n_hidden, self.live_units))
         stacked = sum(2 * h * h + h for l in self.layers if float(l["gate"][0]) != 0.0)
-        return (_macs(h, self.weights_ih.shape[1], self.weights_ho.shape[0]) + stacked) / REFERENCE_MACS
+        apical = 2 * h if self.apical else 0  # the coincidence term: two more multiplies a unit
+        return (_macs(h, self.weights_ih.shape[1], self.weights_ho.shape[0]) + stacked + apical) / REFERENCE_MACS
 
     def macs(self) -> int:
         """Multiply-adds in one step of this brain (open stacked layers included)."""
@@ -401,7 +416,7 @@ class MosquitoBrain:
     def clone(self) -> MosquitoBrain:
         return MosquitoBrain(self.weights_ih.copy(), self.weights_hh.copy(), self.weights_ho.copy(),
                              self.bias_h.copy(), self.bias_o.copy(), channels=self.channels,
-                             layers=[{k: v.copy() for k, v in l.items()} for l in self.layers])
+                             layers=[{k: v.copy() for k, v in l.items()} for l in self.layers], apical=self.apical)
 
     def mutate(self, rng: random.Random, sigma: float = 0.05) -> int:
         """
@@ -437,6 +452,7 @@ class MosquitoBrain:
             "layers": [{k: v.tolist() for k, v in l.items()} for l in self.layers],
             "base_inputs": BASE_INPUTS,
             "base_outputs": BASE_OUTPUTS,
+            "apical": self.apical,
         }
 
     @classmethod
@@ -455,4 +471,4 @@ class MosquitoBrain:
         weights_ho = ho[:n_out_saved] + [[0.0] * n_hid for _ in range(BASE_OUTPUTS - n_out_saved)] + ho[n_out_saved:]
         bias_o = bo[:n_out_saved] + [0.0] * (BASE_OUTPUTS - n_out_saved) + bo[n_out_saved:]
         return cls(weights_ih, data["weights_hh"], weights_ho, data["bias_h"], bias_o, channels=channels,
-                   layers=data.get("layers"))
+                   layers=data.get("layers"), apical=float(data.get("apical", 0.0)))

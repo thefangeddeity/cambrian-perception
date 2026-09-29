@@ -377,7 +377,19 @@ class Organism:
         # metabolic rate acclimatizes to it slowly (MosquitoState.metabolic_rate).
         self.pace = max(1, int(getattr(g, "pace", 1)))
         self.drive_start = self.body.drive()
-        self.brain = g.brain
+        # Sleep distillation (a 2026-09-29 panel; complementary learning systems,
+        # McClelland, McNaughton & O'Reilly 1995; skills consolidate in sleep,
+        # Walker & Stickgold): with plasticity > 0 its brain's output weights
+        # -- the plastic slice -- learn in NREM from replayed episodes that went
+        # better than usual: they move toward what it did then (reward-
+        # weighted, like habits forming). Its own copy of the brain, this life
+        # only; the genome's brain never changes (Darwinian, Dawkins, Wagner).
+        self.plasticity = float(getattr(g, "plasticity", 0.0))
+        self.brain = g.brain.clone() if self.plasticity > 0.0 else g.brain
+        self.episode_acts: list = []   # each episode's (what fed its outputs, what they were), for distillation
+        self.mean_reward = 0.0
+        self.distilled = 0
+        self.distill_macs = 0
         self.brain.reset_hidden()
         self.brain.live_units = None  # all alive until wasting says otherwise (set every look)
         # What the gaze has seen per world location, and how much each spot
@@ -1072,6 +1084,31 @@ class Organism:
         self.followed = (box, self.lived_s, (0.0, 0.0))
         return 0.0, 0.0
 
+    def _distill(self, i: int, value: float) -> None:
+        """One replayed episode, better than its usual (advantage > 0), makes
+        what it did then more decisive: each output is pulled toward the full
+        commitment of what it did (its sign) -- habits forming (Graybiel). The
+        delta rule on the output layer, scaled by plasticity x advantage; it
+        stops by itself as an output saturates, so it can't run away."""
+        act = self.episode_acts[i] if i < len(self.episode_acts) else None
+        adv = value - self.mean_reward
+        b = self.brain
+        if act is None or adv <= 0.0:
+            return
+        top, did = act
+        if top.shape[0] != b.weights_ho.shape[1] or did.shape[0] != b.weights_ho.shape[0]:
+            return  # its brain has changed shape since (an adoption): that moment no longer fits
+        now = np.tanh(b.bias_o + b.weights_ho @ top)
+        delta = (np.sign(did) - now) * (1.0 - now * now) * self.plasticity * min(1.0, adv)
+        b.weights_ho += np.outer(delta, top)
+        b.bias_o += delta
+        self.distilled += 1
+        self.distill_macs += 3 * b.weights_ho.size
+
+    def _act_now(self):
+        b = self.brain
+        return None if b.last_top is None else (np.array(b.last_top, copy=True), np.array(b.last_outputs, copy=True))
+
     def _remember(self, episode, priority: float, meta) -> None:
         """A new episode. Its memory holds about one episode per Kenyon cell (a
         sparse associative memory holds at least as many patterns as it has
@@ -1081,13 +1118,18 @@ class Organism:
         cap = max(1, self.live_kc or self.mb.n_kc)
         while len(self.episode_meta) < len(self.episodes):
             self.episode_meta.append(None)
+        while len(self.episode_acts) < len(self.episodes):
+            self.episode_acts.append(None)
+        act = self._act_now() if self.plasticity > 0.0 else None
+        self.mean_reward += (episode[1] - self.mean_reward) / min(len(self.episodes) + 1, cap)
         if len(self.episodes) < cap:
             self.episodes.append(episode)
             self.priority.append(priority)
             self.episode_meta.append(meta)
+            self.episode_acts.append(act)
             return
         j = int(np.argmin(self.priority))
-        self.episodes[j], self.priority[j], self.episode_meta[j] = episode, priority, meta
+        self.episodes[j], self.priority[j], self.episode_meta[j], self.episode_acts[j] = episode, priority, meta, act
         self._stale += 1
         if self._index_of is self.episodes:  # the recall index: the slot's new cells (its old ones go stale)
             for k in episode[0].tolist():
@@ -1195,6 +1237,7 @@ class Organism:
     def _replay(self, asleep_settled: bool, quiet: bool) -> int:
         """Re-learning from this life's episodes; returns the multiply-adds spent."""
         count = self.sleep_replay if asleep_settled else self.awake_replay if quiet else 0
+        self.distill_macs = 0
         if not count or not self.episodes or self.learning_rate <= 0.0 or not self.mb.n_kc:
             return 0
         rng = np.random.default_rng(self.k)  # reproducible: the same life replays the same way
@@ -1236,9 +1279,11 @@ class Organism:
                 if self._in_map(cell):  # (a memory from a differently shaped world touches no map)
                     self.place[cell] += self.learning_rate * (target - self.place[cell])
                 self.chain = (i - 1, seq) if self.replay_backup > 0.0 else None
+                if asleep_settled and self.plasticity > 0.0:
+                    self._distill(i, target)
                 self.replays["nrem" if asleep_settled else "awake"] += 1
                 self._log_replay("nrem" if asleep_settled else "awake", cell, seq)
-        return count * kc_macs(self.live_kc)
+        return count * kc_macs(self.live_kc) + self.distill_macs
 
     def _in_map(self, cell) -> bool:
         """A field cell that exists on its maps now (memories formed on a

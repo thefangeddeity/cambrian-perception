@@ -346,3 +346,19 @@ can afford more and bigger ones.
   why, falling asleep, swats, new and revisited scenes, kept self-edits.
 - Memories formed on a stream of another shape replay without touching maps
   whose cells don't exist on the current one.
+
+## Consolidation and pyramidal units (2026-09-29)
+
+- **Sleep distillation** (inherited plasticity, born 0; complementary learning
+  systems, McClelland, McNaughton & O'Reilly 1995; skills consolidate in
+  sleep, Walker & Stickgold): in NREM, a replayed episode that went better
+  than its usual makes what it did then more decisive -- its brain's output
+  weights (the plastic slice) are pulled toward the full commitment of that
+  action, scaled by plasticity x advantage. It stops by itself as outputs
+  saturate. Its own copy of the brain, this life only (a transplant that
+  leaves the brain's genes alone keeps it). Priced per weight changed.
+- **Pyramidal units** (inherited apical gain, born 0; Larkum 2013): each
+  hidden unit has a basal compartment (the senses) and an apical one (its own
+  recurrent context); h = tanh(b + basal + context + a x basal x
+  tanh(context)) -- far more firing when evidence and context agree. Two more
+  multiplies a unit when on.

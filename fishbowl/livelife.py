@@ -78,6 +78,12 @@ def _carry(old: Organism, new: Organism) -> None:
             and old.g.trees["response"].to_dict() == new.g.trees["response"].to_dict():
         new.tree, new.tree_macs = old.tree, old.tree_macs
     new.uncertainty, new.just_missed = old.uncertainty, old.just_missed
+    new.episode_acts, new.mean_reward, new.distilled = old.episode_acts, old.mean_reward, old.distilled
+    # what its brain distilled in sleep survives a transplant that left the brain's genes alone
+    if new.plasticity > 0.0 and old.plasticity > 0.0 and old.brain is not old.g.brain \
+            and old.g.brain.weights_ho.shape == new.g.brain.weights_ho.shape \
+            and np.array_equal(old.g.brain.weights_ho, new.g.brain.weights_ho) and np.array_equal(old.g.brain.bias_o, new.g.brain.bias_o):
+        new.brain.weights_ho, new.brain.bias_o = old.brain.weights_ho.copy(), old.brain.bias_o.copy()
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
     new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
@@ -175,6 +181,7 @@ def _circuits(org: Organism) -> dict:
                     "mismatch": round(float(org.mismatch), 3), "woke_by": b.woke_by,
                     "recall": bool(org.recall), "recalled": org.recalled,
                     "sleep_set": org.sleep_set, "edits": [org.edits_kept, org.edits_tried],
+                    "plasticity": round(float(org.plasticity), 4), "distilled": org.distilled, "apical": round(float(org.brain.apical), 3),
                     "episodes": len(org.episodes), "replays": dict(org.replays),
 
                     "scene": org.scene + 1 if org.scenes else 1, "scenes": max(1, len(org.scenes)), "max_scenes": org.max_scenes,
