@@ -22,7 +22,8 @@ supervisor, the CPU budget, where frames live, and the camera.
   code, unless `CAMBRIAN_PREY_MODEL` says otherwise. Beside it, optional:
   `yolov8n-oiv7.onnx` and `yolov8n-oiv7.names.json` (Ultralytics' Open
   Images V7 YOLOv8n, exported to ONNX at 640 with its class names), which
-  finds flowers and fruit as nectar. Without them only potted plants are.
+  finds every plant (Open Images' "Plant" classes) as a sugar source. Without
+  them only potted plants are.
 - **State that survives upgrades and uninstall** (`state/`: checkpoint,
   logs). Removing it takes an explicit purge.
 

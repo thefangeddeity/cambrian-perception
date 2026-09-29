@@ -64,11 +64,14 @@ backup fuel.
   comes first. Its mushroom body learns sips as food, so its place map learns
   where the pot is. A plant sense (scent, then direction) is inherited, born
   off, priced like the prey sense. Plants are never hosts.
-  Flowers and fruit count as plants too: COCO has no flowers, so a second
-  YOLOv8n, trained on Open Images V7, looks for them (flower, rose, lily,
-  sunflower, lavender, houseplant, flowerpot, fruit, strawberry, grapefruit)
-  about every 30 s on its own thread; plants don't move. Foliage, trees and
-  lawns are scenery, not nectar.
+  Every plant counts, not only potted ones: COCO has no others, so a second
+  YOLOv8n, trained on Open Images V7, finds them, about every 30 s on its own
+  thread (plants don't move). Which classes are plants is Open Images' own
+  hierarchy (everything under its "Plant" node: tree, flower, houseplant,
+  rose, lily, sunflower, lavender, maple, willow, palm tree, Christmas tree),
+  not a pick of ours. All hold sugar under the same rule (nectar, and plant
+  tissue, which mosquitoes also drink from: Foster 1995); which are worth it
+  is for its plant sense and learned values to find.
 - **Snacks are surprise** (nectar in name only).
 
 ## Signals cost their sender

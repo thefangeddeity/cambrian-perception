@@ -56,16 +56,20 @@ PERSON_CLASS = 0
 # plant". They are never hosts -- the organism takes them apart from hosts
 # at its first frame (organism.py) and everything else sees hosts only.
 PLANT_CLASS = 58
-# COCO's only plant is a potted one: a park or garden's flowers never
+# COCO's only plant is a potted one: a park or garden's plants never
 # registered. So a second detector, the same YOLOv8n trained on Open Images
 # V7 (Ultralytics' shipped 601-class export, models/yolov8n-oiv7.onnx), finds
-# flowers and fruit -- mosquitoes' sugar is floral nectar and fruit juice
-# (Vosshall on the 2026-09-28 panel) -- and they become plants too. Foliage
-# ("Plant", "Tree", a lawn) is scenery, not nectar. Plants don't move, so it
-# runs about every FLOWER_EVERY_S (an engineering budget, the 2026-09-28
-# infrastructure review: under 1% of a core) and its last result is reused.
-NECTAR_OIV7 = {"Flower", "Rose", "Lily", "Common sunflower", "Lavender (Plant)", "Houseplant", "Flowerpot",
-               "Fruit", "Strawberry", "Grapefruit"}
+# plants too. Which classes are plants is not ours to pick: it is Open
+# Images' own class hierarchy -- every class under its "Plant" node
+# (/m/05s2s, bbox_labels_600_hierarchy.json). All are sugar sources under the
+# same nectar rule: floral nectar, and plant tissue, which mosquitoes also
+# feed on (Foster 1995); which ones are worth visiting is for its inherited
+# plant sense and its mushroom body's learned values to find out. (Fruit is
+# filed under Open Images' "Food", not "Plant", so it is not here.) Plants
+# don't move, so it runs about every FLOWER_EVERY_S (an engineering budget,
+# the 2026-09-28 infrastructure review) on its own thread.
+NECTAR_OIV7 = {"Plant", "Tree", "Flower", "Houseplant", "Rose", "Lily", "Common sunflower", "Lavender (Plant)",
+               "Maple", "Willow", "Palm tree", "Christmas tree"}
 FLOWER_EVERY_S = 30.0
 
 def hosts_only(boxes):
