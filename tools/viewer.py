@@ -764,7 +764,7 @@ PAGE = r"""<!doctype html>
     <canvas id="brain" height="520"></canvas>
     <canvas id="mb" height="150" style="margin-top:6px"></canvas>
     <div class="cap" id="mb-cap"></div>
-    <div class="cap"><b id="brain-mb">--</b>. <b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
   </div>
   <div class="stack">
     <div class="panel">
@@ -1140,9 +1140,9 @@ PAGE = r"""<!doctype html>
     if (MB3.n !== n) { MB3.pos = mbPositions(n); MB3.n = n; }
     ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
     const cy = Math.cos(MB3.yaw), sy = Math.sin(MB3.yaw), cp = Math.cos(MB3.pitch), sp = Math.sin(MB3.pitch);
-    const scale = Math.min(W, H) * 0.42 * MB3.zoom, F = 3.4;
+    const scale = Math.min(W, H) * 0.36 * MB3.zoom, F = 3.4;
     const proj = (x, y, z) => {
-      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, w = F / (F + z2);
+      const x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = (y + 0.08) * cp - z1 * sp, z2 = (y + 0.08) * sp + z1 * cp, w = F / (F + z2);
       return [W / 2 + x1 * scale * w, H / 2 + y2 * scale * w, z2, w];
     };
     const food = int8s(mb.food), danger = int8s(mb.danger), on = new Set(mb.active || []);
@@ -1244,7 +1244,7 @@ PAGE = r"""<!doctype html>
     const W = Math.max(200, c.parentElement.clientWidth - 24), H = Math.round(W * 0.6);
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     MB3.d = d; MB3.dirty = true; mbKick();
-    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing. Green = food, red = danger. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
+    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Green = food, red = danger. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
   }
 
   // The retina panel runs on the same replay clock as the picture and the
@@ -1422,7 +1422,7 @@ PAGE = r"""<!doctype html>
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
     drawMB(d);
     drawReplayEye(d);
-    if ($('brain-mb')) $('brain-mb').textContent = d.kc ? `Mushroom body: ${d.kc} Kenyon cells, learning rate ${(d.learning_rate || 0).toFixed(3)}, food value now ${(d.food_value ?? 0).toFixed(2)}` : 'No mushroom body yet (lifetime learning evolves)';
+    if ($('brain-mb')) $('brain-mb').textContent = d.kc ? '' : 'No mushroom body yet (lifetime learning evolves). ';
     if ($('brain-layers')) { const ls = br.layers || [], on = ls.filter(l => l.gate && l.gate[0] !== 0); $('brain-layers').textContent = `${on.length} layer${on.length === 1 ? '' : 's'}` + (ls.length > on.length ? ` (+${ls.length - on.length} silent)` : '') + (on.length ? ` -- gates ${on.map(l => l.gate[0].toFixed(2)).join(', ')}` : ''); }
     const c = $('brain'), W = Math.max(200, fitWidth($('brain').closest('.panel'), quadAspect()));
     // Same shape as the other three; a narrow phone screen gets extra height
