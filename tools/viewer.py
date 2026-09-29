@@ -1119,7 +1119,7 @@ PAGE = r"""<!doctype html>
   // firing now glow and send their axons down the peduncle, which splits into
   // the medial lobe (its food-value readout) and the vertical lobe (danger).
   // Orbit, zoom, hover as the brain; it redraws on new data or a touch.
-  const MB3 = { yaw: 0.6, pitch: 0.25, zoom: 1, vyaw: 0, touched: performance.now() - 4000, loop: false, dirty: true, d: null, drag: null, pos: null, n: 0, hover: null };
+  const MB3 = { yaw: 2.95, pitch: 0.1, zoom: 1, loop: false, dirty: true, d: null, drag: null, pos: null, n: 0, hover: null };
   function mbPositions(n) {
     const pos = new Float32Array(n * 3), ga = Math.PI * (3 - Math.sqrt(5));
     for (let k = 0; k < n; k++) {  // a cup: the upper part of a sphere, cells spread evenly over it and through its wall
@@ -1141,6 +1141,14 @@ PAGE = r"""<!doctype html>
       return [W / 2 + x1 * scale * w, H / 2 + y2 * scale * w, z2, w];
     };
     const food = int8s(mb.food), danger = int8s(mb.danger), on = new Set(mb.active || []);
+    // Colour: each cell by what it has learned, relative to the strongest cell
+    // (green food, red danger, amber learned-bad food); faint unless firing.
+    let fmax = 1e-6, gmax = 1e-6;
+    for (let k = 0; k < Math.min(n, mb.live); k++) { if (food) fmax = Math.max(fmax, Math.abs(food[k])); if (danger) gmax = Math.max(gmax, Math.max(0, danger[k])); }
+    const cellRGB = k => {
+      const f = food ? food[k] / fmax : 0, g = danger ? Math.max(0, danger[k]) / gmax : 0;
+      return [Math.round(45 + 210 * Math.max(g, f < 0 ? -f : 0)), Math.round(45 + 210 * Math.max(0, f) + (f < 0 ? 110 * -f : 0)), 45];
+    };
     // the peduncle and the two lobes: a stalk down from the calyx, then a fork
     const PED = [0, -0.05, 0], MED = [0.95, 0.55, 0], VER = [-0.35, 0.95, 0.35];
     const tube = (a, b2, col, wd) => { const A = proj(...a), B = proj(...b2); ctx.strokeStyle = col; ctx.lineWidth = wd * (A[3] + B[3]) / 2; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke(); };
@@ -1157,8 +1165,8 @@ PAGE = r"""<!doctype html>
     on.forEach(k => {
       if (k >= n) return;
       const f = food ? food[k] / 127 : 0, g = danger ? danger[k] / 127 : 0; fsum += f; gsum += g;
-      const A = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), B = proj(...PED);
-      ctx.strokeStyle = 'rgba(255,240,200,0.10)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+      const A = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), B = proj(...PED), cc = cellRGB(k);
+      ctx.strokeStyle = `rgba(${cc[0]},${cc[1]},${cc[2]},0.22)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
     });
     if (on.size) {
       const ped = proj(...PED), m = proj(...MED), v = proj(...VER), fa = Math.min(1, Math.abs(fsum) / Math.max(1, on.size) * 3), ga2 = Math.min(1, Math.abs(gsum) / Math.max(1, on.size) * 3);
@@ -1169,14 +1177,14 @@ PAGE = r"""<!doctype html>
     pts.forEach(([k, q]) => {
       const fog = Math.max(0.35, Math.min(1, 0.7 - 0.4 * q[2]));
       if (k >= mb.live) { ctx.fillStyle = `rgba(60,60,60,${0.5 * fog})`; ctx.fillRect(q[0] - dot / 2, q[1] - dot / 2, dot, dot); return; }
-      const f = food ? Math.max(0, food[k] / 127) : 0, g = danger ? Math.max(0, danger[k] / 127) : 0, lit = on.has(k), base = lit ? 150 : 30;
-      ctx.fillStyle = `rgba(${Math.round(base + 200 * g)},${Math.round(base + 200 * f)},${base},${fog})`;
+      const cc = cellRGB(k), lit = on.has(k), a = (lit ? 1 : 0.4) * fog;
+      ctx.fillStyle = `rgba(${cc[0]},${cc[1]},${cc[2]},${a})`;
       const z = lit ? dot * 1.8 : dot;
       ctx.fillRect(q[0] - z / 2, q[1] - z / 2, z, z);
     });
     if (on.size) {  // the firing cells glow
       ctx.globalCompositeOperation = 'lighter';
-      on.forEach(k => { if (k >= n) return; const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), r = 5 * dot; const gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); gr.addColorStop(0, 'rgba(255,240,200,0.35)'); gr.addColorStop(1, 'rgba(255,240,200,0)'); ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, 2 * r, 2 * r); });
+      on.forEach(k => { if (k >= n) return; const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]), r = 5 * dot, cc = cellRGB(k); const gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); gr.addColorStop(0, `rgba(${cc[0]},${cc[1]},${cc[2]},0.4)`); gr.addColorStop(1, `rgba(${cc[0]},${cc[1]},${cc[2]},0)`); ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, 2 * r, 2 * r); });
       ctx.globalCompositeOperation = 'source-over';
     }
     // the two readouts
@@ -1199,15 +1207,10 @@ PAGE = r"""<!doctype html>
   function mbKick() {
     if (MB3.loop) return;
     MB3.loop = true;
-    let last = performance.now();
-    const tick = now => {
-      const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      const since = now - MB3.touched, drifting = since > 4000 && since < 24000 && !MB3.drag && MB3.hover == null;
-      MB3.vyaw += ((drifting ? 0.12 : 0) - MB3.vyaw) * Math.min(1, dt * 1.5);
-      MB3.yaw += MB3.vyaw * dt;
+    const tick = () => {
       const c = $('mb'), r = c && c.getBoundingClientRect();
-      if ((Math.abs(MB3.vyaw) > 1e-4 || MB3.dirty) && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { MB3.dirty = false; drawMB3D(); }
-      if (since < 24000 || Math.abs(MB3.vyaw) > 1e-4 || MB3.dirty) requestAnimationFrame(tick); else { MB3.vyaw = 0; MB3.loop = false; }
+      if (MB3.dirty && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { MB3.dirty = false; drawMB3D(); }
+      MB3.loop = false;
     };
     requestAnimationFrame(tick);
   }
@@ -1217,7 +1220,7 @@ PAGE = r"""<!doctype html>
     const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
     const touch = () => { MB3.touched = performance.now(); MB3.dirty = true; mbKick(); };
     c.addEventListener('wheel', e => { e.preventDefault(); MB3.zoom = Math.max(0.5, Math.min(8, MB3.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
-    c.addEventListener('dblclick', () => { MB3.yaw = 0.6; MB3.pitch = 0.25; MB3.zoom = 1; touch(); });
+    c.addEventListener('dblclick', () => { MB3.yaw = 2.95; MB3.pitch = 0.1; MB3.zoom = 1; touch(); });
     c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); MB3.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
     c.addEventListener('pointermove', e => {
       const now = pt(e);
@@ -1239,7 +1242,7 @@ PAGE = r"""<!doctype html>
     const W = Math.max(200, fitWidth($('mb-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     MB3.d = d; MB3.dirty = true; mbKick();
-    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Green = food, red = danger. ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
+    cap.textContent = `Mushroom body: ${mb.n} Kenyon cells, ${(mb.active || []).length} firing, learning rate ${(d.learning_rate || 0).toFixed(3)}. Each cell by what it learned: green food, red danger, amber food it learned to avoid (bright = firing). ${(100 * (mb.cost_share || 0)).toFixed(1)}% of a resting burn. Drag to turn, wheel to zoom, hover a cell.`;
   }
 
   // The retina panel runs on the same replay clock as the picture and the
@@ -1453,7 +1456,7 @@ PAGE = r"""<!doctype html>
   // outputs on a ring at the right; every wire drawn, faded by depth; every
   // unit named. Drag to orbit, wheel or pinch to zoom, double-click to reset;
   // hovering a unit lights its links and dims the rest; idle, it drifts.
-  const B3 = { on: true, yaw: 0.65, pitch: -0.28, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
+  const B3 = { on: true, yaw: 2.69, pitch: -0.08, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
   try { B3.on = localStorage.getItem('brain-view') !== '2d'; } catch (e) {}
   function brain3DLayout(nIn, nH, nOut) {
     const pts = [], rows = Math.ceil(nIn / 3);  // three columns, each a run of senses in order
@@ -1587,27 +1590,17 @@ PAGE = r"""<!doctype html>
     B3.pts.forEach((q, i) => { const dd = Math.hypot(q.sx - x, q.sy - y); if (dd < bd) { bd = dd; best = i; } });
     return best;
   }
-  // Idle drift, eased in and out, for 20 s after it was last touched (or the
-  // page opened), then still: the loop sleeps until the next touch, so a
-  // viewer left open costs nothing (it shares its machine with an organism).
-  B3.touched = performance.now() - 4000;
+  // It draws when something changes (new data, a touch), then its loop
+  // sleeps: a viewer left open costs nothing (it shares its machine with an
+  // organism). No idle rotation: the default views read as they are.
   B3.loop = false;
   function brain3DKick() {
     if (B3.loop) return;
     B3.loop = true;
-    let last = performance.now();
-    const tick = now => {
-      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    const tick = () => {
       const c = $('brain'), r = c && c.getBoundingClientRect();
-      const since = now - B3.touched;
-      const drifting = since > 4000 && since < 24000 && B3.hover == null && !BZ.pts.size;
-      if (B3.on && BZ.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) {
-        B3.vyaw += ((drifting ? 0.12 : 0) - B3.vyaw) * Math.min(1, dt * 1.5);
-        B3.yaw += B3.vyaw * dt;
-        if (Math.abs(B3.vyaw) > 1e-4 || B3.dirty) { B3.dirty = false; drawBrain3D(); }
-      }
-      if (since < 24000 || Math.abs(B3.vyaw) > 1e-4 || B3.dirty) requestAnimationFrame(tick);
-      else { B3.vyaw = 0; B3.loop = false; }
+      if (B3.dirty && B3.on && BZ.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { B3.dirty = false; drawBrain3D(); }
+      B3.loop = false;
     };
     requestAnimationFrame(tick);
   }
@@ -1640,7 +1633,7 @@ PAGE = r"""<!doctype html>
       const [x, y] = brainPoint(e); brainZoomTo(BZ.k * Math.exp(-e.deltaY * 0.0015), x, y);
     }, { passive: false });
     c.addEventListener('dblclick', () => {
-      if (B3.on) { B3.yaw = 0.65; B3.pitch = -0.28; B3.zoom = 1; drawBrain3D(); return; }
+      if (B3.on) { B3.yaw = 2.69; B3.pitch = -0.08; B3.zoom = 1; drawBrain3D(); return; }
       BZ.k = 1; BZ.x = BZ.y = 0; if (BZ.d) drawBrain(BZ.d);
     });
     c.addEventListener('pointerleave', () => { if (B3.hover != null) { B3.hover = null; B3.dirty = true; brain3DKick(); } });
@@ -1766,15 +1759,10 @@ PAGE = r"""<!doctype html>
   function treeKick(name) {
     const T = TREE3[name]; if (!T || T.loop) return;
     T.loop = true;
-    let last = performance.now();
-    const tick = now => {
-      const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      const since = now - T.touched, drifting = since > 4000 && since < 24000 && T.hover == null && !T.drag;
-      T.vyaw += ((drifting ? 0.12 : 0) - T.vyaw) * Math.min(1, dt * 1.5);
-      T.yaw += T.vyaw * dt;
+    const tick = () => {
       const r = T.canvas.getBoundingClientRect();
-      if ((Math.abs(T.vyaw) > 1e-4 || T.dirty) && r.bottom > 0 && r.top < innerHeight && !document.hidden) { T.dirty = false; drawTree3D(name); }
-      if (since < 24000 || Math.abs(T.vyaw) > 1e-4 || T.dirty) requestAnimationFrame(tick); else { T.vyaw = 0; T.loop = false; }
+      if (T.dirty && r.bottom > 0 && r.top < innerHeight && !document.hidden) { T.dirty = false; drawTree3D(name); }
+      T.loop = false;
     };
     requestAnimationFrame(tick);
   }
@@ -1792,12 +1780,12 @@ PAGE = r"""<!doctype html>
       const W = Math.max(300, Math.floor(box.clientWidth || 600));
       c.width = W; c.height = Math.round(W * quadAspect());
       const old = TREE3[name] || {};
-      const T = TREE3[name] = { canvas: c, lay: coneLayout(trees[name], N / 2), yaw: old.yaw ?? 0.5, pitch: old.pitch ?? 0.35, zoom: old.zoom ?? 1,
+      const T = TREE3[name] = { canvas: c, lay: coneLayout(trees[name], N / 2), yaw: old.yaw ?? 0.35, pitch: old.pitch ?? 0.3, zoom: old.zoom ?? 1,
                                 vyaw: 0, touched: performance.now() - 4000, hover: null, drag: null, loop: false, dirty: true, P: [] };
       const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
       const touch = () => { T.touched = performance.now(); T.dirty = true; treeKick(name); };
       c.addEventListener('wheel', e => { e.preventDefault(); T.zoom = Math.max(0.4, Math.min(6, T.zoom * Math.exp(-e.deltaY * 0.0015))); touch(); }, { passive: false });
-      c.addEventListener('dblclick', () => { T.yaw = 0.5; T.pitch = 0.35; T.zoom = 1; touch(); });
+      c.addEventListener('dblclick', () => { T.yaw = 0.35; T.pitch = 0.3; T.zoom = 1; touch(); });
       c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); T.drag = pt(e); c.style.cursor = 'grabbing'; touch(); });
       c.addEventListener('pointermove', e => {
         const now = pt(e);
