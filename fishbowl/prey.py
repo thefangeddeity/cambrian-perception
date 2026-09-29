@@ -21,13 +21,14 @@ YOLO is weaned off and it eats by its own judgement. It only ever needs
 people and animals -- not the 80 COCO classes.
 """
 
+import json
 import os
+import threading
+import time
 from pathlib import Path
 
 import cv2
 import numpy as np
-
-from .retina import field_shape
 
 # The model: CAMBRIAN_PREY_MODEL if set; else models/yolov8n.onnx next to the
 # code (the packaged layout, every platform); else the first Linux hosts'
@@ -35,6 +36,9 @@ from .retina import field_shape
 _LOCAL_MODEL = Path(__file__).resolve().parents[1] / "models" / "yolov8n.onnx"
 DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL")
                      or (_LOCAL_MODEL if _LOCAL_MODEL.exists() else "/srv/cambrian/models/yolov8n.onnx"))
+# Its flowers' model sits next to it (models/yolov8n-oiv7.onnx), with its
+# class names (yolov8n-oiv7.names.json, from the export).
+FLOWER_MODEL = DEFAULT_MODEL.with_name("yolov8n-oiv7.onnx")
 
 # COCO classes that are living things: prey.
 # Its food, the clade's rule (design panels, 2026-09-27): things with blood
@@ -52,16 +56,17 @@ PERSON_CLASS = 0
 # plant". They are never hosts -- the organism takes them apart from hosts
 # at its first frame (organism.py) and everything else sees hosts only.
 PLANT_CLASS = 58
-# COCO's only plant is a potted one: a park's trees and grass never
-# registered. So green vegetation counts too (2026-09-28 panel; mosquitoes
-# also draw sugar from plant tissue, Mueller & Schlein 2005, and home in on
-# green leaf volatiles): each connected region of the whole field's grid
-# (retina.field_shape) whose mean colour is vegetation by the standard
-# excess-green-minus-excess-red index, ExG - ExR > 0 on chromatic
-# coordinates (Meyer & Neto 2008 -- a zero threshold, nothing tuned), is
-# one plant, with the same nectar rule as a potted one (organism.py).
-# Grey (night, infrared) is never vegetation: ExG - ExR = -0.13 there.
-
+# COCO's only plant is a potted one: a park or garden's flowers never
+# registered. So a second detector, the same YOLOv8n trained on Open Images
+# V7 (Ultralytics' shipped 601-class export, models/yolov8n-oiv7.onnx), finds
+# flowers and fruit -- mosquitoes' sugar is floral nectar and fruit juice
+# (Vosshall on the 2026-09-28 panel) -- and they become plants too. Foliage
+# ("Plant", "Tree", a lawn) is scenery, not nectar. Plants don't move, so it
+# runs about every FLOWER_EVERY_S (an engineering budget, the 2026-09-28
+# infrastructure review: under 1% of a core) and its last result is reused.
+NECTAR_OIV7 = {"Flower", "Rose", "Lily", "Common sunflower", "Lavender (Plant)", "Houseplant", "Flowerpot",
+               "Fruit", "Strawberry", "Grapefruit"}
+FLOWER_EVERY_S = 30.0
 
 def hosts_only(boxes):
     return [b for b in boxes or () if int(b[0]) != PLANT_CLASS]
@@ -90,6 +95,15 @@ class PreyDetector:
         cv2.setNumThreads(2)
         self.model_path = Path(model_path)
         self.net = cv2.dnn.readNetFromONNX(str(self.model_path)) if self.model_path.exists() else None
+        # its flowers (optional: without the model, only potted plants are nectar)
+        flower_model = self.model_path.with_name(FLOWER_MODEL.name)
+        names_path = flower_model.with_suffix(".names.json")
+        self.flower_net, self.flower_classes = None, {}
+        if flower_model.exists() and names_path.exists():
+            names = json.loads(names_path.read_text(encoding="utf-8"))
+            self.flower_classes = {int(k): PLANT_CLASS for k, v in names.items() if v in NECTAR_OIV7}
+            self.flower_net = cv2.dnn.readNetFromONNX(str(flower_model))
+        self.flowers, self.flowers_at, self._flowering = [], -1e9, False
 
     @property
     def available(self) -> bool:
@@ -97,64 +111,59 @@ class PreyDetector:
 
     def detect(self, bgr: np.ndarray) -> list[list[float]]:
         """[[class_id, confidence, x0, y0, x1, y1], ...], coordinates normalized to [0, 1]:
-        YOLO's hosts and potted plants, then the vegetation regions."""
+        YOLO's hosts and potted plants, then flowers and fruit (as PLANT_CLASS)."""
         if bgr is None or bgr.ndim != 3:
             return []
-        return self._yolo(bgr) + vegetation(bgr)
+        hosts = _yolo(self.net, bgr, {k: k for k in list(PREY_CLASSES) + [PLANT_CLASS]}) if self.net is not None else []
+        now = time.monotonic()
+        if self.flower_net is not None and now - self.flowers_at >= FLOWER_EVERY_S and not self._flowering:
+            # on its own thread: a slow host (seconds per run) never delays hosts
+            self.flowers_at, self._flowering = now, True
+            threading.Thread(target=self._find_flowers, args=(bgr.copy(),), daemon=True).start()
+        return hosts + self.flowers
 
-    def _yolo(self, bgr: np.ndarray) -> list[list[float]]:
-        if self.net is None:
-            return []
-        h, w = bgr.shape[:2]
-        # Letterboxed, as YOLO was trained: scaled to fit with its aspect kept,
-        # centred, padded grey. (Stretching a 16:9 frame to a square distorted
-        # every shape -- small ones like birds most.)
-        scale = INPUT_SIZE / max(h, w)
-        nw, nh = int(round(w * scale)), int(round(h * scale))
-        px, py = (INPUT_SIZE - nw) // 2, (INPUT_SIZE - nh) // 2
-        canvas = np.full((INPUT_SIZE, INPUT_SIZE, 3), LETTERBOX_GREY, dtype=np.uint8)
-        canvas[py:py + nh, px:px + nw] = cv2.resize(bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
-        blob = cv2.dnn.blobFromImage(canvas, 1 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True)
-        self.net.setInput(blob)
-        out = self.net.forward()[0].T  # (8400, 84): cx, cy, w, h, then 80 class scores
-        scores = out[:, 4:]
-        cls = scores.argmax(axis=1)
-        conf = scores[np.arange(len(scores)), cls]
-        keep = (conf >= MIN_CONFIDENCE) & np.isin(cls, list(PREY_CLASSES) + [PLANT_CLASS])
-        if not keep.any():
-            return []
-        raw = out[keep, :4]
-        cls, conf = cls[keep], conf[keep]
-        # From the letterboxed square back to the frame, normalized to [0, 1].
-        b = np.stack([(raw[:, 0] - px) / (nw), (raw[:, 1] - py) / (nh), raw[:, 2] / nw, raw[:, 3] / nh], axis=1)
-        x0, y0 = b[:, 0] - b[:, 2] / 2, b[:, 1] - b[:, 3] / 2
-        boxes_px = [[float(x * w), float(y * h), float(bw * w), float(bh * h)] for x, y, bw, bh in zip(x0, y0, b[:, 2], b[:, 3])]
-        idx = cv2.dnn.NMSBoxes(boxes_px, conf.astype(float).tolist(), MIN_CONFIDENCE, NMS_IOU)
-        result = []
-        for i in np.array(idx).reshape(-1):
-            result.append([int(cls[i]), round(float(conf[i]), 3),
-                           round(float(np.clip(x0[i], 0, 1)), 4), round(float(np.clip(y0[i], 0, 1)), 4),
-                           round(float(np.clip(x0[i] + b[i, 2], 0, 1)), 4), round(float(np.clip(y0[i] + b[i, 3], 0, 1)), 4)])
-        return result
+    def _find_flowers(self, bgr: np.ndarray) -> None:
+        try:
+            self.flowers = _yolo(self.flower_net, bgr, self.flower_classes)
+        except cv2.error:
+            pass
+        finally:
+            self._flowering = False
 
 
-def vegetation(bgr: np.ndarray) -> list[list[float]]:
-    """The field grid's vegetation regions as plant boxes: [PLANT_CLASS,
-    share of the box that is vegetation, x0, y0, x1, y1] (normalized)."""
+def _yolo(net, bgr: np.ndarray, wanted: dict[int, int]) -> list[list[float]]:
+    """One YOLOv8 detection: the classes in wanted (model's id -> the id we report)."""
     h, w = bgr.shape[:2]
-    rows, cols = field_shape(h, w)
-    cells = cv2.resize(bgr, (cols, rows), interpolation=cv2.INTER_AREA).astype(np.float64)
-    total = cells.sum(axis=2)
-    b, g, r = (np.divide(cells[:, :, k], total, out=np.zeros((rows, cols)), where=total > 0) for k in range(3))
-    mask = ((2 * g - r - b) - (1.4 * r - g) > 0) & (total > 0)
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=4)
-    out = []
-    for k in range(1, n):
-        x, y, bw, bh, area = (int(v) for v in stats[k])
-        out.append([PLANT_CLASS, round(area / (bw * bh), 3),
-                    round(x / cols, 4), round(y / rows, 4), round((x + bw) / cols, 4), round((y + bh) / rows, 4)])
-    return out
-
+    # Letterboxed, as YOLO was trained: scaled to fit with its aspect kept,
+    # centred, padded grey. (Stretching a 16:9 frame to a square distorted
+    # every shape -- small ones like birds most.)
+    scale = INPUT_SIZE / max(h, w)
+    nw, nh = int(round(w * scale)), int(round(h * scale))
+    px, py = (INPUT_SIZE - nw) // 2, (INPUT_SIZE - nh) // 2
+    canvas = np.full((INPUT_SIZE, INPUT_SIZE, 3), LETTERBOX_GREY, dtype=np.uint8)
+    canvas[py:py + nh, px:px + nw] = cv2.resize(bgr, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    blob = cv2.dnn.blobFromImage(canvas, 1 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True)
+    net.setInput(blob)
+    out = net.forward()[0].T  # (8400, 4 + classes): cx, cy, w, h, then the class scores
+    scores = out[:, 4:]
+    cls = scores.argmax(axis=1)
+    conf = scores[np.arange(len(scores)), cls]
+    keep = (conf >= MIN_CONFIDENCE) & np.isin(cls, list(wanted))
+    if not keep.any():
+        return []
+    raw = out[keep, :4]
+    cls, conf = cls[keep], conf[keep]
+    # From the letterboxed square back to the frame, normalized to [0, 1].
+    b = np.stack([(raw[:, 0] - px) / (nw), (raw[:, 1] - py) / (nh), raw[:, 2] / nw, raw[:, 3] / nh], axis=1)
+    x0, y0 = b[:, 0] - b[:, 2] / 2, b[:, 1] - b[:, 3] / 2
+    boxes_px = [[float(x * w), float(y * h), float(bw * w), float(bh * h)] for x, y, bw, bh in zip(x0, y0, b[:, 2], b[:, 3])]
+    idx = cv2.dnn.NMSBoxes(boxes_px, conf.astype(float).tolist(), MIN_CONFIDENCE, NMS_IOU)
+    result = []
+    for i in np.array(idx).reshape(-1):
+        result.append([wanted[int(cls[i])], round(float(conf[i]), 3),
+                       round(float(np.clip(x0[i], 0, 1)), 4), round(float(np.clip(y0[i], 0, 1)), 4),
+                       round(float(np.clip(x0[i] + b[i, 2], 0, 1)), 4), round(float(np.clip(y0[i] + b[i, 3], 0, 1)), 4)])
+    return result
 
 def prey_in_window(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: float) -> float:
     """How much of the WHOLE gaze window prey covers, 0..1, confidence-

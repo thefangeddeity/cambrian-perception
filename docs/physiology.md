@@ -64,6 +64,11 @@ backup fuel.
   comes first. Its mushroom body learns sips as food, so its place map learns
   where the pot is. A plant sense (scent, then direction) is inherited, born
   off, priced like the prey sense. Plants are never hosts.
+  Flowers and fruit count as plants too: COCO has no flowers, so a second
+  YOLOv8n, trained on Open Images V7, looks for them (flower, rose, lily,
+  sunflower, lavender, houseplant, flowerpot, fruit, strawberry, grapefruit)
+  about every 30 s on its own thread; plants don't move. Foliage, trees and
+  lawns are scenery, not nectar.
 - **Snacks are surprise** (nectar in name only).
 
 ## Signals cost their sender
