@@ -211,6 +211,7 @@ class LiveLife:
             print(f"Its visual cortex's library couldn't be read ({e}); starting without it.")
             self.cortex = Cortex()
         self._last_boxes = None
+        self.timing = {"field": 0.0, "organism": 0.0, "cortex": 0.0, "backlog": 0.0}
         self.field = FieldSignals()
         self.last = None          # the feed's index of the last frame it lived
         self.last_time = None     # when that frame arrived
@@ -358,7 +359,9 @@ class LiveLife:
             img0 = list(org.imagery_sums)
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
                 prev_v = self.field.last_vector
+                t_a = time.perf_counter()
                 sig, shift = self.field.step(grey)
+                t_b = time.perf_counter()
                 if prev_v is not None and self.field.last_vector is not None and prev_v.shape == self.field.last_vector.shape:
                     change = np.abs(self.field.last_vector - prev_v)
                     self.field_motion = change if self.field_motion is None or self.field_motion.shape != change.shape \
@@ -367,12 +370,18 @@ class LiveLife:
                 was_asleep = org.body.asleep >= 0.5
                 ev0 = (org.scene_switches, org.edits_kept, len(org.scenes), org.scene)
                 org.feed_index = index
+                t_c = time.perf_counter()
                 out = org.frame(grey, sig, boxes or [], colour, shift)
+                t_d = time.perf_counter()
                 hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 # its visual cortex (cortex.py): boxes are held between detections; a new list is a fresh one
                 c0 = time.perf_counter()
                 self.cortex.see(org.lived_s, grey, colour, boxes or [], org.horizon(), boxes is not self._last_boxes)
                 self.cortex.ms += 0.02 * (1000.0 * (time.perf_counter() - c0) - self.cortex.ms)  # what it costs, per frame
+                # where each frame's time goes (the plumbing's own budget: 1 / fps)
+                for k, v in (("field", t_b - t_a), ("organism", t_d - t_c), ("cortex", time.perf_counter() - c0)):
+                    self.timing[k] += 0.02 * (1000.0 * v - self.timing[k])
+                self.timing["backlog"] += 0.02 * (len(items) - self.timing["backlog"])
                 self._last_boxes = boxes
                 for kind, data in self.cortex.events:
                     self._event(kind, **data)
@@ -483,6 +492,7 @@ class LiveLife:
             circuits = _circuits(self.org)
             fm = None if self.field_motion is None else np.round(self.field_motion, 4).tolist()
             cortex = self.cortex.view()
+            timing = {k: round(v, 2) for k, v in self.timing.items()}
         if not shown:
             return
         first = shown[0]["i"]
@@ -502,7 +512,7 @@ class LiveLife:
             # what its wide-field motion sense is fed, per cell (not a picture: it
             # never senses per-cell brightness, only where and how much things change)
             "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
-            "cortex": cortex,
+            "cortex": cortex, "timing_ms": timing,
         }
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:
