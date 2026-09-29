@@ -249,6 +249,14 @@ yardsticks are found.
 | a lesson's credit | min(1, advantage), shared by how far each synapse moved | M | |
 | nightly loosening | its recent uncertainty (0 - 1) | M | its own prediction error |
 
+### Its clock (fishbowl/state.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| `CIRC_PERIOD_S` | 24 h | P | Earth's day |
+| `CIRC_SHIFT_RATE` | 1 h of phase a day at most | S | human phase-response curves (Czeisler) |
+| the gate's thresholds | today's SLEEP_ONSET/END at the clock's day | -- | reused |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

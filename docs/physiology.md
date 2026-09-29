@@ -381,6 +381,17 @@ can afford more and bigger ones.
   is still off (replay backup, dream steps, colour, any unwired input, and
   receptor leaves where a tree reads only constants -- a tree that never reads
   its eye can never grow a line).
+- **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
+  phase with Earth's 24 h period, set by light as a zeitgeber at most about an
+  hour a day (phase-response curves, Czeisler); a founder's clock starts from the
+  light in view. The sleep thresholds follow the clock, not the moment's light.
+  In its night, once sleep pressure reaches the night threshold in a quiet
+  moment, it falls asleep whatever its brain prefers, and it holds: it wakes
+  rested or disturbed, not by choice. (Sleep pays over hours; a choice judged
+  over minutes never picked it -- the Tanzania lineage never slept in 48 h.
+  Heller's partial dissent: a gate from the homeostat and the clock, not a
+  schedule.) Aedes sleeps at night. In simulation: asleep ~18:00-03:00 of the
+  stream's day, whenever born; a busy stream fragments it (~60% of the night).
 - **Maturation** (2026-09-29; Hensch, Benna & Fusi, Kirkpatrick, Nader): what
   it has learned that works locks, and the rest stays plastic. Each output
   synapse its sleep distills into counts the good lessons that shaped it

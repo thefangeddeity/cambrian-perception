@@ -1088,6 +1088,7 @@ PAGE = r"""<!doctype html>
     const t = z.traits, mins = Math.round(z.for_s / 60);
     el.innerHTML = (z.asleep ? `<b style="color:#e0909c">asleep</b> ${mins} min` : '<b style="color:#a9bcc8">awake</b>')
       + ` &middot; sleep pressure ${(100 * z.pressure).toFixed(0)}%`
+      + (z.clock_day != null ? ` &middot; its clock: ${z.clock_day >= 0.5 ? 'day' : 'night'} (${Math.round(100 * z.clock_day)}%)` : '')
       + (z.dreaming ? ' &middot; <b style="color:#fff0c0">dreaming</b>' : '')
       + ` &middot; replays ${t.awake} awake / ${t.asleep} asleep, REM ${(100 * t.rem).toFixed(0)}%, backup ${t.backup}, dream steps ${t.dream_steps}`
       + (z.imagery ? ' &middot; imagery on' : ' &middot; no imagery yet')

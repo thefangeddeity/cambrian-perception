@@ -194,6 +194,7 @@ def _circuits(org: Organism) -> dict:
                                     for c, v in zip(org.head_classes[:org.n_heads], org.mb.head_values(org.last_kc)[:org.n_heads])]}
     b = org.body
     out["sleep"] = {"asleep": bool(b.asleep >= 0.5), "for_s": round(b.sleep_clock, 0), "pressure": round(b.sleep_pressure, 3),
+                    "clock_day": round(b.circ_day, 2),
                     "dreaming": bool(org.dreaming), "imagery": bool(org.imagery),
                     "mismatch": round(float(org.mismatch), 3), "woke_by": b.woke_by,
                     "recall": bool(org.recall), "recalled": org.recalled,

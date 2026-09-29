@@ -169,6 +169,17 @@ EMPTY_G = 0.1           # below this the body degrades
 SLEEP_ONSET_DARK, SLEEP_ONSET_DAY = 0.15, 0.45
 SLEEP_END_DARK, SLEEP_END_DAY = 0.01, 0.04
 NIGHT_LIGHT, DAY_LIGHT = 0.15, 0.5  # field light (~20 min average) that counts as night / day
+# Its clock (Process C; a 2026-09-29 panel -- Borbely, Siegel, Nesse): an
+# internal phase that runs a day long (Earth's: physics) whatever it sees, and
+# that light sets, as a zeitgeber, by at most about an hour a day (the size of
+# real phase shifts: human phase-response curves, Czeisler). The sleep
+# thresholds follow the clock, not the moment's light. And in its night, once
+# sleep pressure reaches the night threshold in a quiet moment, it falls asleep
+# whatever its brain prefers -- sleep pays over hours, and a choice judged over
+# minutes never picks it (the Tanzania lineage never slept in 48 h): a gate, like
+# collapse, is the body plan's answer. Aedes, its model, sleeps at night.
+CIRC_PERIOD_S = 24 * 3600.0
+CIRC_SHIFT_RATE = (2 * math.pi / 24.0) / (24 * 3600.0)  # rad/s of phase at most: one hour a day
 
 
 def _clamp(v: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -208,6 +219,7 @@ class MosquitoState:
     bite_blood: float = 0.0    # blood (legacy units) taken in the bite going on now: what a swat takes back
     sleep_mismatch: float = 0.0  # the field's mismatch when it fell asleep (or lowest since): the room it fell asleep in
     woke_by: str = ""          # what ended its last sleep (hourly metrics): mismatch, loom, motion, rested, choice
+    circ_phase: float = -1.0   # its clock's phase (radians, 0 = its midday); -1 until it first sees light
 
     # ---- what the organism "feels" ------------------------------------
     @property
@@ -247,6 +259,11 @@ class MosquitoState:
         return _clamp((self.light_slow - NIGHT_LIGHT) / (DAY_LIGHT - NIGHT_LIGHT))
 
     @property
+    def circ_day(self) -> float:
+        """Its clock's day (1 midday, 0 midnight); its light's until the clock is set."""
+        return self.daylight if self.circ_phase < 0 else 0.5 * (1.0 + math.cos(self.circ_phase))
+
+    @property
     def efficiency(self) -> float:
         return 1.0 - TIRED_EFFICIENCY * self.sleep_pressure
 
@@ -269,9 +286,15 @@ class MosquitoState:
         asleep = self.asleep >= 0.5
         want = wants_sleep
         cause = "choice"
-        day = self.daylight
-        if want and not asleep and self.sleep_pressure < SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * day:
+        day = self.circ_day  # the clock's day, not the moment's light (Process C)
+        onset = SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * day
+        if want and not asleep and self.sleep_pressure < onset:
             want = False  # not tired enough to fall asleep
+        v = max(1e-6, vigilance)
+        if not asleep and day < 0.5 and self.sleep_pressure >= onset and loom <= WAKE_LOOM / v and field_motion <= WAKE_MOTION / v:
+            want = True  # its night, tired enough, a quiet moment: the gate
+        if asleep and day < 0.5:
+            want = True  # and it holds: in its night it wakes rested or disturbed, not by choice
         if asleep and self.sleep_pressure < SLEEP_END_DARK + (SLEEP_END_DAY - SLEEP_END_DARK) * day:
             want, cause = False, "rested"  # slept enough: wakes by itself
         # Exhaustion: collapse, and no waking by choice until it has recovered.
@@ -279,7 +302,6 @@ class MosquitoState:
             want = True
         # What wakes even an exhausted animal: a big change -- the sentry's
         # sensors stay on while it sleeps.
-        v = max(1e-6, vigilance)
         if asleep:
             # The orienting reflex (Sokolov): its field's mismatch with its
             # slow model of the room, against what it was when it fell asleep
@@ -333,6 +355,15 @@ class MosquitoState:
         if field_light is not None:
             self.light_fast += (1.0 - math.exp(-seconds / LIGHT_FAST_S)) * (field_light - self.light_fast)
             self.light_slow += (1.0 - math.exp(-seconds / LIGHT_SLOW_S)) * (field_light - self.light_slow)
+            if self.circ_phase < 0:  # a founder's clock, set from the light in view now (its slow average starts at a guess)
+                now = _clamp((field_light - NIGHT_LIGHT) / (DAY_LIGHT - NIGHT_LIGHT))
+                self.circ_phase = math.acos(2.0 * now - 1.0)
+            # light entrains it: the phase moves to bring its day toward the
+            # light's (gradient of the squared difference), at most the rate above
+            err = self.daylight - self.circ_day
+            self.circ_phase -= CIRC_SHIFT_RATE * seconds * err * math.sin(self.circ_phase)
+        if self.circ_phase >= 0:
+            self.circ_phase = (self.circ_phase + 2 * math.pi * seconds / CIRC_PERIOD_S) % (2 * math.pi)
         self.threat = leak(self.threat, 0.85, loom)
 
         # metabolic rate acclimatizes toward the current tempo
@@ -525,7 +556,7 @@ class MosquitoState:
     # ---- persistence --------------------------------------------------
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
               "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt",
-              "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch", "protein")
+              "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch", "protein", "circ_phase")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
