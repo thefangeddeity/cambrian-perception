@@ -27,8 +27,7 @@ alone full screen. On a phone the brain and mushroom body open in 2D.
 
 **Video stream.** What it saw, a few seconds behind live, in step with the
 visual field (frames stay in RAM, never on disk). The HUD: the reticle is its
-gaze; red corners are hosts; SCAN / TRACK / LOCK is what it is doing; "locks"
-counts its meals; "contact ~N looks" means something is approaching its gaze
+gaze; red corners are hosts; SCAN / TRACK / LOCK is what it is doing; "contact ~N looks" means something is approaching its gaze
 and will reach it in about N of its looks (Lee's tau); a dashed ghost ahead of
 a host is where it expects that host to be by the time it acts (it carries the
 host forward by the host's velocity times its own lag). WARN is its warning.

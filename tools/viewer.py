@@ -573,15 +573,12 @@ LOCK_HUD_JS = r"""
     const tw = ctx.measureText(tag).width, tx = bw / 2 - (tw + 9) / 2;
     ctx.fillStyle = blink ? HUD_HOT : HUD_ASH; ctx.beginPath(); ctx.arc(tx + 4, y0, 4 * hk, 0, 7); ctx.fill();
     ctx.fillStyle = HUD_SYS; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13 * hk, y0);
-    // Left-hand readout, top to bottom: mode + ID, delay, locks (meals: a LOCK
-    // held as one feeding bout -- the HUD's own word, so a viewer needs no
-    // mosquito to read it), contact, then its warning. The same rows, size and
-    // look as the other three corners (their translations).
+    // Left-hand readout, top to bottom: mode + ID, delay, contact, then its
+    // warning. The same rows, size and look as the other three corners (their
+    // translations).
     const rf = n => Math.max(7, Math.round(n * 0.85 * hk));
     const rows = [[L.mode + lockIdText(L.id), col, `bold ${rf(14)}px monospace`],
                   [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_SYS, `${rf(11)}px monospace`]];
-    const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
-    rows.push([`locks ${boutText('meal', st.meals)}`, HUD_BEHAV, `${rf(10)}px monospace`]);
     // something approaching its gaze: how soon it arrives, in its own looks (Lee's tau)
     if (fs.contact > 0) rows.push([`contact ~${Math.max(1, Math.round(1 / fs.contact))} looks`, HUD_WARN, `bold ${rf(11)}px monospace`]);
     // Its warning, last, for the owner only until the owner's feedback has trained
