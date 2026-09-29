@@ -738,7 +738,7 @@ PAGE = r"""<!doctype html>
     <canvas id="brain" height="520"></canvas>
     <canvas id="mb" height="150" style="margin-top:6px"></canvas>
     <div class="cap" id="mb-cap"></div>
-    <div class="cap"><b id="brain-mb">--</b>. <b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits.</div>
+    <div class="cap"><b id="brain-mb">--</b>. <b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
   </div>
   <div class="stack">
     <div class="panel">
@@ -1293,8 +1293,9 @@ PAGE = r"""<!doctype html>
     const H = Math.round(W < 600 ? Math.max(320, W * quadAspect()) : W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     const ctx = c.getContext('2d');
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
-    BZ.d = d; ctx.setTransform(BZ.k, 0, 0, BZ.k, BZ.x, BZ.y);
+    BZ.d = d;
+    if (B3.on) { drawBrain3D(); return; }
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H); ctx.setTransform(BZ.k, 0, 0, BZ.k, BZ.x, BZ.y);
     const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
     const hm = Math.min(220, W * 0.25, H - 50), netW = W - hm - 40;
     const xin = 90, xh = xin + (netW - 90) * 0.5, xout = netW - 50;
@@ -1316,6 +1317,116 @@ PAGE = r"""<!doctype html>
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (BZ.k > 1.01) { ctx.fillStyle = '#6a5550'; ctx.textAlign = 'right'; ctx.fillText(`${BZ.k.toFixed(1)}x  (double-click: fit)`, W - 8, H - 10); }
   }
+  // Its brain in 3D: inputs on a plane at the left, hidden units on a sphere,
+  // outputs on a ring at the right; only the strongest links drawn, faded by
+  // depth. Drag to orbit, wheel or pinch to zoom, double-click to reset;
+  // hovering a unit lights its links and dims the rest; idle, it drifts.
+  const B3 = { on: true, yaw: 0.65, pitch: -0.28, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
+  try { B3.on = localStorage.getItem('brain-view') !== '2d'; } catch (e) {}
+  function brain3DLayout(nIn, nH, nOut) {
+    const pts = [], rows = Math.ceil(nIn / 2);
+    for (let i = 0; i < nIn; i++) {
+      const col = i < rows ? 0 : 1, r = col ? i - rows : i;
+      pts.push({ kind: 'in', k: i, x: -1.15, y: -0.95 + 1.9 * r / Math.max(1, rows - 1), z: col ? 0.28 : -0.28 });
+    }
+    const ga = Math.PI * (3 - Math.sqrt(5));  // a Fibonacci sphere: even spacing for any count
+    for (let h = 0; h < nH; h++) {
+      const y = nH > 1 ? 1 - 2 * (h + 0.5) / nH : 0, rad = Math.sqrt(1 - y * y), th = ga * h;
+      pts.push({ kind: 'hid', k: h, x: 0.3 * rad * Math.cos(th), y: 0.62 * y, z: 0.62 * rad * Math.sin(th) });
+    }
+    for (let o = 0; o < nOut; o++) {
+      const a = 2 * Math.PI * o / nOut;
+      pts.push({ kind: 'out', k: o, x: 1.15, y: 0.5 * Math.cos(a), z: 0.5 * Math.sin(a) });
+    }
+    return pts;
+  }
+  function drawBrain3D() {
+    const d = BZ.d, br = d && d.brain, c = $('brain'); if (!br || !c) return;
+    const W = c.width, H = c.height, ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
+    const P = brain3DLayout(nIn, nH, nOut), hid = d.brain_hidden || [];
+    const cy = Math.cos(B3.yaw), sy = Math.sin(B3.yaw), cp = Math.cos(B3.pitch), sp = Math.sin(B3.pitch);
+    const scale = Math.min(W * 0.8, H) * 0.42 * B3.zoom, F = 3.2;
+    P.forEach(q => {
+      const x1 = q.x * cy + q.z * sy, z1 = -q.x * sy + q.z * cy;
+      const y2 = q.y * cp - z1 * sp, z2 = q.y * sp + z1 * cp;
+      const w = F / (F + z2);
+      q.sx = W / 2 + x1 * scale * w; q.sy = H / 2 + y2 * scale * w; q.depth = z2; q.w = w;
+      q.fog = Math.max(0.25, Math.min(1, 0.65 - 0.45 * z2));
+    });
+    const edges = [];
+    for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edges.push([i, nIn + h, br.weights_ih[h][i], 0]);
+    for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edges.push([nIn + h, nIn + nH + o, br.weights_ho[o][h], 0]);
+    for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) if (r !== q) edges.push([nIn + q, nIn + r, br.weights_hh[r][q], 1]);
+    let maxW = 1e-9; edges.forEach(e => { maxW = Math.max(maxW, Math.abs(e[2])); });
+    const hov = B3.hover;
+    // the strongest links (all of a hovered unit's), weakest first so strong ones sit on top
+    const shown = edges.filter(e => hov == null || e[0] === hov || e[1] === hov)
+      .sort((a, b) => Math.abs(b[2]) - Math.abs(a[2])).slice(0, hov != null ? 400 : 700).reverse();
+    shown.forEach(([a, b, w, rec]) => {
+      const A = P[a], B = P[b], s = Math.min(1, Math.abs(w) / maxW), fog = (A.fog + B.fog) / 2;
+      const alpha = (hov != null ? 0.15 + 0.85 * s : 0.04 + 0.6 * s * s) * fog;
+      if (alpha < 0.03) return;
+      ctx.strokeStyle = w >= 0 ? `rgba(127,212,255,${alpha})` : `rgba(255,153,0,${alpha})`;
+      ctx.lineWidth = (0.4 + 2.2 * s) * (A.w + B.w) / 2;
+      ctx.beginPath(); ctx.moveTo(A.sx, A.sy);
+      if (rec) {  // a recurrent link bows outward from the sphere
+        const mx = (A.sx + B.sx) / 2, my = (A.sy + B.sy) / 2, ox = mx - W / 2, oy = my - H / 2, n = Math.hypot(ox, oy) || 1;
+        ctx.quadraticCurveTo(mx + ox / n * 30 * B3.zoom, my + oy / n * 30 * B3.zoom, B.sx, B.sy);
+      } else ctx.lineTo(B.sx, B.sy);
+      ctx.stroke();
+    });
+    const lit = new Set(hov != null ? shown.flatMap(e => [e[0], e[1]]) : []);
+    const label = q => q.kind === 'in' ? (q.k < INPUT_NAMES.length ? INPUT_NAMES[q.k] : channelName(br, q.k - INPUT_NAMES.length, 'in'))
+      : q.kind === 'out' ? (q.k < OUTPUT_NAMES.length ? OUTPUT_NAMES[q.k] : channelName(br, q.k - OUTPUT_NAMES.length, 'out'))
+      : `unit ${q.k + 1}  ${(hid[q.k] || 0).toFixed(2)}`;
+    ctx.textBaseline = 'middle';
+    P.map((q, idx) => [q, idx]).sort((a, b) => b[0].depth - a[0].depth).forEach(([q, idx]) => {
+      const dim = hov != null && !lit.has(idx) && idx !== hov;
+      const r = (q.kind === 'hid' ? 8 : q.kind === 'out' ? 10 : 5) * q.w * Math.sqrt(B3.zoom);
+      ctx.globalAlpha = q.fog * (dim ? 0.3 : 1);
+      if (q.kind === 'hid') { const a = hid[q.k] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; }
+      else if (q.kind === 'out') { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; }
+      else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
+      ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
+      if (idx === hov || (q.kind !== 'hid' && (hov == null || lit.has(idx)))) {
+        ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : '10px') + ' monospace';
+        ctx.fillStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'hid' ? '#a9bcc8' : '#b88a80';
+        const right = q.sx >= W / 2; ctx.textAlign = right ? 'left' : 'right';
+        ctx.fillText(label(q), q.sx + (right ? 1 : -1) * (r + 5), q.sy);
+      }
+    });
+    ctx.globalAlpha = 1;
+    B3.pts = P;
+  }
+  function brain3DAt(x, y) {
+    let best = null, bd = 14;
+    B3.pts.forEach((q, i) => { const dd = Math.hypot(q.sx - x, q.sy - y); if (dd < bd) { bd = dd; best = i; } });
+    return best;
+  }
+  // idle drift, eased in and out; only while the 3D view is on screen
+  (() => {
+    let last = performance.now();
+    const tick = now => {
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      const c = $('brain'), r = c && c.getBoundingClientRect();
+      if (B3.on && BZ.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) {
+        const idle = now - B3.touched > 4000 && B3.hover == null && !BZ.pts.size;
+        B3.vyaw += ((idle ? 0.12 : 0) - B3.vyaw) * Math.min(1, dt * 1.5);
+        B3.yaw += B3.vyaw * dt;
+        if (Math.abs(B3.vyaw) > 1e-4 || B3.dirty) { B3.dirty = false; drawBrain3D(); }
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  })();
+  function setBrainView(on) {
+    B3.on = on; try { localStorage.setItem('brain-view', on ? '3d' : '2d'); } catch (e) {}
+    const m = $('brain-mode'); if (m) m.innerHTML = on ? '<b>3D</b> &middot; <a href="#">2D</a>' : '<a href="#">3D</a> &middot; <b>2D</b>';
+    const c = $('brain'); if (c) c.style.cursor = on ? 'grab' : 'zoom-in';
+    if (BZ.d) drawBrain(BZ.d);
+  }
   // Zoom the brain: wheel (or pinch) zooms about the pointer, drag pans,
   // double-click fits it back.
   const BZ = { k: 1, x: 0, y: 0, d: null, drag: null, pts: new Map(), pinch: null };
@@ -1329,21 +1440,42 @@ PAGE = r"""<!doctype html>
   function brainPoint(e) { const c = $('brain'), r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; }
   (() => {
     const c = $('brain'); if (!c) return;
-    c.style.touchAction = 'none'; c.style.cursor = 'zoom-in';
-    c.addEventListener('wheel', e => { e.preventDefault(); const [x, y] = brainPoint(e); brainZoomTo(BZ.k * Math.exp(-e.deltaY * 0.0015), x, y); }, { passive: false });
-    c.addEventListener('dblclick', () => { BZ.k = 1; BZ.x = BZ.y = 0; if (BZ.d) drawBrain(BZ.d); });
-    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; });
+    c.style.touchAction = 'none'; c.style.cursor = B3.on ? 'grab' : 'zoom-in';
+    const m = $('brain-mode'); if (m) m.addEventListener('click', e => { e.preventDefault(); if (e.target.tagName === 'A') setBrainView(!B3.on); });
+    setBrainView(B3.on);
+    c.addEventListener('wheel', e => {
+      e.preventDefault(); B3.touched = performance.now();
+      if (B3.on) { B3.zoom = Math.max(0.5, Math.min(6, B3.zoom * Math.exp(-e.deltaY * 0.0015))); drawBrain3D(); return; }
+      const [x, y] = brainPoint(e); brainZoomTo(BZ.k * Math.exp(-e.deltaY * 0.0015), x, y);
+    }, { passive: false });
+    c.addEventListener('dblclick', () => {
+      if (B3.on) { B3.yaw = 0.65; B3.pitch = -0.28; B3.zoom = 1; drawBrain3D(); return; }
+      BZ.k = 1; BZ.x = BZ.y = 0; if (BZ.d) drawBrain(BZ.d);
+    });
+    c.addEventListener('pointerleave', () => { if (B3.hover != null) { B3.hover = null; B3.dirty = true; } });
+    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; B3.touched = performance.now(); if (B3.on) c.style.cursor = 'grabbing'; });
     c.addEventListener('pointermove', e => {
-      if (!BZ.pts.has(e.pointerId)) return;
+      if (!BZ.pts.has(e.pointerId)) {
+        if (B3.on) { const [x, y] = brainPoint(e), h = brain3DAt(x, y); if (h !== B3.hover) { B3.hover = h; B3.dirty = true; } }
+        return;
+      }
       const prev = BZ.pts.get(e.pointerId), now = brainPoint(e); BZ.pts.set(e.pointerId, now);
+      B3.touched = performance.now();
       if (BZ.pts.size === 2) {
         const [a, b] = [...BZ.pts.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
-        if (BZ.pinch) brainZoomTo(BZ.k * dist / BZ.pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        if (BZ.pinch) {
+          if (B3.on) { B3.zoom = Math.max(0.5, Math.min(6, B3.zoom * dist / BZ.pinch)); B3.dirty = true; }
+          else brainZoomTo(BZ.k * dist / BZ.pinch, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        }
         BZ.pinch = dist; return;
+      }
+      if (B3.on) {
+        B3.yaw += (now[0] - prev[0]) * 0.008; B3.pitch = Math.max(-1.4, Math.min(1.4, B3.pitch + (now[1] - prev[1]) * 0.008));
+        B3.hover = null; B3.dirty = true; return;
       }
       if (BZ.k > 1) { BZ.x += now[0] - prev[0]; BZ.y += now[1] - prev[1]; brainZoomTo(BZ.k, 0, 0); }
     });
-    const up = e => { BZ.pts.delete(e.pointerId); BZ.pinch = null; };
+    const up = e => { BZ.pts.delete(e.pointerId); BZ.pinch = null; if (B3.on) c.style.cursor = 'grab'; };
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
   })();
 
