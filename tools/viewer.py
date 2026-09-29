@@ -1163,7 +1163,7 @@ PAGE = r"""<!doctype html>
     const PED = [0, -0.05, 0], MED = [0.95, 0.55, 0], VER = [-0.35, 0.95, 0.35];
     const tube = (a, b2, col, wd) => { const A = proj(...a), B = proj(...b2); ctx.strokeStyle = col; ctx.lineWidth = wd * (A[3] + B[3]) / 2; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke(); };
     ctx.lineCap = 'round';
-    tube([0, -0.5, 0], PED, 'rgba(90,110,125,0.35)', 14); tube(PED, MED, 'rgba(90,110,125,0.3)', 11); tube(PED, VER, 'rgba(90,110,125,0.3)', 11);
+    tube(PED, MED, 'rgba(90,110,125,0.3)', 11);  // the axons themselves are the peduncle tube(PED, VER, 'rgba(90,110,125,0.3)', 11);
     // cells, far to near
     const P = MB3.pos, pts = [];
     for (let k = 0; k < n; k++) { const q = proj(P[3 * k], P[3 * k + 1], P[3 * k + 2]); pts.push([k, q]); }
