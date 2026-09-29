@@ -997,7 +997,8 @@ PAGE = r"""<!doctype html>
     const bar = v => `<span style="display:inline-block;width:40px;height:6px;background:#1c2a36;vertical-align:middle"><span style="display:block;height:6px;width:${Math.round(40 * Math.max(0, Math.min(1, v)))}px;background:#7fd4ff"></span></span>`;
     const parts = [`pace ${s.pace_s.toFixed(2)} s${s.missed ? ' <b style="color:#ff6f8a">missed</b>' : ''}`, `unsure ${bar(s.uncertainty)}`,
                    s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
-                   s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet'];
+                   s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet',
+                   s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
     if (s.archetypes && s.archetypes.length) parts.push('sees ' + s.archetypes.map(([n, v]) => `${n} ${bar(v)}`).join(' '));
     el.innerHTML = 'Senses: ' + parts.join(' &middot; ');
   }
@@ -1346,7 +1347,7 @@ PAGE = r"""<!doctype html>
       const HCAM = 1.6 * (1 - hz), pts = [], terr = sn.terrain || [];
       const last = k => (d[k] && d[k].length) ? (d[k][d[k].length - 1] || []) : [];
       [['host', last('prey_boxes')], ['plant', last('plant_boxes')], ['thing', last('thing_boxes')]].forEach(([kind, bxs]) => bxs.forEach(([cls, conf, x0, y0, x1, y1]) => {
-        const cutBase = y1 >= 1 - 1 / 640, cutTop = y0 <= 1 / 640;
+        const px = Math.max(1, (d.frame_w || 16) / (d.frame_h || 9)) / 640, cutBase = y1 >= 1 - px, cutTop = y0 <= px;  // one detector pixel (letterboxed)
         const g0 = place((x0 + x1) / 2, y1); if (!g0) return;
         pts.push({ kind, x: g0[0], z: g0[1], hgt: (y1 - y0) * g0[1] * 1.6, x0, x1, y1, conf, cutBase, cutTop });
       }));
@@ -1426,7 +1427,7 @@ PAGE = r"""<!doctype html>
     if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
     $('space-cap').textContent = note + '. Click it to steer (drag turns, wheel or pinch zooms; Esc releases).';
     const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
-    $('cortex-cap').innerHTML = !cx ? '' : `<b>Who it knows</b> (its visual cortex: each one by true height and colour; ${cx.individuals} so far): `
+    $('cortex-cap').innerHTML = !cx ? '' : `<b>Who it knows</b> (its visual cortex: each one by true height and colour; ${cx.individuals} so far; ${(cx.ms || 0).toFixed(1)} ms a frame): `
       + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &middot; seen ${k.seen}&times;`
           + (k.height != null ? ` &middot; ${k.height.toFixed(2)} camera heights tall` : '')
           + (k.cadence != null ? ` &middot; ${k.cadence.toFixed(1)} steps/s` : '')

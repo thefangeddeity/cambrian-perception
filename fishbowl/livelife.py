@@ -173,7 +173,7 @@ def _circuits(org: Organism) -> dict:
     out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(), "terrain": org.terrain_view(),
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
-                     "uncertainty": round(float(org.uncertainty), 3), "camera_moving": bool(org.cam_moving),
+                     "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "camera_moving": bool(org.cam_moving),
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
                      "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]
@@ -370,7 +370,9 @@ class LiveLife:
                 out = org.frame(grey, sig, boxes or [], colour, shift)
                 hosts, plants = prey_lib.hosts_only(boxes), prey_lib.plants_only(boxes)
                 # its visual cortex (cortex.py): boxes are held between detections; a new list is a fresh one
+                c0 = time.perf_counter()
                 self.cortex.see(org.lived_s, grey, colour, boxes or [], org.horizon(), boxes is not self._last_boxes)
+                self.cortex.ms += 0.02 * (1000.0 * (time.perf_counter() - c0) - self.cortex.ms)  # what it costs, per frame
                 self._last_boxes = boxes
                 for kind, data in self.cortex.events:
                     self._event(kind, **data)

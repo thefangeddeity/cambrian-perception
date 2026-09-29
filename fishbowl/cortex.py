@@ -44,7 +44,8 @@ MATURE_S = 2.0         # a track signs (is matched to an individual) after this 
 GAIT_WINDOW_S = 4.0    # the stretch of motion its gait is read from
 GAIT_HZ = (0.5, 4.0)   # the cadences looked for
 CHI2_95 = {1: 3.841, 2: 5.991, 3: 7.815, 4: 9.488}
-LIBRARY_MAX = 64       # individuals remembered (the least seen, longest ago, go first)
+LIBRARY_MAX = 64
+MET_AGAIN_S = 60.0     # the events log notes a re-meeting only after this long apart       # individuals remembered (the least seen, longest ago, go first)
 FEATURES = ("height",)               # matched on (with colour); cadence and speed are recorded
 RECORDED = ("height", "cadence", "speed")
 
@@ -166,6 +167,7 @@ class Cortex:
         self.within = {k: {f: _Welford(v) for f, v in d.items()} for k, d in (saved.get("within") or {}).items()}
         self.prev_grey = None
         self.now = 0.0
+        self.ms = 0.0            # its running cost per frame (milliseconds), measured by the caller
         self.events: list = []   # (kind, data) for the organism's event log, drained by the caller
 
     # ---- each frame ------------------------------------------------------------
@@ -196,7 +198,7 @@ class Cortex:
                     tr.motion.pop(0)
             if not fresh:
                 continue
-            cut_base, cut_top = prey_lib.cut_by_frame(b)
+            cut_base, cut_top = prey_lib.cut_by_frame(b, grey.shape[1] / max(1, grey.shape[0]) if grey is not None else 16 / 9)
             if horizon is not None and not cut_base and not cut_top and box[3] - horizon > 0.02:
                 depth = 1.0 / (box[3] - horizon)   # camera heights (focal length ~ frame height)
                 tr.heights.append((box[3] - box[1]) * depth)
@@ -282,7 +284,7 @@ class Cortex:
             self.events.append(("met", {"who": best["id"], "cls": tr.cls, **{f: round(v, 2) for f, v in sig.items()}}))
             if len(self.library) > LIBRARY_MAX:
                 self.library.remove(min(self.library, key=lambda i: (i["seen"], i["last"])))
-        else:
+        elif t - best["last"] >= MET_AGAIN_S:  # back after a real absence (not a track broken for a moment)
             self.events.append(("met again", {"who": best["id"], "cls": tr.cls, "away_s": round(t - best["last"], 1),
                                               "distance": round(float(best_d), 2)}))
         tr.who = best["id"]
@@ -349,7 +351,7 @@ class Cortex:
             "known": [{"id": i["id"], "cls": i["cls"], "name": names.get(i["cls"], str(i["cls"])), "seen": i["seen"],
                        "first": i["first"], "last": i["last"], **{f: round(v, 3) for f, v in i["mean"].items()}}
                       for i in sorted(self.library, key=lambda i: -i["last"])[:24]],
-            "individuals": len(self.library), "now": round(self.now, 1),
+            "individuals": len(self.library), "now": round(self.now, 1), "ms": round(self.ms, 2),
         }
 
     def to_dict(self) -> dict:

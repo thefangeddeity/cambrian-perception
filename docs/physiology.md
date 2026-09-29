@@ -356,6 +356,12 @@ can afford more and bigger ones.
   on is one thing (Spelke's spatiotemporal continuity) -- so it never has to be
   told. Individuals that turn out alike merge. Not fed to its brain or charged
   for yet; kept in `state/cortex.json`; its meetings go to the events log.
+- **How near what it looks at is** (input 61; a 2026-09-29 panel): it knew
+  where it looks (its gaze is among its inputs, an efference copy) but not how
+  far. Relative, as a monocular eye's must be: the nearest thing whose box holds
+  its gaze, read from its feet on its ground plane and terrain (else the ground
+  at its gaze): 1 at the frame's bottom edge, 0 at the horizon. Born unwired;
+  seed set "2026-09-29 nearness" wires it.
 - **Parallax** (moving cameras): with the camera's own motion undone, what is
   left of each cell's change over what changed at all (+ sensor noise): 0 for
   the scene sliding past, towards 1 for what is nearer or moving on its own.

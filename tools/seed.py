@@ -109,8 +109,19 @@ def seed_terrain(g, rng: random.Random) -> list[str]:
     return []
 
 
+def seed_nearness(g, rng: random.Random) -> list[str]:
+    """How near what it looks at is (2026-09-29): wired at the brain's mutation step."""
+    from fishbowl.controller import NEARNESS_INPUT
+    w = g.brain.weights_ih
+    if NEARNESS_INPUT < w.shape[1] and not w[:, NEARNESS_INPUT].any():
+        w[:, NEARNESS_INPUT] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+        return ["nearness input wired"]
+    return []
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
-SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain}
+SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
+             "2026-09-29 nearness": seed_nearness}
 
 
 def main() -> int:

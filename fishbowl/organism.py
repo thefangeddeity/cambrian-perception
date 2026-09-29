@@ -30,7 +30,8 @@ import numpy as np
 
 from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
-                         PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT)
+                         PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT,
+                         NEARNESS_INPUT)
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -463,6 +464,7 @@ class Organism:
         t_mem = memory[13] if memory is not None and len(memory) > 13 else None
         self.terrain = np.array(t_mem, dtype=float) if t_mem is not None and len(t_mem) else None
         self.things: list = []
+        self.last_nearness = 0.0
         self.colliculus = np.array(getattr(g, "colliculus", [0.0] * 6), dtype=float)
         self.priority_map = None
         self.uncertainty = 0.0   # running mean of its mushroom body's prediction errors (at its own learning rate)
@@ -726,6 +728,8 @@ class Organism:
         head_macs = 2 * self.n_heads * len(kc_active)  # reading them now, and teaching them below
         ground_near, horizon = self._ground_sense(state.cy)
         terrain = self.terrain_at(state.cx, state.cy) if not was_asleep else 0.0
+        nearness = self._nearness(state.cx, state.cy, (boxes or []) + (plants or []) + self.things) if not was_asleep else 0.0
+        self.last_nearness = nearness
         cell_p = self._cell(state.cx, state.cy)
         par = sig["parallax"] if not was_asleep else None
         self.last_parallax = par
@@ -774,7 +778,7 @@ class Organism:
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
-                tuple(head_vals), coll, terrain,
+                tuple(head_vals), coll, terrain, nearness,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1109,7 +1113,7 @@ class Organism:
         class's line as fitted then (the residual, for how much to trust it)."""
         self.ground = _ground_shape(self.ground)
         for c, conf, x0, y0, x1, y1 in boxes:
-            if any(prey_lib.cut_by_frame((c, conf, x0, y0, x1, y1))):
+            if any(prey_lib.cut_by_frame((c, conf, x0, y0, x1, y1), self.aspect)):
                 continue  # the frame cuts its base or its top: where it stands, or its height, is unseen
             if int(c) in GROUND_CLASSES and y1 > y0:
                 k, w = GROUND_CLASSES.index(int(c)), float(conf)
@@ -1224,6 +1228,28 @@ class Organism:
         if h is None or h >= 1.0:
             return 0.0, 0.0
         return float(np.clip((cy - h) / (1.0 - h), 0.0, 1.0)), float(np.clip(h - 0.5, -1.0, 1.0))
+
+    def _nearness(self, cx: float, cy: float, boxes: list) -> float:
+        """How near what it looks at is (a 2026-09-29 panel: it knows where it
+        looks -- its gaze is among its inputs, an efference copy -- but not how
+        far). Relative, as a monocular eye's must be: 1 at the frame's bottom
+        edge's ground, 0 at the horizon. What it looks at is the nearest thing
+        whose box holds its gaze, read from its feet (where its base meets the
+        ground), else the ground itself at its gaze; either way on its terrain
+        (ground raised by e camera heights puts a base nearer: / (1 - e))."""
+        h = self.horizon()
+        if h is None or h >= 1.0:
+            return 0.0
+        held = [b for b in boxes if b[2] <= cx <= b[4] and b[3] <= cy <= b[5]]
+        if held:
+            b = max(held, key=lambda b: b[5])   # the nearest: its feet lowest in the frame
+            x, y = (b[2] + b[4]) / 2, min(b[5], 1.0 - 1e-6)
+        else:
+            x, y = cx, cy
+        if y <= h:
+            return 0.0  # the sky, or a thing standing beyond its horizon's reach
+        e = float(np.clip(self.terrain_at(x, y), -0.9, 0.9))
+        return float(np.clip((y - h) / (1.0 - h) / (1.0 - e), 0.0, 1.0))
 
     def _host_velocity(self, boxes: list) -> tuple[float, float]:
         """The velocity of the host it follows (frame fractions per second,
@@ -1499,7 +1525,7 @@ class Organism:
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
                                                                          + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
-                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT,))
+                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT))
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

@@ -72,11 +72,14 @@ NECTAR_OIV7 = {"Plant", "Tree", "Flower", "Houseplant", "Rose", "Lily", "Common 
                "Maple", "Willow", "Palm tree", "Christmas tree"}
 FLOWER_EVERY_S = 30.0
 
-def cut_by_frame(box) -> tuple[bool, bool]:
+def cut_by_frame(box, aspect: float = 16 / 9) -> tuple[bool, bool]:
     """(its base is cut off by the frame's bottom, its top by the frame's top):
-    within one detector pixel of the edge (boxes are clipped to the frame)."""
+    within one detector pixel of the edge (boxes are clipped to the frame). The
+    frame is letterboxed into the detector's square, so a pixel is
+    max(1, width / height) / INPUT_SIZE of the frame's height."""
     _, _, _, y0, _, y1 = box[:6]
-    return y1 >= 1.0 - 1.0 / INPUT_SIZE, y0 <= 1.0 / INPUT_SIZE
+    px = max(1.0, aspect) / INPUT_SIZE
+    return y1 >= 1.0 - px, y0 <= px
 
 
 # Everything else COCO names (a 2026-09-29 panel): not food and never seen by
