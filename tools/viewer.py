@@ -1426,22 +1426,31 @@ PAGE = r"""<!doctype html>
     B3.pts.forEach((q, i) => { const dd = Math.hypot(q.sx - x, q.sy - y); if (dd < bd) { bd = dd; best = i; } });
     return best;
   }
-  // idle drift, eased in and out; only while the 3D view is on screen
-  (() => {
+  // Idle drift, eased in and out, for 20 s after it was last touched (or the
+  // page opened), then still: the loop sleeps until the next touch, so a
+  // viewer left open costs nothing (it shares its machine with an organism).
+  B3.touched = performance.now() - 4000;
+  B3.loop = false;
+  function brain3DKick() {
+    if (B3.loop) return;
+    B3.loop = true;
     let last = performance.now();
     const tick = now => {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
       const c = $('brain'), r = c && c.getBoundingClientRect();
+      const since = now - B3.touched;
+      const drifting = since > 4000 && since < 24000 && B3.hover == null && !BZ.pts.size;
       if (B3.on && BZ.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) {
-        const idle = now - B3.touched > 4000 && B3.hover == null && !BZ.pts.size;
-        B3.vyaw += ((idle ? 0.12 : 0) - B3.vyaw) * Math.min(1, dt * 1.5);
+        B3.vyaw += ((drifting ? 0.12 : 0) - B3.vyaw) * Math.min(1, dt * 1.5);
         B3.yaw += B3.vyaw * dt;
         if (Math.abs(B3.vyaw) > 1e-4 || B3.dirty) { B3.dirty = false; drawBrain3D(); }
       }
-      requestAnimationFrame(tick);
+      if (since < 24000 || Math.abs(B3.vyaw) > 1e-4 || B3.dirty) requestAnimationFrame(tick);
+      else { B3.vyaw = 0; B3.loop = false; }
     };
     requestAnimationFrame(tick);
-  })();
+  }
+  brain3DKick();
   function setBrainView(on) {
     B3.on = on; try { localStorage.setItem('brain-view', on ? '3d' : '2d'); } catch (e) {}
     const m = $('brain-mode'); if (m) m.innerHTML = on ? '<b>3D</b> &middot; <a href="#">2D</a>' : '<a href="#">3D</a> &middot; <b>2D</b>';
@@ -1465,7 +1474,7 @@ PAGE = r"""<!doctype html>
     const m = $('brain-mode'); if (m) m.addEventListener('click', e => { e.preventDefault(); if (e.target.tagName === 'A') setBrainView(!B3.on); });
     setBrainView(B3.on);
     c.addEventListener('wheel', e => {
-      e.preventDefault(); B3.touched = performance.now();
+      e.preventDefault(); B3.touched = performance.now(); brain3DKick();
       if (B3.on) { B3.zoom = Math.max(0.5, Math.min(6, B3.zoom * Math.exp(-e.deltaY * 0.0015))); drawBrain3D(); return; }
       const [x, y] = brainPoint(e); brainZoomTo(BZ.k * Math.exp(-e.deltaY * 0.0015), x, y);
     }, { passive: false });
@@ -1473,15 +1482,15 @@ PAGE = r"""<!doctype html>
       if (B3.on) { B3.yaw = 0.65; B3.pitch = -0.28; B3.zoom = 1; drawBrain3D(); return; }
       BZ.k = 1; BZ.x = BZ.y = 0; if (BZ.d) drawBrain(BZ.d);
     });
-    c.addEventListener('pointerleave', () => { if (B3.hover != null) { B3.hover = null; B3.dirty = true; } });
-    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; B3.touched = performance.now(); if (B3.on) c.style.cursor = 'grabbing'; });
+    c.addEventListener('pointerleave', () => { if (B3.hover != null) { B3.hover = null; B3.dirty = true; brain3DKick(); } });
+    c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; B3.touched = performance.now(); brain3DKick(); if (B3.on) c.style.cursor = 'grabbing'; });
     c.addEventListener('pointermove', e => {
       if (!BZ.pts.has(e.pointerId)) {
-        if (B3.on) { const [x, y] = brainPoint(e), h = brain3DAt(x, y); if (h !== B3.hover) { B3.hover = h; B3.dirty = true; } }
+        if (B3.on) { const [x, y] = brainPoint(e), h = brain3DAt(x, y); if (h !== B3.hover) { B3.hover = h; B3.dirty = true; brain3DKick(); } }
         return;
       }
       const prev = BZ.pts.get(e.pointerId), now = brainPoint(e); BZ.pts.set(e.pointerId, now);
-      B3.touched = performance.now();
+      B3.touched = performance.now(); brain3DKick();
       if (BZ.pts.size === 2) {
         const [a, b] = [...BZ.pts.values()], dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
         if (BZ.pinch) {

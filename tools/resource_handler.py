@@ -81,6 +81,11 @@ MIN_QUOTA_PCT = 50    # hard floor -- never starve it completely
 # several children at once on the cores it is granted. Change this only as
 # a deliberate, written decision, not a tuning knob to nudge casually.
 MAX_QUOTA_PCT = max(100, ((os.cpu_count() or 2) - 1) * 100)
+# A host may set a lower ceiling for itself, as its own written decision:
+# state/host_limits.json {"max_quota_pct": ...} -- e.g. a laptop someone
+# uses, which throttles when hot (2026-09-28 infrastructure review). It can
+# only lower the ceiling, never raise it.
+HOST_LIMITS_PATH = STATE_DIR / "host_limits.json"
 IDLE_STEP_PCT = 100   # IDLE moves a whole core at a time
 STEP_PCT = 25         # bounded step per invocation, up or down --
 # no single run can swing the quota far, so a bad read of the signals
@@ -292,9 +297,16 @@ def run(dry_run: bool = False) -> None:
     current = _current_quota_pct()
     target = current
     reason = "no change"
+    limits = _read_json(HOST_LIMITS_PATH, {}) or {}
+    if isinstance(limits.get("max_quota_pct"), (int, float)):
+        global MAX_QUOTA_PCT
+        MAX_QUOTA_PCT = max(MIN_QUOTA_PCT, min(MAX_QUOTA_PCT, int(limits["max_quota_pct"])))
     idle = _idle_cores(current)
 
-    if strained:
+    if current > MAX_QUOTA_PCT:
+        target = MAX_QUOTA_PCT
+        reason = f"above this host's ceiling ({MAX_QUOTA_PCT}%) -- down to it"
+    elif strained:
         # Unconditional -- overrides hunger/fitness entirely. The
         # "own den" signal, never negotiable regardless of how well
         # the organism is doing.
