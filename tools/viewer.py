@@ -609,6 +609,11 @@ LIVE_PAGE = r"""<!doctype html>
 <body>
 <div id="wrap"><div id="box"><img id="cam" alt="" style="visibility:hidden"><canvas id="hud"></canvas></div></div>
 <script>
+// a click (or tap) takes the video full screen; another brings it back
+document.addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+});
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
   let D = null;
@@ -659,6 +664,10 @@ PAGE = r"""<!doctype html>
   .video16x9 { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; }
   .video16x9 iframe, .video16x9 img, .video16x9 canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
   .video16x9 canvas { pointer-events: none; }
+  /* the picture alone full screen (a click on it); where a browser can't, it fills the page */
+  .video16x9 { cursor: zoom-in; }
+  .video16x9:fullscreen, .video16x9.filling { aspect-ratio: auto; cursor: zoom-out; }
+  .video16x9.filling { position: fixed; inset: 0; z-index: 1001; width: auto; }
   .quad > .panel > canvas, .quad > .panel > .video16x9 { margin-bottom: 8px; }
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   #left-stack { align-self: start; }  /* its own height, so charts can fill the rest beside the body */
@@ -2150,6 +2159,15 @@ PAGE = r"""<!doctype html>
     requestAnimationFrame(redrawAll);
   });
   document.addEventListener('click', e => {
+    const vid = e.target.closest('.video16x9');
+    if (vid) {  // the video: the picture alone goes full screen, not its card
+      if (document.fullscreenElement === vid) document.exitFullscreen().catch(() => {});
+      else if (vid.classList.contains('filling')) vid.classList.remove('filling');
+      else if (vid.requestFullscreen) vid.requestFullscreen({ navigationUI: 'hide' }).catch(() => vid.classList.add('filling'));
+      else vid.classList.add('filling');
+      requestAnimationFrame(redrawAll);
+      return;
+    }
     if (e.target.closest('input, button, label, a, select, textarea, iframe, canvas.steer')) return;
     const p = e.target.closest('.panel');
     if (p) setMax(p);
