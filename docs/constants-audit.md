@@ -239,6 +239,14 @@ yardsticks are found.
 | settling | 50 frames | S | the running mean's span (1 / 0.02) |
 | evolution's wait | the last generation's duration | M | a host always short still evolves, at half speed or less |
 
+### Maturation (fishbowl/organism.py, genome.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| maturation's range | 1 - 10,000 lessons | **G** | one lesson to many nights' worth; evolution picks within it |
+| a lesson's credit | min(1, advantage), shared by how far each synapse moved | M | |
+| nightly loosening | its recent uncertainty (0 - 1) | M | its own prediction error |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

@@ -97,6 +97,7 @@ def _carry(old: Organism, new: Organism) -> None:
             and old.g.brain.weights_ho.shape == new.g.brain.weights_ho.shape \
             and np.array_equal(old.g.brain.weights_ho, new.g.brain.weights_ho) and np.array_equal(old.g.brain.bias_o, new.g.brain.bias_o):
         new.brain.weights_ho, new.brain.bias_o = old.brain.weights_ho.copy(), old.brain.bias_o.copy()
+        new.lessons = None if old.lessons is None else old.lessons.copy()  # its locks with the weights they hold
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
     new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
@@ -197,6 +198,7 @@ def _circuits(org: Organism) -> dict:
                     "recall": bool(org.recall), "recalled": org.recalled,
                     "sleep_set": org.sleep_set, "edits": [org.edits_kept, org.edits_tried],
                     "plasticity": round(float(org.plasticity), 4), "distilled": org.distilled, "apical": round(float(org.brain.apical), 3),
+                    "maturation": round(float(org.maturation), 1), "locked": round(org.locked_share(), 3),
                     "episodes": len(org.episodes), "replays": dict(org.replays),
 
                     "scene": org.scene + 1 if org.scenes else 1, "scenes": max(1, len(org.scenes)), "max_scenes": org.max_scenes,

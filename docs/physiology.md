@@ -381,6 +381,16 @@ can afford more and bigger ones.
   is still off (replay backup, dream steps, colour, any unwired input, and
   receptor leaves where a tree reads only constants -- a tree that never reads
   its eye can never grow a line).
+- **Maturation** (2026-09-29; Hensch, Benna & Fusi, Kirkpatrick, Nader): what
+  it has learned that works locks, and the rest stays plastic. Each output
+  synapse its sleep distills into counts the good lessons that shaped it
+  (credited in proportion to how far each moved it); its lock is lessons /
+  (lessons + maturation), and its updates shrink by that much. Maturation is
+  evolvable (lessons to half-lock a synapse; born 0, never locking). Its mushroom
+  body -- the fast learner -- and all its maps and libraries never lock. And it
+  doesn't go dumb: each night locks loosen by how wrong its predictions have
+  been lately (reconsolidation). On a test, a skill's synapses locked to 0.71
+  while unused ones stayed at 0; one night at 60% surprise loosened them to 0.60.
 - **Living in the present, and oxygen** (2026-09-29 panels): its present is
   its own look interval; a frame older than that when it gets to it isn't
   lived, only the newest is (freshness over completeness: it never queues a

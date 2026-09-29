@@ -446,6 +446,19 @@ class Organism:
         self.mean_reward = 0.0
         self.distilled = 0
         self.distill_macs = 0
+        # Maturation (a 2026-09-29 panel; Hensch's critical periods, Benna &
+        # Fusi's synaptic cascades, Kirkpatrick's elastic consolidation): each
+        # output synapse counts the good lessons that shaped it, and locks as
+        # they add up -- lock = lessons / (lessons + maturation), its updates
+        # scaled by 1 - lock. What proved itself holds; what hasn't stays
+        # plastic, and so do its mushroom body (its fast learner, the
+        # hippocampus's part) and all its maps and libraries. And it doesn't go
+        # dumb: each night, locks loosen by how wrong its predictions have
+        # been lately (Nader's reconsolidation -- a memory recalled into a
+        # world that no longer fits it opens up again).
+        self.maturation = float(getattr(g, "maturation", 0.0))
+        self.lessons = None     # per output synapse (weights, then biases), when it matures
+        self._night = False
         self.brain.reset_hidden()
         self.brain.live_units = None  # all alive until wasting says otherwise (set every look)
         # What the gaze has seen per world location, and how much each spot
@@ -1324,10 +1337,27 @@ class Organism:
             return  # its brain has changed shape since (an adoption): that moment no longer fits
         now = np.tanh(b.bias_o + b.weights_ho @ top)
         delta = (np.sign(did) - now) * (1.0 - now * now) * self.plasticity * min(1.0, adv)
-        b.weights_ho += np.outer(delta, top)
+        dw = np.outer(delta, top)
+        if self.maturation > 0.0:
+            shape = (b.weights_ho.shape[0], b.weights_ho.shape[1] + 1)
+            if self.lessons is None or self.lessons.shape != shape:
+                self.lessons = np.zeros(shape)
+            lock = self.lessons / (self.lessons + self.maturation)
+            dw *= 1.0 - lock[:, :-1]
+            delta = delta * (1.0 - lock[:, -1])
+            # a good lesson, credited to the synapses it moved (in proportion)
+            moved = np.abs(np.hstack([dw, delta[:, None]]))
+            self.lessons += min(1.0, adv) * moved / max(1e-12, float(moved.max()))
+        b.weights_ho += dw
         b.bias_o += delta
         self.distilled += 1
         self.distill_macs += 3 * b.weights_ho.size
+
+    def locked_share(self) -> float:
+        """How much of its distilled brain has matured (mean lock over its output synapses)."""
+        if self.lessons is None or self.maturation <= 0.0:
+            return 0.0
+        return float(np.mean(self.lessons / (self.lessons + self.maturation)))
 
     def _act_now(self):
         b = self.brain
@@ -1462,6 +1492,12 @@ class Organism:
         """Re-learning from this life's episodes; returns the multiply-adds spent."""
         count = self.sleep_replay if asleep_settled else self.awake_replay if quiet else 0
         self.distill_macs = 0
+        if asleep_settled and not self._night:  # the night begins: reconsolidation loosens its locks
+            self._night = True
+            if self.lessons is not None:
+                self.lessons *= 1.0 - float(np.clip(self.uncertainty, 0.0, 1.0))
+        elif not asleep_settled and not quiet:
+            self._night = False
         if not count or not self.episodes or self.learning_rate <= 0.0 or not self.mb.n_kc:
             return 0
         rng = np.random.default_rng(self.k)  # reproducible: the same life replays the same way

@@ -186,9 +186,20 @@ def random_draws(g, rng: random.Random) -> list[str]:
             f"{g.archetypes} archetype heads {g.archetype_classes[:g.archetypes]}", f"{g.scenes} scenes"]
 
 
+def seed_maturation(g, rng: random.Random) -> list[str]:
+    """Maturation (2026-09-29): switched on at a random draw from its birth
+    distribution (log-uniform, one lesson to a lifetime's)."""
+    from fishbowl import genome as G
+    if g.maturation == 0.0:
+        g.maturation = float(G.MATURATION_MIN * (G.MATURATION_MAX / G.MATURATION_MIN) ** rng.random())
+        return [f"maturation {g.maturation:.0f} lessons"]
+    return []
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
-             "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything}
+             "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
+             "2026-09-29 maturation": seed_maturation}
 
 
 def main() -> int:
