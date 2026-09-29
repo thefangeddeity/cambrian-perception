@@ -99,7 +99,8 @@ def _carry(old: Organism, new: Organism) -> None:
         new.brain.weights_ho, new.brain.bias_o = old.brain.weights_ho.copy(), old.brain.bias_o.copy()
         new.lessons = None if old.lessons is None else old.lessons.copy()  # its locks with the weights they hold
     new.night_lessons, new._tonight, new._night = list(old.night_lessons), old._tonight, old._night
-    new.scores, new._precision_mean = old.scores, old._precision_mean  # its prequential record goes on with its mushroom body
+    new.scores, new._precision_mean = old.scores, old._precision_mean
+    new._ahead, new._predicted, new._last_local_s = old._ahead, old._predicted, old._last_local_s  # its prequential record goes on with its mushroom body
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
     new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
@@ -188,7 +189,7 @@ def _circuits(org: Organism) -> dict:
     out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(), "terrain": org.terrain_view(),
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
-                     "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "felt_nearness": round(float(org.felt_nearness), 3), "camera_moving": bool(org.cam_moving),
+                     "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "felt_nearness": round(float(org.felt_nearness), 3), "contact": round(float(org.contact), 3), "camera_moving": bool(org.cam_moving),
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
                      "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]
@@ -487,7 +488,8 @@ class LiveLife:
                 rec = {"i": index, "cx": round(out["cx"], 4), "cy": round(out["cy"], 4), "f": round(out["extent"], 4),
                        "eat": round(float(out["eating"]), 3),
                        "snack": round(float(snack), 3) if out["gazed"] else (prev["snack"] if prev else 0.0),
-                       "asleep": int(out["asleep"]), "alarm": int(org.last_alarm > 0.0), "boxes": hosts, "plants": plants, "things": prey_lib.things_only(boxes),
+                       "asleep": int(out["asleep"]), "alarm": int(org.last_alarm > 0.0), "contact": round(float(org.contact), 3),
+                       "ahead": org.last_ahead if org.extrapolation > 0.0 else None, "boxes": hosts, "plants": plants, "things": prey_lib.things_only(boxes),
                        "ev": [round(float(sig["motion_cx"]), 3), round(float(sig["motion_cy"]), 3),
                               round(float(min(1.0, sig["motion_energy"] * PERIPH_MOTION_GAIN)), 3),
                               round(float(min(1.0, sig["expansion"] * EXPANSION_GAIN)), 3), 0]}
@@ -613,6 +615,7 @@ class LiveLife:
             "trajectory": [[r["cx"], r["cy"], r["f"], r["i"] - first] for r in shown],
             "eating": [r["eat"] for r in shown], "snacks": [r["snack"] for r in shown],
             "asleep_frames": [r["asleep"] for r in shown], "alarm_frames": [r["alarm"] for r in shown],
+            "contact_frames": [r.get("contact", 0) for r in shown], "ahead_boxes": [r.get("ahead") for r in shown],
             "prey_boxes": [r["boxes"] for r in shown], "plant_boxes": [r["plants"] for r in shown], "thing_boxes": [r.get("things", []) for r in shown],
             "field_events": [r["ev"] for r in shown],
             "tree_guess": None, "teacher_label": None,  # graded only in evolution's runs

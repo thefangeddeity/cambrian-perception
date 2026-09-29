@@ -231,11 +231,32 @@ def seed_kenyon_cells(g, rng: random.Random) -> list[str]:
     return []
 
 
+def seed_looking_ahead(g, rng: random.Random) -> list[str]:
+    """Seeing the present despite its lag (2026-09-29): its terrain head taught
+    toward the next look, an extrapolation drawn near exact compensation (1 +
+    three of its own steps), and its tau input wired -- for evolution to prune."""
+    from fishbowl import genome as G
+    from fishbowl.controller import CONTACT_INPUT
+    done = []
+    if not g.lookahead:
+        g.lookahead = 1
+        done.append("lookahead on")
+    if g.extrapolation == 0.0:
+        g.extrapolation = float(min(G.EXTRAPOLATION_MAX, max(0.0, 1.0 + sum(rng.gauss(0.0, G.TRAIT_SIGMA) for _ in range(3)))))
+        done.append(f"extrapolation {g.extrapolation:.2f}")
+    w = g.brain.weights_ih
+    if CONTACT_INPUT < w.shape[1] and not w[:, CONTACT_INPUT].any():
+        w[:, CONTACT_INPUT] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+        done.append("tau input wired")
+    return done
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
              "2026-09-29 maturation": seed_maturation, "2026-09-29 maturation in nights": seed_maturation_nights,
-             "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain}
+             "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain,
+             "2026-09-29 looking ahead": seed_looking_ahead}
 
 
 def main() -> int:

@@ -314,6 +314,7 @@ LOCK_HUD_JS = r"""
       eat: at(d.eating) || 0, boxes: at(d.prey_boxes) || [],
       guess: at(d.tree_guess) ?? null, label: at(d.teacher_label) ?? null, snack: at(d.snacks) || 0,
       asleep: !!at(d.asleep_frames), warn: !!at(d.alarm_frames),
+      contact: at(d.contact_frames) || 0, ahead: at(d.ahead_boxes) || null,
       frame: d.world_first_index != null ? d.world_first_index + cur : null, epoch: d.world_epoch || 0,
       delay, catching,
     };
@@ -386,7 +387,8 @@ LOCK_HUD_JS = r"""
   const AR_FONT = '"Noto Naskh Arabic", "Geeza Pro", "Segoe UI", Tahoma, sans-serif';
   const AR_WORDS = [['catching up:', 'عم يلحّق:'], ['its latest run, looped', 'آخر دورة، عم تعيد'], ['delayed', 'متأخّر'],
     ['own guess', 'تخمينو'], ['teacher', 'الأستاذ'], ['calibrating', 'عم يظبّط'], ['snacks', 'لقمات'], ['locks', 'مسكات'],
-    ['SCAN', 'عم دوّر'], ['TRACK', 'لاحقو'], ['LOCK', 'مسكتو'], ['SLEEP', 'نايم'], ['TARGET', 'هدف'], ['WARN', 'دير بالك']];
+    ['SCAN', 'عم دوّر'], ['TRACK', 'لاحقو'], ['LOCK', 'مسكتو'], ['SLEEP', 'نايم'], ['TARGET', 'هدف'], ['WARN', 'دير بالك'],
+    ['contact', 'تماس'], ['looks', 'نظرات']];
   function toArabic(text) {
     let t = String(text);
     AR_WORDS.forEach(([en, ar]) => { t = t.split(en).join(ar); });
@@ -398,10 +400,12 @@ LOCK_HUD_JS = r"""
   // decimal mark and unit.
   const UK_WORDS = [['catching up:', 'наздоганяю:'], ['its latest run, looped', 'останній прогін, по колу'], ['delayed', 'затримка'],
     ['own guess', 'власна оцінка'], ['teacher', 'вчитель'], ['calibrating', 'калібрування'], ['snacks', 'перекуси'], ['locks', 'захоплення'],
-    ['SCAN', 'ПОШУК'], ['TRACK', 'СТЕЖУ'], ['LOCK', 'ЗАХОПЛЕНО'], ['SLEEP', 'СПЛЮ'], ['TARGET', 'ЦІЛЬ'], ['WARN', 'УВАГА']];
+    ['SCAN', 'ПОШУК'], ['TRACK', 'СТЕЖУ'], ['LOCK', 'ЗАХОПЛЕНО'], ['SLEEP', 'СПЛЮ'], ['TARGET', 'ЦІЛЬ'], ['WARN', 'УВАГА'],
+    ['contact', 'зіткнення за'], ['looks', 'погляди']];
   const TW_WORDS = [['catching up:', '追趕中：'], ['its latest run, looped', '最近一輪，循環播放'], ['delayed', '延遲'],
     ['own guess', '自己的猜測'], ['teacher', '老師'], ['calibrating', '校準中'], ['snacks', '點心'], ['locks', '鎖定次數'],
-    ['SCAN', '搜尋'], ['TRACK', '追蹤'], ['LOCK', '鎖定'], ['SLEEP', '睡眠'], ['TARGET', '目標'], ['WARN', '警告']];
+    ['SCAN', '搜尋'], ['TRACK', '追蹤'], ['LOCK', '鎖定'], ['SLEEP', '睡眠'], ['TARGET', '目標'], ['WARN', '警告'],
+    ['contact', '接觸'], ['looks', '次注視']];
   const TW_FONT = '"Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
   function translate(text, words) { let t = String(text); words.forEach(([en, x]) => { t = t.split(en).join(x); }); return t; }
   function toUkrainian(text) { return translate(text, UK_WORDS).replace(/([0-9])\.([0-9])/g, '$1,$2').replace(/ s(?= |$)/g, ' с'); }
@@ -483,6 +487,10 @@ LOCK_HUD_JS = r"""
       ctx.save(); ctx.translate((bw - w) / 2, (bh - h) / 2);
       ctx.strokeStyle = HUD_HOST; ctx.lineWidth = 1.5;
       (fs.boxes || []).forEach(b => lockCorners(ctx, b[2] * w, b[3] * h, b[4] * w, b[5] * h, 8));
+      if (fs.ahead) {  // where it expects the host it follows (its extrapolation): a lighter, dashed ghost ahead of it
+        ctx.save(); ctx.setLineDash([3, 3]); ctx.globalAlpha = 0.55; ctx.lineWidth = Math.max(1, ctx.lineWidth * 0.6);
+        lockCorners(ctx, fs.ahead[0] * w, fs.ahead[1] * h, fs.ahead[2] * w, fs.ahead[3] * h, 6); ctx.restore();
+      }
       // glide between its gazes (the eye moves between them too); snap when the replay loops
       if (st.i != null && fs.i < st.i) st.rx = null;
       st.i = fs.i;
@@ -573,6 +581,8 @@ LOCK_HUD_JS = r"""
     }
     const boutText = (kind, n) => (d.bouts && d.bouts[kind] && d.bouts[kind].fit) ? `${n || 0}` : 'calibrating';
     rows.push([`locks ${boutText('meal', st.meals)}`, HUD_BEHAV, '10px monospace', 'telemetry']);
+    // something approaching its gaze: how soon it arrives, in its own looks (Lee's tau)
+    if (fs.contact > 0) rows.push([`contact ~${Math.max(1, Math.round(1 / fs.contact))} looks`, HUD_WARN, 'bold 11px monospace']);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
     // it warns, a dim lamp otherwise. The client page never shows it.
@@ -1019,6 +1029,7 @@ PAGE = r"""<!doctype html>
                    s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
                    s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet',
                    d.oxygen && d.oxygen.stage ? `<b style="color:#ff6f8a">short of oxygen</b>: shed ${d.oxygen.shed.join(', ')} (${d.oxygen.behind_s.toFixed(1)} s behind)` : '',
+                   s.contact ? `<b style="color:#ff6f8a">approaching</b>: contact in ~${Math.max(1, Math.round(1 / s.contact))} looks` : '',
                    s.felt_nearness ? `it feels: ${s.felt_nearness >= 0.67 ? 'near' : s.felt_nearness >= 0.33 ? 'mid' : 'far'} (${s.felt_nearness.toFixed(2)})` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
     if (s.archetypes && s.archetypes.length) parts.push('sees ' + s.archetypes.map(([n, v]) => `${n} ${bar(v)}`).join(' '));
@@ -1497,6 +1508,34 @@ PAGE = r"""<!doctype html>
         if (tr) { const m = at((g0[0] + g1[0]) / 2, top, (g0[1] + g1[1]) / 2); ctx.fillStyle = `rgb(${rgb})`; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('#' + tr.who, m[0], m[1] - 3); }
       });
       const nCut = pts.filter(q => q.cutBase || q.cutTop).length;
+      // where it expects the host it follows (its extrapolation), standing on its ground, dashed
+      const ah = last('ahead_boxes');
+      if (ah && ah.length === 4) {
+        const g0 = place(ah[0], ah[3]), g1 = place(ah[2], ah[3]);
+        if (g0 && g1) {
+          const gz = place((ah[0] + ah[2]) / 2, ah[3]), base = gz ? groundAt(gz[0], gz[1]) : 0, top = base + (ah[3] - ah[1]) * g0[1] * 1.6;
+          const c4 = [at(g0[0], base, g0[1]), at(g1[0], base, g1[1]), at(g1[0], top, g1[1]), at(g0[0], top, g0[1])];
+          ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255, 111, 138, 0.6)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.stroke(); ctx.restore();
+        }
+      }
+      // its gaze: a reticle where it looks (from its eye, a frame point is a screen point), the ring
+      // tightening as something approaches (tau); beside it the nearness its ground model teaches and the one it feels
+      if (SP3.pov && d.fovea_cx != null) {
+        const gx = d.fovea_cx * W, gy = d.fovea_cy * H, ct = Math.max(0, Math.min(1, last('contact_frames') || sn.contact || 0));
+        const rr = 16 * (1 - 0.6 * ct);
+        ctx.strokeStyle = ct > 0 ? 'rgba(255, 90, 70, 0.95)' : 'rgba(127, 212, 255, 0.8)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(gx, gy, rr, 0, 7); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(gx - rr - 4, gy); ctx.lineTo(gx - rr + 3, gy); ctx.moveTo(gx + rr - 3, gy); ctx.lineTo(gx + rr + 4, gy); ctx.stroke();
+        const tick = (v, dxs, col, name) => { if (v == null) return; const hh = 24, y0 = gy + hh / 2;
+          ctx.fillStyle = 'rgba(28, 42, 54, 0.9)'; ctx.fillRect(gx + dxs, gy - hh / 2, 4, hh);
+          ctx.fillStyle = col; ctx.fillRect(gx + dxs, y0 - hh * Math.max(0, Math.min(1, v)), 4, hh * Math.max(0, Math.min(1, v)));
+          ctx.fillStyle = col; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(name, gx + dxs + 2, gy + hh / 2 + 2); };
+        tick(sn.nearness, rr + 10, 'rgb(156, 207, 122)', 'taught');
+        tick(sn.felt_nearness, rr + 26, 'rgb(127, 212, 255)', 'felt');
+        if (ct > 0) { ctx.fillStyle = 'rgb(255, 90, 70)'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.fillText(`contact ~${Math.max(1, Math.round(1 / ct))} looks`, gx, gy - rr - 4); }
+      }
       note = `ground plane learned from hosts' and plants' sizes, horizon ${Math.round(100 * hz)}% down the frame; the surface is its own terrain map, through feet and roots: flat where it has no evidence, raised or lowered where things stood bigger or smaller than their kind's line predicts; pink: hosts, green: plants, grey: other things it measures by, standing on it`
              + (nCut ? `; dashed: ${nCut} cut by the frame's edge (measuring nothing)` : '')
              + (sn.parallax && sn.parallax.some(v => v > 0.05) ? '; cyan: parallax (nearer, or moving on its own)' : (sn.camera_moving ? '' : '; camera still (parallax needs a moving camera)'));

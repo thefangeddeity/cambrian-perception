@@ -2022,7 +2022,9 @@ def _learned_parts(org) -> dict | None:
     rows = list(range(org.n_heads)) + ([len(mb.heads) - 1] if org.felt_terrain else [])
     out = {"n_kc": mb.n_kc, "kc_seed": int(getattr(org.g, "kc_seed", 0)),
            "food": _b64(mb.weights), "heads": _b64(mb.heads[rows]) if rows else None,
-           "head_classes": [int(c) for c in org.head_classes[:org.n_heads]], "terrain_head": bool(org.felt_terrain)}
+           "head_classes": [int(c) for c in org.head_classes[:org.n_heads]], "terrain_head": bool(org.felt_terrain),
+           "terrain_target": "the next look" if org.lookahead else "this look",
+           "extrapolation": round(float(org.extrapolation), 3)}
     if getattr(mb, "danger_weights", None) is not None:
         out["danger"] = _b64(mb.danger_weights)
     if org.plasticity > 0.0 and org.brain is not org.g.brain:

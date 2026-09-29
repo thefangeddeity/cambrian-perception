@@ -394,6 +394,21 @@ can afford more and bigger ones.
   later snapshots. `tools/export_lite.py` turns it into the light CV module's
   bundle (refusing one without scores); `fishbowl/live.py` applies the learned
   parts. The perception tree has no held-out score yet, and the card says so.
+- **Seeing the present despite its lag** (2026-09-29; Nijhawan's flash-lag,
+  Berry & Meister's retinal anticipation, Changizi, Lee's tau): (1) **tau**,
+  input 63 -- corners tracked where it looks (attention), last look to this
+  one, fitted on their own: their expansion over one look is its look interval
+  / time-to-contact, counted when significant and replicated, clipped to
+  [0, 1]; (2) **lookahead** (gene, 0/1): its terrain head taught toward the
+  next look; (3) **extrapolation** (gene, born 0, seeded near 1): the host it
+  follows carried forward by its velocity x its own measured lag x the gene
+  (1 = exact compensation; evolution tunes the over/undershoot). All seeded
+  (seed set "2026-09-29 looking ahead"), priced, for evolution to prune. Scored
+  prequentially: the extrapolated host position against the next detection,
+  beside the plain position (3x closer in a synthetic walk). Shown on its HUD
+  ("contact ~N looks", a dashed ghost where it expects the host) and in its
+  eye's view (a reticle that tightens with tau, taught vs felt nearness, the
+  ghost standing on its ground).
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

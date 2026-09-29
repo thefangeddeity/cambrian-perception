@@ -31,7 +31,7 @@ import numpy as np
 from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
                          PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT,
-                         NEARNESS_INPUT, FELT_NEARNESS_INPUT)
+                         NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT)
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -278,7 +278,7 @@ def _similarity(a: np.ndarray, b: np.ndarray):
     return float(np.log(k)), math.sqrt(sigma2 / max(spread, 1e-9)) / k, inl, m
 
 
-def global_scale(prev_small: np.ndarray, cur_small: np.ndarray) -> float:
+def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | None = None) -> float:
     """The whole frame's expansion between two small frames (log scale; + when
     the camera walks forward -- Gibson's outflow of forward locomotion): corner
     features tracked from one to the other (Lucas-Kanade), a similarity
@@ -298,6 +298,9 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray) -> float:
     if ok.sum() < 8:
         return 0.0
     pa, pb = p0[ok].reshape(-1, 2), p1[ok].reshape(-1, 2)
+    if keep is not None:  # the tracked corners, as frame fractions (x0, y0, x1, y1), for tau at its gaze
+        h, w = prev_small.shape[:2]
+        keep.append((np.hstack([pa, pb]) / np.array([w, h, w, h], dtype=np.float32)).astype(np.float32))
     fit = _similarity(pa, pb)
     if fit is None:
         return 0.0
@@ -366,7 +369,7 @@ def parallax_series(frames: list[np.ndarray], sx: np.ndarray, sy: np.ndarray, sh
     return out
 
 
-def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def global_shifts(frames: list[np.ndarray], tracks: list | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The whole frame's shift (and expansion) from frame k-1 to frame k, for a recording."""
     n = len(frames)
     sx, sy, ss = np.zeros(n), np.zeros(n), np.zeros(n)
@@ -375,10 +378,15 @@ def global_shifts(frames: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.
     size = shift_size(frames[0].shape)
     window = cv2.createHanningWindow(size, cv2.CV_32F)
     prev = cv2.resize(frames[0], size, interpolation=cv2.INTER_AREA).astype(np.float32)
+    if tracks is not None:
+        tracks.append(None)
     for k in range(1, n):
         cur = cv2.resize(frames[k], size, interpolation=cv2.INTER_AREA).astype(np.float32)
         sx[k], sy[k] = global_shift(prev.copy(), cur.copy(), window)  # copies: phase correlation windows its inputs in place
-        ss[k] = global_scale(prev, cur)
+        keep = [] if tracks is not None else None
+        ss[k] = global_scale(prev, cur, keep)
+        if tracks is not None:
+            tracks.append(keep[0] if keep else None)
         prev = cur
     raw = ss.copy()
     for k in range(1, n):
@@ -471,7 +479,7 @@ class _Prequential:
         n, mae = self.n, self.sa / self.n
         var = max(0.0, self.saa / n - mae * mae)
         r = max(-0.99, min(0.99, self.se1 / self.se0)) if self.se0 > 0 else 0.0
-        n_eff = max(1.0, n * (1 - r) / (1 + r))
+        n_eff = min(float(n), max(1.0, n * (1 - r) / (1 + r)))  # never more than it saw
         vp, vt = self.spp / n - (self.sp / n) ** 2, self.stt / n - (self.st / n) ** 2
         corr = (self.spt / n - (self.sp / n) * (self.st / n)) / math.sqrt(vp * vt) if vp > 1e-12 and vt > 1e-12 else None
         return {"n": n, "n_eff": round(n_eff, 1), "mae": round(mae, 4), "mae_se": round(math.sqrt(var / n_eff), 4),
@@ -555,7 +563,16 @@ class Organism:
         # Its prequential scores (Dawid 1984; a 2026-09-29 panel): every head
         # scored on a look before it learns from it -- out-of-sample by
         # construction. For its model card (run_vision.py) and its export.
-        self.scores = {"terrain": _Prequential(), "archetypes": _Prequential()}
+        self.scores = {"terrain": _Prequential(), "archetypes": _Prequential(),
+                       "host_position": _Prequential(), "host_position_plain": _Prequential()}
+        self.lookahead = int(getattr(g, "lookahead", 0))
+        self.extrapolation = float(getattr(g, "extrapolation", 0.0))
+        self._ahead = None            # (its code, the moment) of its last look, for a lesson from the next one
+        self._last_local_s = 0.0      # tau: the expansion at its gaze on its last look (replication)
+        self.contact = 0.0
+        self._tau_prev = None         # (its last look's small frame, where it looked)
+        self.last_ahead = None        # where it expects the host it follows (its extrapolation), for the viewer
+        self._predicted = None        # (the followed box, where it said it would be, where it was) for the host-position score
         self.lessons = None     # per output synapse (weights, then biases), when it matures
         self._night = False
         self._tonight = 0         # lessons distilled this night
@@ -861,8 +878,9 @@ class Organism:
         mismatch_dx = float(sig["mismatch_cx"]) - state.cx
         mismatch_dy = float(sig["mismatch_cy"]) - state.cy
         self.mismatch = mismatch
-        scent, prey_dx, prey_dy = prey_sense(boxes, state.cx, state.cy, self.prey_level, self.host_pref)
         host_vx, host_vy = self._host_velocity(boxes) if self.prey_level >= 3 else (0.0, 0.0)
+        seen_boxes = self._extrapolate(boxes or [], host_vx, host_vy)
+        scent, prey_dx, prey_dy = prey_sense(seen_boxes, state.cx, state.cy, self.prey_level, self.host_pref)
         plant_scent, plant_dx, plant_dy = prey_sense(plants or [], state.cx, state.cy, self.plant_level, None)
         # Its mushroom body's learned value of what the look shows (eyes shut: nothing).
         kc_active = self.mb.active(v, n, self.live_kc) if (not was_asleep or dreaming) else np.zeros(0, dtype=int)
@@ -877,6 +895,8 @@ class Organism:
         nearness = self._nearness(state.cx, state.cy, (boxes or []) + (plants or []) + self.things) if not was_asleep else 0.0
         felt = float(np.clip(self.mb.terrain_value(kc_active), 0.0, 1.0)) if self.felt_terrain else 0.0
         self.felt_nearness = felt
+        contact, contact_macs = self._contact(frame, state) if not was_asleep else (0.0, 0)
+        head_macs += contact_macs
         self.last_nearness = nearness
         cell_p = self._cell(state.cx, state.cy)
         par = sig["parallax"] if not was_asleep else None
@@ -926,7 +946,7 @@ class Organism:
                 plant_scent, plant_dx, plant_dy, mismatch, mismatch_dx, mismatch_dy,
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
-                tuple(head_vals), coll, terrain, nearness, felt,
+                tuple(head_vals), coll, terrain, nearness, felt, contact,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1050,8 +1070,15 @@ class Organism:
                     # its terrain head, taught by its ground model's nearness at this gaze
                     self._precision_mean.add(self.horizon_precision)
                     weight = min(1.0, self.horizon_precision / max(1e-12, self._precision_mean.mean))
-                    self.scores["terrain"].add(self.mb.terrain_value(kc_active), nearness)
-                    self.mb.learn_terrain(kc_active, nearness, self.learning_rate * weight)
+                    if self.lookahead:
+                        # taught toward the next look: what it will see by the time it has seen this one
+                        if self._ahead is not None and len(self._ahead):
+                            self.scores["terrain"].add(self.mb.terrain_value(self._ahead), nearness)
+                            self.mb.learn_terrain(self._ahead, nearness, self.learning_rate * weight)
+                        self._ahead = kc_active.copy()
+                    else:
+                        self.scores["terrain"].add(self.mb.terrain_value(kc_active), nearness)
+                        self.mb.learn_terrain(kc_active, nearness, self.learning_rate * weight)
                 self._remember((kc_active.copy(), reward, cell), abs(err),
                                (self.feed_index, state.cx, state.cy, state.extent))
             if boxes or plants or self.things:
@@ -1409,6 +1436,65 @@ class Organism:
         e = float(np.clip(self.terrain_at(x, y), -0.9, 0.9))
         return float(np.clip((y - h) / (1.0 - h) / (1.0 - e), 0.0, 1.0))
 
+    def _extrapolate(self, boxes: list, vx: float, vy: float) -> list:
+        """Where the host it follows will be by the time it acts (a 2026-09-29
+        panel; Nijhawan): its box carried forward by its velocity x its own lag
+        (its look interval) x its inherited extrapolation. And the host-position
+        score: where it said the host would be, and where the host was left
+        (the plain baseline), against where the next detection puts it."""
+        followed = self.followed[0] if self.followed is not None else None
+        if self._predicted is not None and followed is not None and followed != self._predicted[0]:
+            old, said, was = self._predicted
+            now = ((followed[0] + followed[2]) / 2, (followed[1] + followed[3]) / 2)
+            if min(followed[2], old[2]) > max(followed[0], old[0]) and min(followed[3], old[3]) > max(followed[1], old[1]):
+                self.scores["host_position_plain"].add(math.dist(was, now), 0.0)
+                if self.extrapolation > 0.0:
+                    self.scores["host_position"].add(math.dist(said, now), 0.0)
+            self._predicted = None
+        if followed is None or self.prey_level < 3:
+            self.last_ahead = None
+            return boxes
+        lag = self.last_interval / max(1.0, self.fps)
+        dx, dy = vx * lag * self.extrapolation, vy * lag * self.extrapolation
+        centre = ((followed[0] + followed[2]) / 2, (followed[1] + followed[3]) / 2)
+        if self._predicted is None:
+            self._predicted = (followed, (centre[0] + dx, centre[1] + dy), centre)
+        if not (dx or dy):
+            self.last_ahead = None
+            return boxes
+        self.last_ahead = [round(followed[0] + dx, 4), round(followed[1] + dy, 4), round(followed[2] + dx, 4), round(followed[3] + dy, 4)]
+        return [[b[0], b[1], b[2] + dx, b[3] + dy, b[4] + dx, b[5] + dy] if tuple(b[2:6]) == followed else b for b in boxes]
+
+    def _contact(self, frame, state) -> tuple[float, int]:
+        """How soon what it looks at will reach it (Lee's tau): corners tracked
+        where it looks (attention: an eye tracks more where it looks), from its
+        last look to this one, fitted on their own -- their expansion over one
+        look is its look interval / tau, whoever is moving. Counted when
+        significant (beyond twice its standard error) and replicated by the look
+        before, as its ego-motion is; clipped to [0, 1] (1 = contact within one
+        look). Returns (it, multiply-adds)."""
+        small = cv2.resize(frame, shift_size(frame.shape), interpolation=cv2.INTER_AREA).astype(np.uint8)
+        prev, self._tau_prev = self._tau_prev, (small, state.cx, state.cy)
+        if prev is None or prev[0].shape != small.shape:
+            return 0.0, 0
+        h, w = small.shape
+        hx, hy = state.half_extents(self.aspect)
+        mask = np.zeros_like(small)
+        mask[int(max(0.0, prev[2] - hy) * h):int(min(1.0, prev[2] + hy) * h) + 1,
+             int(max(0.0, prev[1] - hx) * w):int(min(1.0, prev[1] + hx) * w) + 1] = 255
+        p0 = cv2.goodFeaturesToTrack(prev[0], maxCorners=40, qualityLevel=0.01, minDistance=3, mask=mask)
+        if p0 is None or len(p0) < 8:
+            self._last_local_s = 0.0
+            return 0.0, 0
+        p1, st, _ = cv2.calcOpticalFlowPyrLK(prev[0], small, p0, None)
+        ok = st.ravel() == 1
+        macs = 12 * int(ok.sum())  # a least-squares similarity: a dozen multiply-adds a point (tracking is its eye's own work)
+        fit = _similarity(p0[ok].reshape(-1, 2), p1[ok].reshape(-1, 2)) if ok.sum() >= 8 else None
+        s = fit[0] if fit is not None and fit[0] > 2.0 * fit[1] else 0.0
+        s_rep, self._last_local_s = replicated(s, self._last_local_s), s
+        self.contact = float(np.clip(s_rep, 0.0, 1.0))
+        return self.contact, macs
+
     def _host_velocity(self, boxes: list) -> tuple[float, float]:
         """The velocity of the host it follows (frame fractions per second,
         clipped to +-1): its preferred host now, matched to the one it followed
@@ -1726,7 +1812,7 @@ class Organism:
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
                                                                          + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
-                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT))
+                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT))
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

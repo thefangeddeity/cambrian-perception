@@ -265,6 +265,15 @@ yardsticks are found.
 | effective n | n (1 - r) / (1 + r) | S | AR(1) correction |
 | seeded Kenyon cells | 64 x (1 + three coin-flip steps) | S | the Dennett compromise: its own growth steps, at random |
 
+### Looking ahead (2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| extrapolation's physics | 1 = velocity x its measured lag | P | exact compensation; the gene tunes around it |
+| `EXTRAPOLATION_MAX` | 3 | B | safety only |
+| tau's corners | 40 in its gaze window, >= 8 tracked | B / S | a similarity fit's 4 unknowns need more points than that |
+| tau counted | > 2 SE and replicated by the look before | S | as its ego-motion |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

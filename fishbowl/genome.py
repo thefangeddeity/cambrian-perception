@@ -57,7 +57,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
-            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain")
+            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain", "mutate_lookahead", "mutate_extrapolation")
 STABILIZER_SIGMA = 0.1
 MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
@@ -97,6 +97,7 @@ LEARNING_MIN, LEARNING_MAX, LEARNING_SIGMA = 1e-3, 1.0, 0.5
 # learning) and an adult Aedes' life (~30 nights); past that, evolution walks
 # freely under a safety cap of ten years.
 MATURATION_MIN, MATURATION_BIRTH_MAX, MATURATION_MAX = 1.0, 30.0, 3650.0
+EXTRAPOLATION_MAX = 3.0  # a safety bound (1 = exact compensation of its lag)
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
 BRAIN_FLOOR = 0.3  # share of mutations always given to the brain
@@ -235,6 +236,8 @@ class Genome:
         plasticity: float = 0.0,
         maturation: float = 0.0,
         felt_terrain: int = 0,
+        lookahead: int = 0,
+        extrapolation: float = 0.0,
         colliculus: list | None = None,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
@@ -283,6 +286,13 @@ class Genome:
         # Its terrain head (organism.py): taught by its ground model, a sense of
         # nearness from its own eye. Born 0 (none).
         self.felt_terrain = int(bool(felt_terrain))
+        # Seeing the present despite its lag (a 2026-09-29 panel; Nijhawan,
+        # Berry & Meister, Changizi): its terrain head taught toward the next
+        # look (lookahead, 0/1), and the host it follows carried forward by its
+        # velocity x its own measured lag x extrapolation (1 = exact
+        # compensation by physics; evolution tunes the over/undershoot). Born 0.
+        self.lookahead = int(bool(lookahead))
+        self.extrapolation = float(np.clip(extrapolation, 0.0, EXTRAPOLATION_MAX))
         # Its collicular priority map's weights (organism.COLLICULAR_FEATURES), born 0.
         self.colliculus = ([float(w) for w in (colliculus or [])] + [0.0] * 6)[:6]
         # Its fuel set points (state.py), inherited, born at the rulebook's
@@ -377,6 +387,8 @@ class Genome:
             self.plasticity,
             self.maturation,
             self.felt_terrain,
+            self.lookahead,
+            self.extrapolation,
             list(self.colliculus),
             self.mobilize,
             self.store,
@@ -608,6 +620,18 @@ class Genome:
         if choice == "mutate_apical":  # its pyramidal units' coincidence gain, stepped like a trait
             self.brain.apical = float(self.brain.apical + rng.gauss(0.0, TRAIT_SIGMA))
             return "brain", choice
+        if choice == "mutate_lookahead":
+            self.lookahead = 1 - self.lookahead
+            return "brain", choice
+        if choice == "mutate_extrapolation":  # first drawn near exact compensation (1), then stepped; it can be lost
+            old = self.extrapolation
+            if old <= 0.0:
+                self.extrapolation = float(np.clip(1.0 + rng.gauss(0.0, TRAIT_SIGMA), 0.0, EXTRAPOLATION_MAX))
+            elif rng.random() < 0.1:
+                self.extrapolation = 0.0
+            else:
+                self.extrapolation = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA), 0.0, EXTRAPOLATION_MAX))
+            return "brain", (choice if self.extrapolation != old else "noop_inapplicable")
         if choice == "mutate_felt_terrain":  # gained or lost, like its other senses
             self.felt_terrain = 1 - self.felt_terrain
             return "brain", choice
@@ -863,6 +887,8 @@ class Genome:
             "plasticity": self.plasticity,
             "maturation": self.maturation,
             "felt_terrain": self.felt_terrain,
+            "lookahead": self.lookahead,
+            "extrapolation": self.extrapolation,
             "colliculus": list(self.colliculus),
             "mobilize": self.mobilize,
             "store": self.store,
@@ -940,6 +966,8 @@ class Genome:
             plasticity=float(data.get("plasticity", 0.0)),
             maturation=float(data.get("maturation", 0.0)),
             felt_terrain=int(data.get("felt_terrain", 0)),
+            lookahead=int(data.get("lookahead", 0)),
+            extrapolation=float(data.get("extrapolation", 0.0)),
             colliculus=data.get("colliculus"),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),
