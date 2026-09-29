@@ -1547,8 +1547,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
           ctx.fillStyle = 'rgba(28, 42, 54, 0.9)'; ctx.fillRect(gx + dxs, gy - hh / 2, 4, hh);
           ctx.fillStyle = col; ctx.fillRect(gx + dxs, y0 - hh * Math.max(0, Math.min(1, v)), 4, hh * Math.max(0, Math.min(1, v)));
           ctx.fillStyle = col; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(name, gx + dxs + 2, gy + hh / 2 + 2); };
-        tick(sn.nearness, rr + 10, 'rgb(156, 207, 122)', 'taught');
-        tick(sn.felt_nearness, rr + 26, 'rgb(127, 212, 255)', 'felt');
+        tick(sn.nearness, rr + 12, 'rgb(156, 207, 122)', 'taught');
+        tick(sn.felt_nearness, rr + 50, 'rgb(127, 212, 255)', 'felt');
         if (ct > 0) { ctx.fillStyle = 'rgb(255, 90, 70)'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.fillText(`contact ~${Math.max(1, Math.round(1 / ct))} looks`, gx, gy - rr - 4); }
       }
@@ -1590,7 +1590,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
     $('space-cap').innerHTML = note;
     const ts = d.scores && d.scores.terrain;
-    $('space-cap').innerHTML += ts ? ` &middot; felt nearness: error ${ts.mae.toFixed(3)} &plusmn; ${ts.mae_se.toFixed(3)} (n ${ts.n})` : '';
+    $('space-cap').innerHTML += ts ? ` &middot; felt vs taught nearness: off by ${ts.mae.toFixed(2)} &plusmn; ${ts.mae_se.toFixed(2)} of 1 (${ts.n} looks)` : '';
     const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
     $('cortex-cap').innerHTML = !cx ? '' : `<b>who it knows</b> (${cx.individuals}): `
       + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &times;${k.seen}`
