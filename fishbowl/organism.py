@@ -31,7 +31,9 @@ import numpy as np
 from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
                          PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT,
-                         NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT, HEADING_INPUTS)
+                         NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT, HEADING_INPUTS,
+                         EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT)
+from .entorhinal import Entorhinal
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -655,6 +657,8 @@ class Organism:
         self.cam_shift = (0.0, 0.0)
         self.cam_scale = 0.0
         self.compass = int(getattr(g, "compass", 0))
+        self.ec = Entorhinal(int(getattr(g, "kc_seed", 0)) ^ 0x5EC) if int(getattr(g, "entorhinal", 0)) else None
+        self._hz_cache = None
         self.heading = 0.0            # its compass (radians): where it faces, as it has integrated its turning
         self._yaw_look = self._roll_look = 0.0
         self.turning = self.tilting = 0.0
@@ -810,6 +814,8 @@ class Organism:
         self._roll_look += roll
         if self.compass:
             self.heading = (self.heading + yaw) % (2 * math.pi)
+        if self.ec is not None:  # its speed cells and path integrator, frame by frame
+            self.ec.step(self.cam_scale, self.fps, self._hz_cache, self.heading)
         self.cam_moving = camera_moves(self.cam_shift + (self.cam_scale, roll), shift_size(frame.shape)[::-1])
         if self.k == 0:
             if len(self.scenes) > self.max_scenes:  # a smaller library now: keep the most recent
@@ -939,6 +945,13 @@ class Organism:
         self.tilting = float(np.clip(self._roll_look / half_fov, -1.0, 1.0))
         self._yaw_look = self._roll_look = 0.0
         heading = (math.sin(self.heading), math.cos(self.heading)) if self.compass else (0.0, 0.0)
+        ego_speed = acceleration = place_value = 0.0
+        if self.ec is not None:
+            self._hz_cache = self.horizon()
+            ego_speed, acceleration = self.ec.look()
+            self.ec.places(self.scene)
+            place_value = float(np.clip(self.ec.value(), -1.0, 1.0))
+            head_macs += self.ec.macs()
         self.last_nearness = nearness
         cell_p = self._cell(state.cx, state.cy)
         par = sig["parallax"] if not was_asleep else None
@@ -989,6 +1002,7 @@ class Organism:
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
                 tuple(head_vals), coll, terrain, nearness, felt, contact, self.turning, self.tilting, heading,
+                ego_speed, acceleration, place_value,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1095,6 +1109,8 @@ class Organism:
             # prey = 1; a sip is worth as much as the plant is full) teaches its
             # mushroom body what the look showed.
             reward = (PREY_FOOD_PER_LOOK * prey_now + FOOD_PER_LOOK * snack) / PREY_FOOD_PER_LOOK + crop
+            if self.ec is not None:
+                self.ec.learn(reward, self.learning_rate)  # what this place has been worth
             if len(kc_active) and self.learning_rate > 0.0:
                 err = self.mb.learn(kc_active, reward, self.learning_rate)
                 self.value_errors.append(abs(err))
@@ -1273,6 +1289,8 @@ class Organism:
         sc["nectar"] = dict(self.nectar)
         if self.compass:
             sc.setdefault("heading", self.heading)  # its landmark: the heading it had here
+        if self.ec is not None:
+            sc.setdefault("position", [float(v) for v in self.ec.position])  # and where it was
 
     def _unstash(self) -> None:
         """Back in a stored scene: its maps again."""
@@ -1283,6 +1301,8 @@ class Organism:
         self.nectar = dict(sc.get("nectar") or {})
         if self.compass and sc.get("heading") is not None:
             self.heading = float(sc["heading"])  # back among its landmarks: its compass re-anchors to them
+        if self.ec is not None and sc.get("position") is not None:
+            self.ec.position = np.array(sc["position"], dtype=float)  # and its path integrator
 
     def _fresh_maps(self) -> None:
         """A new place: nothing learned about it yet."""
@@ -1858,7 +1878,8 @@ class Organism:
                                  + PREY_SENSE_COST * brain.prey_synapses(self.prey_level)
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
                                                                          + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
-                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT) + HEADING_INPUTS)
+                                                                         + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT) + HEADING_INPUTS
+                                                                         + (EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT))
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)

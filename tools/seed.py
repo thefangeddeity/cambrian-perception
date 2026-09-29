@@ -270,12 +270,31 @@ def seed_rotation(g, rng: random.Random) -> list[str]:
     return done
 
 
+def seed_entorhinal(g, rng: random.Random) -> list[str]:
+    """Its entorhinal map (2026-09-29): on; its speed, acceleration and place-value inputs wired."""
+    from fishbowl.controller import ACCELERATION_INPUT, EGO_SPEED_INPUT, PLACE_VALUE_INPUT
+    done = []
+    if not g.entorhinal:
+        g.entorhinal = 1
+        done.append("entorhinal map on")
+    w = g.brain.weights_ih
+    wired = 0
+    for c in (EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT):
+        if c < w.shape[1] and not w[:, c].any():
+            w[:, c] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+            wired += 1
+    if wired:
+        done.append(f"{wired} map inputs wired")
+    return done
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
              "2026-09-29 maturation": seed_maturation, "2026-09-29 maturation in nights": seed_maturation_nights,
              "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain,
-             "2026-09-29 looking ahead": seed_looking_ahead, "2026-09-29 rotation": seed_rotation}
+             "2026-09-29 looking ahead": seed_looking_ahead, "2026-09-29 rotation": seed_rotation,
+             "2026-09-29 entorhinal": seed_entorhinal}
 
 
 def main() -> int:

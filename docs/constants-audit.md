@@ -274,6 +274,15 @@ yardsticks are found.
 | tau's corners | 40 in its gaze window, >= 8 tracked | B / S | a similarity fit's 4 unknowns need more points than that |
 | tau counted | > 2 SE and replicated by the look before | S | as its ego-motion |
 
+### Its entorhinal map (fishbowl/entorhinal.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| ground's typical depth | 2 / (1 - horizon) eye-heights | P | half-way from the horizon to the frame's bottom, focal ~ frame height |
+| grid spacings | 1 eye-height x sqrt(2)^m, 4 modules | S / P | Stensola et al. 2012's ratio; its own unit |
+| grid cells per module | 16 | B | |
+| place cells | 128, 7 inputs each, 5% firing | S | as its Kenyon cells (7 inputs, ~5%) |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

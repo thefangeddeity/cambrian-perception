@@ -102,7 +102,9 @@ def _carry(old: Organism, new: Organism) -> None:
     new.night_lessons, new._tonight, new._night = list(old.night_lessons), old._tonight, old._night
     new.scores, new._precision_mean = old.scores, old._precision_mean
     new._ahead, new._predicted, new._last_local_s = old._ahead, old._predicted, old._last_local_s
-    new.heading = old.heading  # where it faces goes on, whatever genome thinks  # its prequential record goes on with its mushroom body
+    new.heading = old.heading  # where it faces goes on, whatever genome thinks
+    if new.ec is not None and old.ec is not None:
+        new.ec = old.ec  # and its map: where it is, and what its places have been worth  # its prequential record goes on with its mushroom body
     new.test_set, new.test_seen = (old.test_set, old.test_seen) if new.sleep_set else ([], 0)
     new.mean_miss = old.mean_miss
     if len(new.test_set) > new.sleep_set:
@@ -192,7 +194,10 @@ def _circuits(org: Organism) -> dict:
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
                      "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "felt_nearness": round(float(org.felt_nearness), 3), "contact": round(float(org.contact), 3), "turning": round(float(org.turning), 3),
-                     "tilting": round(float(org.tilting), 3), "heading": round(math.degrees(org.heading), 1) if org.compass else None, "camera_moving": bool(org.cam_moving),
+                     "tilting": round(float(org.tilting), 3), "heading": round(math.degrees(org.heading), 1) if org.compass else None,
+                     "speed": round(float(org.ec.speed), 3) if org.ec is not None else None,
+                     "acceleration": round(float(org.ec.acceleration), 3) if org.ec is not None else None,
+                     "place_value": round(float(org.ec.value()), 3) if org.ec is not None else None, "camera_moving": bool(org.cam_moving),
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
                      "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]
@@ -233,6 +238,7 @@ class LiveLife:
             self.cortex = Cortex()
         self._last_boxes = None
         self.lived_at = time.time()
+        self.path = collections.deque(maxlen=300)  # its path-integrated positions, one a look, for the navigation card
         self.timing = {"field": 0.0, "organism": 0.0, "cortex": 0.0, "backlog": 0.0}
         self.stage = 0              # how much it has shed (SHED[:stage]); run_vision pauses evolution at 1
         self._stage_changed = time.time()
@@ -346,6 +352,10 @@ class LiveLife:
                         org.lessons = z["lessons"].astype(float)
                     org.night_lessons = [float(x) for x in z["night_lessons"]]
                     print(f"Its distilled habits back from disk ({len(org.night_lessons)} nights measured).")
+                if "ec_position" in z and org.ec is not None and z["ec_place_values"].shape == org.ec.place_values.shape:
+                    org.ec.position = z["ec_position"].astype(float)
+                    org.ec.place_values = z["ec_place_values"].astype(float)
+                    org.heading = float(z["ec_heading"])
             print(f"Its memories: {len(org.episodes)} episodes and {len(org.test_set)} test looks back from disk.")
         except FileNotFoundError:
             pass
@@ -358,7 +368,7 @@ class LiveLife:
             eps, pri = list(org.episodes), list(org.priority)
             tests = list(org.test_set)
             seen = org.test_seen
-        if not eps and not tests and not self._distilled_arrays():
+        if not eps and not tests and not self._distilled_arrays() and not self._map_arrays():
             return
         lens = np.array([len(e[0]) for e in eps], dtype=np.int32)
         codes = np.concatenate([e[0] for e in eps]).astype(np.uint16) if eps else np.zeros(0, np.uint16)
@@ -372,6 +382,7 @@ class LiveLife:
             data["test_labels"] = np.array([t[2] for t in tests], dtype=np.float32)
             data["test_keys"] = np.array([t[3] if len(t) > 3 else 0.0 for t in tests], dtype=np.float64)
         data.update(self._distilled_arrays())
+        data.update(self._map_arrays())
         sandbox.save_episodes(data)
 
     def _brain_print(self, brain) -> np.ndarray:
@@ -379,6 +390,15 @@ class LiveLife:
         import hashlib
         h = hashlib.sha1(np.ascontiguousarray(brain.weights_ho).tobytes() + np.ascontiguousarray(brain.bias_o).tobytes())
         return np.frombuffer(h.digest(), dtype=np.uint8)
+
+    def _map_arrays(self) -> dict:
+        """Its map: where it is, where it faces, what its places have been worth (saved with its episodes)."""
+        with self.lock:
+            org = self.org
+            if org.ec is None:
+                return {}
+            return {"ec_position": org.ec.position.astype(np.float32), "ec_heading": np.float32(org.heading),
+                    "ec_place_values": org.ec.place_values.astype(np.float32)}
 
     def _distilled_arrays(self) -> dict:
         """What its sleep distilled and how much of it has matured (a 2026-09-29
@@ -505,6 +525,8 @@ class LiveLife:
                     batch["swat_acts"].append(j)
                 self.last, self.last_time = index, arrived
                 self.lived_at = time.time()  # its watchdog's sign of life
+                if org.ec is not None and out["gazed"]:
+                    self.path.append(tuple(org.ec.position))
             missed = org.missed - missed0
             batch["sums"]["sips"] += org.sips - sips0
             for key, now_v, then_v in zip(("img_n", "img_sx", "img_sy", "img_sxx", "img_syy", "img_sxy"), org.imagery_sums, img0):
@@ -619,6 +641,7 @@ class LiveLife:
             "eating": [r["eat"] for r in shown], "snacks": [r["snack"] for r in shown],
             "asleep_frames": [r["asleep"] for r in shown], "alarm_frames": [r["alarm"] for r in shown],
             "contact_frames": [r.get("contact", 0) for r in shown], "ahead_boxes": [r.get("ahead") for r in shown],
+            "path": [[round(float(x), 2), round(float(y), 2)] for x, y in self.path] if self.path else None,
             "prey_boxes": [r["boxes"] for r in shown], "plant_boxes": [r["plants"] for r in shown], "thing_boxes": [r.get("things", []) for r in shown],
             "field_events": [r["ev"] for r in shown],
             "tree_guess": None, "teacher_label": None,  # graded only in evolution's runs

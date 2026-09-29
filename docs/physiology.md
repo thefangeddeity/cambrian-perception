@@ -419,6 +419,20 @@ can afford more and bigger ones.
   was lived at. Parallax and camera-motion undo the roll too. Tested: a pan
   integrates to 73.7 deg against 76.4 deg of geometry. Next (proposed): the
   entorhinal step, grid-cell path integration of speed x heading.
+- **Its entorhinal map and hippocampal places** (2026-09-29; `fishbowl/entorhinal.py`;
+  O'Keefe, the Mosers, McNaughton, Burgess, Jeffery, Taube; Kropff, Stensola,
+  Solstad; Foster, Morris & Dayan): speed cells (forward speed in eye-heights/s
+  = expansion rate x its ground's typical depth, 2 / (1 - horizon); input 68),
+  an otolith (its change per look: a start, a stop; input 69), path integration
+  (speed x its compass heading), grid cells (4 modules, 1 to 2.8 eye-heights in
+  sqrt(2) steps, 16 random-phase cells each, three cosines 60 deg apart), place
+  cells (128, each summing 7 grid cells, 5% firing, a fresh random map per scene:
+  global remapping) with a value map (what each place has been worth; input 70),
+  re-anchored to the position each scene was lived at. Gene `entorhinal`, seeded
+  on. A passenger: it knows where on its route it is, not where to go. Tested:
+  still 0, moving 0.28 eye-heights/s, +0.33 at a start and -0.29 at a stop, 3.9
+  eye-heights straight ahead. Next (proposed): boundary vector cells (Burgess),
+  a successor representation (Stachenfeld).
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

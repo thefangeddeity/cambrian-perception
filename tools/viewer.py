@@ -1046,6 +1046,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
                    Math.abs(s.turning || 0) > 0.01 ? `turning ${s.turning > 0 ? 'right' : 'left'} ${Math.round(100 * Math.abs(s.turning))}%` : '',
                    Math.abs(s.tilting || 0) > 0.01 ? `tilting ${s.tilting > 0 ? 'clockwise' : 'anticlockwise'} ${Math.round(100 * Math.abs(s.tilting))}%` : '',
                    s.heading != null ? `heading ${Math.round((s.heading + 360) % 360)}°` : '',
+                   s.speed != null && Math.abs(s.speed) > 0.01 ? `moving ${s.speed.toFixed(2)} eye-heights/s` : '',
+                   s.acceleration != null && Math.abs(s.acceleration) > 0.05 ? (s.acceleration > 0 ? 'starting' : 'stopping') : '',
+                   s.place_value != null && Math.abs(s.place_value) > 0.01 ? `this place: ${s.place_value.toFixed(2)}` : '',
                    s.contact ? `<b style="color:#ff6f8a">approaching</b>: contact in ~${Math.max(1, Math.round(1 / s.contact))} looks` : '',
                    s.felt_nearness ? `it feels: ${s.felt_nearness >= 0.67 ? 'near' : s.felt_nearness >= 0.33 ? 'mid' : 'far'} (${s.felt_nearness.toFixed(2)})` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
@@ -1551,6 +1554,22 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       }
       note = `horizon ${Math.round(100 * hz)}% down &middot; <b style="color:#ff6f8a">hosts</b> <b style="color:#9ccf7a">plants</b> <b style="color:#a0a0aa">things</b>`
              + (nCut ? ` &middot; dashed: cut by the frame` : '') + (sn.parallax && sn.parallax.some(v => v > 0.05) ? ' &middot; <b style="color:#7fd4ff">parallax</b>' : '');
+    }
+    // its path (path integration: speed x heading), top left; north up = its first heading; its facing now as a tick
+    const path = d.path;
+    if (path && path.length > 1) {
+      const side = Math.min(110, H * 0.45), ox = 8, oy = 8;
+      ctx.fillStyle = 'rgba(5, 7, 10, 0.9)'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);
+      ctx.strokeStyle = '#1c2a36'; ctx.lineWidth = 1; ctx.strokeRect(ox, oy, side, side);
+      const xs = path.map(p => p[0]), ys = path.map(p => p[1]);
+      const cxp = (Math.min(...xs) + Math.max(...xs)) / 2, cyp = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const span = Math.max(1, Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.15;
+      const P = p => [ox + side / 2 + (p[0] - cxp) / span * side, oy + side / 2 - (p[1] - cyp) / span * side];
+      ctx.strokeStyle = 'rgba(255, 176, 102, 0.85)'; ctx.beginPath(); path.forEach((p, k) => { const q = P(p); k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();
+      const e = P(path[path.length - 1]); ctx.fillStyle = 'rgb(255, 176, 102)'; ctx.beginPath(); ctx.arc(e[0], e[1], 3, 0, 7); ctx.fill();
+      if (sn.heading != null) { const a = sn.heading * Math.PI / 180; ctx.strokeStyle = 'rgb(255, 176, 102)'; ctx.beginPath(); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[0] + 9 * Math.sin(a), e[1] - 9 * Math.cos(a)); ctx.stroke(); }
+      ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(`path ${span.toFixed(0)} eye-heights`, ox, oy + side + 3);
     }
     // inset: the lines its trees read on its eye
     const N = d.receptors || 12, side = Math.min(110, H * 0.45), cell = side / N, ox = W - side - 8, oy = 8;

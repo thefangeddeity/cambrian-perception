@@ -46,7 +46,8 @@ something approaches; the two small bars beside it are the nearness its ground
 model teaches ("taught") and the nearness its own terrain head feels ("felt").
 "felt nearness: error ... (n ...)" is that head scored before each lesson.
 "Who it knows" lists the individuals its visual cortex has met, by true height
-(in camera heights), step rate and when last seen.
+(in camera heights), step rate and when last seen. Top left: its path, as it
+has integrated it (speed x heading), with a tick for where it faces now.
 
 **Gaze.** Its eye rebuilt from the frame on screen (a reconstruction): the
 receptor grid, the cone patch in the middle (the only colour), where it looks
@@ -61,7 +62,9 @@ its gaze; dashed boxes are hosts, dotted ones plants; a red frame means
 something is looming. Layers add its food places, where it expects people,
 what still surprises it and its collicular priority. The senses strip lists
 its newer senses: pace, uncertainty, camera motion, horizon, what it looks at
-and how near, how near it feels it is, contact, turning, tilting and heading.
+and how near, how near it feels it is, contact, turning, tilting, heading,
+its speed (eye-heights per second), starting or stopping, and what the place it
+is at has been worth.
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
 orange inhibits.
