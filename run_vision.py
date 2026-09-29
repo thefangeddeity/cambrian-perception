@@ -915,7 +915,7 @@ def _pack_scenes(lib) -> dict | None:
         return None if a is None else [[None if not np.isfinite(x) else round(float(x), 5) for x in row]
                                        for row in np.atleast_2d(np.asarray(a, dtype=float))]
     return {"current": int(lib["current"]),
-            "library": [{**{k: arr(s.get(k)) for k in ("gist", "place", "people_day", "people_night", "value_map", "memory", "variance")},
+            "library": [{**{k: arr(s.get(k)) for k in ("gist", "place", "people_day", "people_night", "value_map", "memory", "variance", "ground")},
                          "gist_shape": list(np.shape(s["gist"])), "last": float(s.get("last", 0.0)),
                          "nectar": {k: round(float(v), 4) for k, v in (s.get("nectar") or {}).items()}}
                         for s in lib["library"]]}
@@ -928,7 +928,7 @@ def _unpack_scenes(packed):
         return None if a is None else np.array([[np.nan if x is None else x for x in row] for row in a], dtype=float)
     lib = []
     for s in packed["library"]:
-        sc = {k: arr(s.get(k)) for k in ("place", "people_day", "people_night", "value_map", "memory", "variance")}
+        sc = {k: arr(s.get(k)) for k in ("place", "people_day", "people_night", "value_map", "memory", "variance", "ground")}
         sc["gist"] = arr(s["gist"]).reshape(s.get("gist_shape") or -1)
         sc["last"], sc["nectar"] = float(s.get("last", 0.0)), dict(s.get("nectar") or {})
         lib.append(sc)

@@ -1311,7 +1311,7 @@ PAGE = r"""<!doctype html>
   const SP3 = { yaw: -0.5, pitch: 0.45, zoom: 1, dirty: true, loop: false, drag: null, d: null };
   function drawSpace(d) {
     const c = $('space'); if (!c || !d) return;
-    const W = Math.max(300, Math.floor(c.parentElement.clientWidth - 24)), H = Math.round(W * 0.42);
+    const W = Math.max(300, Math.floor(c.parentElement.clientWidth - 24)), H = Math.round(Math.min(W * 0.32, 420));
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
     SP3.d = d;
     const ctx = c.getContext('2d'), sn = d.senses || {};
