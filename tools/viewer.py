@@ -709,8 +709,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   .fsbtn { position: absolute; z-index: 6; width: 28px; height: 28px; padding: 5px; border-radius: 4px; cursor: pointer;
            background: rgba(5, 7, 10, 0.55); border: 1px solid var(--line); color: #ffe2d6; line-height: 0; }
   .fsbtn:hover { background: rgba(5, 7, 10, 0.85); }
-  .video16x9 > .fsbtn { right: 8px; bottom: 8px; }
-  .panel > .fsbtn { right: 10px; top: 8px; }  /* until placed at its picture's bottom right (fsCorner) */
+  /* its row: just below its picture, on the card -- never over what the picture shows */
+  .fsrow { display: flex; justify-content: flex-end; margin-top: 4px; }
+  .fsrow > .fsbtn { position: static; }
   .video16x9:fullscreen, .video16x9.filling { aspect-ratio: auto; background: #000; }
   /* iPhone: no full screen for anything but <video>, so the picture is lifted out of the page and fills the
      screen -- black to the edges, under the notch and the home bar, the page frozen behind it */
@@ -2589,30 +2590,24 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     else fillScreen(vid, true);
     requestAnimationFrame(redrawAll);
   }
-  function fsButton(host, act) {
-    const b = document.createElement('button');
+  // Its full-screen button, in a row of its own just below its picture (the
+  // video, or a card's drawing), right-aligned as a player's -- on the card,
+  // so it never covers what the picture shows. (In the video's full screen,
+  // Esc leaves it, as the browser says.)
+  function fsButton(picture, act) {
+    const row = document.createElement('div'), b = document.createElement('button');
+    row.className = 'fsrow';
     b.className = 'fsbtn'; b.type = 'button'; b.title = 'full screen'; b.setAttribute('aria-label', 'full screen');
     b.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5V1h4M11 1h4v4M15 11v4h-4M5 15H1v-4"/></svg>';
-    b.addEventListener('click', e => { e.stopPropagation(); act(); });  // not also the page's own click (it would toggle twice)
-    host.appendChild(b);
+    b.addEventListener('click', e => { e.stopPropagation(); act(); });
+    row.appendChild(b);
+    picture.after(row);
   }
   document.querySelectorAll('.video16x9').forEach(v => fsButton(v, () => videoFull(v)));
-  // On a card, the button sits at its picture's bottom right, as a video
-  // player's does -- kept there as the picture resizes (a ResizeObserver;
-  // the pictures are sized from their card, so they are never wrapped).
-  function fsCorner(panel) {
-    const c = panel.querySelector('canvas'), b = panel.querySelector(':scope > .fsbtn');
-    if (!c || !b) return;
-    const place = () => {
-      if (!c.offsetWidth) return;
-      b.style.top = `${c.offsetTop + c.offsetHeight - b.offsetHeight - 8}px`;
-      b.style.right = `${panel.clientWidth - (c.offsetLeft + c.offsetWidth) + 8}px`;
-    };
-    place();
-    if (window.ResizeObserver) new ResizeObserver(place).observe(c);
-    window.addEventListener('resize', place);
-  }
-  ['space-panel', 'look-panel', 'field-panel', 'brain-panel', 'mb-panel'].forEach(id => { const p = $(id); if (p) { fsButton(p, () => setMax(p)); fsCorner(p); } });
+  ['space-panel', 'look-panel', 'field-panel', 'brain-panel', 'mb-panel'].forEach(id => {
+    const p = $(id), c = p && p.querySelector('canvas');
+    if (c) fsButton(c.parentElement === p ? c : c.parentElement, () => setMax(p));  // after its picture's own box (the mushroom body's holds its HUD too)
+  });
   window.addEventListener('resize', () => requestAnimationFrame(redrawAll));
 
   async function fetchHistory() {
