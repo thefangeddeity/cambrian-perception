@@ -1470,6 +1470,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             except OSError as e:
                 print(f"Randomize: couldn't back up its checkpoint ({e}).")
             from fishbowl.controller import MosquitoBrain
+            # on a copy: the live body still runs on this genome's objects until it adopts
+            # (swapped in place, its old brain met the new one mid-look: the live body failed)
+            genome = genome.clone()
             genome.brain = MosquitoBrain.random(random.Random(time.time_ns()))
             if life is not None:
                 life.adopt(genome)
