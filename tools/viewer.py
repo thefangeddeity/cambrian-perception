@@ -1922,6 +1922,17 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         .catch(() => { note.textContent = 'no answer'; });
     });
   });
+  // A card's drawing, guarded: an error is recorded on <html data-js-errors / data-js-last>
+  // (as an uncaught one is) with where it came from, and the other cards still draw.
+  function guarded(fn, ...args) {
+    try { fn(...args); }
+    catch (e) {
+      const r = document.documentElement;
+      r.dataset.jsErrors = (+(r.dataset.jsErrors || 0) + 1) + '';
+      r.dataset.jsLast = `${fn.name || 'card'}: ${String(e && e.message).slice(0, 160)} @${String(e && e.stack || '').split('
+')[1] || ''}`.slice(0, 300);
+    }
+  }
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
@@ -2563,8 +2574,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         $('h-prey').textContent = ['eyes only', 'scent', 'scent + direction'][d.prey_sense ?? 0] || '--';
         $('h-quota').textContent = d.quota_pct !== undefined ? (d.host_cores ? `${(d.quota_pct / 100).toFixed(1)} of ${d.host_cores} cores` : d.quota_pct + '% of a core') : '--';  // systemd's % = one core
         $('h-stale').innerHTML = '';
-        drawBody(d); drawBrain(d); drawSenses(d); spaceData(d); showLive(d);
-        if (d.trees) renderTrees(d.trees, d.tree_stats, d.tree_limits);
+        // each card on its own: one card's error must not blank the rest, and is recorded, not swallowed
+        [[drawBody, d], [drawBrain, d], [drawSenses, d], [spaceData, d], [showLive, d]].forEach(([fn, x]) => guarded(fn, x));
+        if (d.trees) guarded(() => renderTrees(d.trees, d.tree_stats, d.tree_limits));
       } else { $('h-stale').innerHTML = '<span class="stale">no live_status.json yet</span>'; }
     } catch (e) { $('h-stale').innerHTML = '<span class="stale">error polling /state</span>'; }
     setTimeout(tick, 1000);
