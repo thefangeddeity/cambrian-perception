@@ -101,8 +101,8 @@ fi
 
 # 3. The prey detector's model.
 if [ -n "$MODEL" ]; then cp "$MODEL" "$DIR/models/yolov8n.onnx"; fi
-[ -f "$DIR/models/yolov8n.onnx" ] || echo "  WARNING: no model at $DIR/models/yolov8n.onnx -- no prey (snacks only) until one is added (--model)"
-[ -f "$DIR/models/yolov8n-oiv7.onnx" ] || echo "  optional: yolov8n-oiv7.onnx + yolov8n-oiv7.names.json in $DIR/models let it find plants (docs/packaging.md)"
+# the rest (or all of them) from the release, checksummed (tools/fetch_models.py)
+"$DIR/.venv/bin/python" "$DIR/tools/fetch_models.py" "$DIR/models" || true
 
 # 4. What it watches: --source, else what it watched before (an update keeps
 #    it), else the camera (it has it whenever it runs: the livecam is off).

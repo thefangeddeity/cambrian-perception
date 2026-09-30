@@ -704,18 +704,21 @@ young vampire bat learns from its mother. Tested: encysted 3 s into a losing
 fast with 15 B to spare; no damage while encysted; a person in reach revived
 it with 0.60 glycogen back; a hatchling took its mother's readouts.
 
-## Ram feeding, a trial (2026-09-30)
+## Ram feeding (2026-09-30: a trial, then how every organism feeds)
 
 On a tram it starved: its snack -- the new structure in its gaze -- was paid
 once a look, however fast the world poured past. A ram filter feeder (whale
-sharks, mantas; barnacles in a current) takes in density x speed x mouth. So,
-on hosts running the trial (`state/experiments.json`), a snack pays surprise x
+sharks, mantas; barnacles in a current) takes in density x speed x mouth. So
+a snack pays surprise x
 (1 + how far the scene flowed past its mouth during the look, from its own
 ego-motion, over `MOUTH_SIDE`): still, the same; moving, a mouthful more per
 mouth-length. No new number: the snack's own dilution (a sixth of blood's),
 its gut bounding it. Tested on a synthetic ride: still 4.8 either way; fast,
-15.0 -> 17.4 (+16%). Its live body and its evaluations read the same switch,
-so evolution scores what its body lives.
+15.0 -> 17.4 (+16%). It ran as a per-host trial on Tanzania (Tina the
+control) the morning of 2026-09-30 and was made universal the same day: every
+host, its live body and its evaluations alike, so evolution scores what its
+body lives. The nav display shows what the flow is paying its snacks now
+(`RAM x1.8`: nothing shown while still).
 
 ## When its eyes get no world (2026-09-30)
 

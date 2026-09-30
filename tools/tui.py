@@ -278,6 +278,7 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
         "LEARNING HELD" if sn.get("out_of_model") else "",
         f"ODD {sn['strangeness']:.2f}" if sn.get("strangeness") else "",
         f"RIDE {round(100 * sn['riding'])}%" if sn.get("riding") else "",
+        f"RAM x{sn['ram']:.1f}" if (sn.get("ram") or 1.0) > 1.01 else "",  # what the flow past its mouth pays its snacks
         f"TEX c{tex[0]:.2f} f{tex[1]:.2f} g{tex[2]:.2f}" if tex and tex[0] else "",
         f"PLACE {sn['place_value']:+.2f}" if sn.get("place_value") is not None and abs(sn["place_value"]) > 0.01 else "",
     ) if r]

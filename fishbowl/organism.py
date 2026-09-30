@@ -36,14 +36,15 @@ from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER
 from .entorhinal import Entorhinal
 from . import sandbox as _sandbox
 # Ram feeding (a 2026-09-30 panel -- Sterling & Laughlin, Gelman, Vosshall,
-# Nesse; whale sharks, mantas, barnacles in a current): a trial, per host
-# (state/experiments.json {"ram_feeding": true}). Its snack -- the new
+# Nesse; whale sharks, mantas, barnacles in a current): how every organism
+# feeds since 2026-09-30 (a per-host trial on Tanzania first; it no longer
+# reads state/experiments.json). Its snack -- the new
 # structure in its gaze -- is paid per mouthful of world that flowed through
 # its mouth during the look (how far the scene moved past its gaze, from its own
 # ego-motion, over MOUTH_SIDE) on top of what its gaze shows: still, the same
 # snack as before; the faster it rides, the more passes. No new number: still at the snack's own dilution, bounded by its gut;
 # blood stays its rich food.
-RAM_FEEDING = _sandbox.experiment("ram_feeding")
+RAM_FEEDING = True
 from . import v4
 from .retina import field_shape
 from .genome import RETINA_PLANES
@@ -715,6 +716,7 @@ class Organism:
         self.cam_shift = (0.0, 0.0)
         self.cam_scale = 0.0
         self._ram_flow = 0.0          # how far the world flowed past its mouth since its last look (ram feeding)
+        self.ram_gain = 1.0           # what its last look's flow multiplied its snack by (shown: the nav display's RAM)
         self.compass = int(getattr(g, "compass", 0))
         self.ec = Entorhinal(int(getattr(g, "kc_seed", 0)) ^ 0x5EC) if int(getattr(g, "entorhinal", 0)) else None
         self._hz_cache = None
@@ -1170,7 +1172,7 @@ class Organism:
             # Asleep: no eating, no gazing, slow coarse sampling of the field.
             pan = tilt = 0.0
             prey_now = snack = 0.0
-            self._ram_flow = 0.0  # asleep, its mouth is shut
+            self._ram_flow, self.ram_gain = 0.0, 1.0  # asleep, its mouth is shut
             interval = MAX_INTERVAL
             self.prev_mouth_box = None
             body.bite_over()
@@ -1196,7 +1198,8 @@ class Organism:
                 self.mb.learn_danger(kc_active, punishment, self.aversive_rate)
             snack = feed_on_novelty(self.memory, v, state, self.variance, self.aspect)
             if RAM_FEEDING:  # still, what its gaze shows; moving, a mouthful more per mouth-length the scene flowed past it
-                snack *= 1.0 + self._ram_flow / prey_lib.MOUTH_SIDE
+                self.ram_gain = 1.0 + self._ram_flow / prey_lib.MOUTH_SIDE
+                snack *= self.ram_gain
             self._ram_flow = 0.0  # a new look: what flows past it next is its next mouthful
             # Nectar: a plant under its mouth, when no host is (blood first). It
             # flows as blood does -- at its pump's rate -- times how full the

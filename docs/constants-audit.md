@@ -362,7 +362,7 @@ yardsticks are found.
 |---|---|---|---|
 | a snack, ram feeding | surprise x (1 + flow past its mouth / `MOUTH_SIDE`) | D | a ram feeder's intake: density x speed x mouth; still, the snack as before |
 | its dilution | `FOOD_PER_LOOK` (1/6 of a blood look) | H | the snack's own, unchanged; blood stays its rich food |
-| on which host | `state/experiments.json` {"ram_feeding": true} | -- | Tanzania from 2026-09-30, Tina the control |
+| on which host | every host, always (`organism.RAM_FEEDING`) | -- | a per-host trial on Tanzania first (morning of 2026-09-30, Tina the control); universal from the same day. `state/experiments.json` no longer switches it |
 
 ### Development, the cyst, upbringing (2026-09-30)
 

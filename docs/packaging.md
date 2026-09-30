@@ -19,7 +19,10 @@ supervisor, the CPU budget, where frames live, and the camera.
   (`--status` needs no privileges).
 - **The pinned libraries** (`requirements.lock`) in the organism's own venv,
   never the system's. The YOLO model is at `models/yolov8n.onnx` next to the
-  code, unless `CAMBRIAN_PREY_MODEL` says otherwise. Beside it, optional:
+  code, unless `CAMBRIAN_PREY_MODEL` says otherwise; every installer and the
+  packages' post-install fetch the models from the repo's `models-v1` release
+  when missing, checked against pinned SHA-256s (`tools/fetch_models.py`;
+  Ultralytics' weights, AGPL-3.0, as the release notes say). Beside it, optional:
   `yolov8n-oiv7.onnx` and `yolov8n-oiv7.names.json` (Ultralytics' Open
   Images V7 YOLOv8n, exported to ONNX at 640 with its class names), which
   finds every plant (Open Images' "Plant" classes) as a sugar source. Without
@@ -33,7 +36,7 @@ supervisor, the CPU budget, where frames live, and the camera.
 |---|---|---|
 | Arch | `cd deploy/arch && makepkg -si` (or `yay -Bi .`) in a clone; the PKGBUILD builds from GitHub, no AUR needed | the same again |
 | Debian / Ubuntu | `sh deploy/debian/build-deb.sh`, then `sudo apt install ./dist/cambrian-perception_*.deb` | build and install the new one |
-| a git checkout (Linux) | `sudo sh /srv/cambrian/cambrian-perception/deploy/install.sh` | the same again (it pulls) |
+| a git checkout (Linux) | `sudo sh deploy/install.sh` from any clone: on a fresh machine it makes the `cambrian` account and its checkout in `/srv/cambrian` | the same again (it pulls) |
 | macOS | `sh deploy/macos/install.sh` from the repo | the same again |
 | Windows | `deploy\windows\install.ps1`, elevated | the same again |
 

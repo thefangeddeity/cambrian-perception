@@ -248,7 +248,7 @@ def _circuits(org: Organism) -> dict:
                      "speed": round(float(org.ec.speed), 3) if org.ec is not None else None,
                      "acceleration": round(float(org.ec.acceleration), 3) if org.ec is not None else None,
                      "place_value": round(float(org.ec.value()), 3) if org.ec is not None else None, "camera_moving": bool(org.cam_moving),
-                     "riding": round(float(org.riding), 3),
+                     "riding": round(float(org.riding), 3), "ram": round(float(getattr(org, "ram_gain", 1.0)), 2),
                      "strangeness": round(float(org.strangeness), 3), "out_of_model": bool(org.out_of_model),
                      "held_share": round(org.model_held / org.model_checks, 3) if org.model_checks else None,
                      "texture": [round(float(v), 3) for v in org.texture_here] if org.texture else None,

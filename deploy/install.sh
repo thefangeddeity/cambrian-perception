@@ -1,7 +1,16 @@
 #!/bin/sh
-# Installs or updates cambrian-perception on a host whose checkout
-# is /srv/cambrian/cambrian-perception, owned by the "cambrian" system user.
-# Run as root from anywhere: sh /srv/cambrian/cambrian-perception/deploy/install.sh
+# Installs or updates cambrian-perception on Linux (systemd). Its home is
+# /srv/cambrian/cambrian-perception, a checkout owned by the "cambrian" system
+# user. As root, from any clone:
+#
+#   git clone https://github.com/thefangeddeity/cambrian-perception.git
+#   sudo sh cambrian-perception/deploy/install.sh [--hive]
+#
+# On a fresh machine it first makes that home: the "cambrian" account (a
+# system user in the video group, no login) and a checkout of this clone's
+# origin in /srv/cambrian. On a host that has one it updates it (it pulls).
+# The detector models are fetched from the release if missing
+# (tools/fetch_models.py).
 #
 # It installs the units, cambrian.target (one switch for everything), the
 # polkit rule (the viewer may restart the organism on a video switch) and the
@@ -26,6 +35,23 @@ for a in "$@"; do
     esac
 done
 REPO=/srv/cambrian/cambrian-perception
+[ "$(id -u)" -eq 0 ] || { echo "run it as root: sudo sh $0 $*"; exit 1; }
+command -v systemctl >/dev/null || { echo "needs systemd"; exit 1; }
+command -v git >/dev/null || { echo "needs git (Debian/Ubuntu: apt install git; Arch: pacman -S git)"; exit 1; }
+# 0. A fresh machine: its account and its home (what the packages'
+#    post-install does too, deploy/packaging/post-install.sh).
+if ! id cambrian >/dev/null 2>&1; then
+    useradd --system --home-dir /srv/cambrian --shell /usr/sbin/nologin cambrian
+    echo "made the cambrian account"
+fi
+if getent group video >/dev/null 2>&1; then usermod -aG video cambrian; fi
+if [ ! -d "$REPO/.git" ]; then
+    SRC=$(cd "$(dirname "$0")/.." && pwd)
+    ORIGIN=$(git -C "$SRC" remote get-url origin 2>/dev/null || echo https://github.com/thefangeddeity/cambrian-perception.git)
+    install -d -o cambrian -g cambrian /srv/cambrian
+    (cd /srv/cambrian && sudo -u cambrian git clone -q "$ORIGIN" "$REPO")
+    echo "checked out $ORIGIN in $REPO"
+fi
 OWNER=$(stat -c %U "$REPO/.git")
 # 1. The code: pull as the checkout's owner (an update is a re-run of this).
 OLD=$(sudo -u "$OWNER" git -C "$REPO" rev-parse HEAD)
@@ -54,6 +80,11 @@ fi
 echo "self-test passed"
 # 2c. The host's settings (cambrian.json): in the hive or solo.
 sudo -u "$OWNER" "$REPO/.venv/bin/python" "$REPO/tools/settings.py" "$REPO/cambrian.json" "${HIVE:-keep}"
+# 2d. The detector models, if this host has none (next to the code, or the
+#     first hosts' shared /srv/cambrian/models).
+if [ ! -f "$REPO/models/yolov8n.onnx" ] && [ ! -f /srv/cambrian/models/yolov8n.onnx ]; then
+    sudo -u "$OWNER" "$REPO/.venv/bin/python" "$REPO/tools/fetch_models.py" "$REPO/models"
+fi
 # 3. The services.
 cd "$REPO/deploy"
 install -m 644 cambrian.target cambrian-perception.service cambrian-viewer.service \

@@ -59,20 +59,88 @@ it waits for the network, and a stream that can't open because the machine
 has no network yet is not held against the stream (your choice of video is
 kept).
 
+## Install from scratch
+
+You need a camera (or a stream to show it, chosen in its viewer), git, and
+the network once. Everything else the installer brings: Python 3.12+ where it
+can, the organism's own venv with the pinned libraries (`requirements.lock`),
+and the detector models, downloaded from this repo's
+[models-v1 release](https://github.com/thefangeddeity/cambrian-perception/releases/tag/models-v1)
+and checked against their SHA-256 (`tools/fetch_models.py`; the release notes
+say how to make them yourself). Without the models it still runs, with
+snacks only.
+
+**Linux** (systemd; Debian/Ubuntu, Arch and others):
+
+```sh
+git clone https://github.com/thefangeddeity/cambrian-perception.git
+sudo sh cambrian-perception/deploy/install.sh            # add --hive to join the hive
+```
+
+It makes a system account `cambrian` (in the video group, no login) and its
+home, a checkout in `/srv/cambrian/cambrian-perception`, then the venv, the
+models, the services under `cambrian.target`, a polkit rule (its viewer may
+restart it when you pick a video) and the `cambrian` command. It watches
+`/dev/video0`; for another camera see Host settings below. Or install a
+package instead (the same layout): `sh deploy/debian/build-deb.sh`, then
+`sudo apt install ./dist/cambrian-perception_*.deb`; on Arch,
+`cd deploy/arch && makepkg -si`. Don't put a package over a checkout install.
+
+**macOS** (as the user who'll own it; it asks for your password once):
+
+```sh
+git clone https://github.com/thefangeddeity/cambrian-perception.git
+cd cambrian-perception && sh deploy/macos/install.sh    # add --hive to join the hive
+```
+
+It installs into `~/Library/Application Support/cambrian-perception` and
+runs from login (macOS lets only a logged-in session use the camera; the
+first time, it asks on screen to allow the camera). It uses Homebrew's
+Python 3.12+ and ffmpeg if you have them, else installs python.org's Python.
+
+**Windows 11** (an elevated PowerShell, in a clone or unzipped copy):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\windows\install.ps1    # add -Hive to join the hive
+```
+
+It installs into `C:\ProgramData\cambrian\cambrian-perception`, runs from
+boot as you (no stored password), installs Python 3.13 with winget if needed,
+and opens port 8090 on private networks.
+
+macOS and Windows install from these scripts; native packages (a `.pkg`, an
+MSI) are still to come. Every installer runs the self-test on the incoming
+code first; if it fails, nothing changes and the running organism keeps
+running. A new install is solo; an update keeps the host's choice (re-run the
+same command to update). Installing is starting: the organism takes the
+camera (docs/suite.md). Then open `http://<this machine>:8090/`.
+
+## Host settings
+
+Everything you can set on a host, with its default. None of these change the
+organism's code; a restart (`cambrian --restart`) picks them up.
+
+| Where | Setting | Default | Notes |
+|---|---|---|---|
+| `cambrian.json` (next to the code) | `"hive"` | `false` (solo) | the installers' `--hive` / `-Hive` set it |
+| `cambrian.json` | `"diet"` | people and animals are food, plants nectar | see "What it eats" below |
+| `cambrian.json` (macOS, Windows) | `"source"`, `"viewer_port"` | `"0"` (the camera), `8090` | the installers' `--source` / `-Source` |
+| its viewer | the video it watches | its camera | a stream you pick there (`state/selected_source.json`), with an optional end time |
+| systemd drop-in (Linux) | which camera, its priority | `/dev/video0` | `sudo systemctl edit cambrian-perception`: `[Service]` / `ExecStart=` / `ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/v4l/by-id/<your camera>` (a by-id path survives reboots), and e.g. `Nice=10` |
+| `state/host_limits.json` | `{"max_quota_pct": N}` | the host's cores less one | a ceiling on the CPU the resource handler may grant (e.g. a laptop you use) |
+| the unit (Linux) | `CPUQuota`, `MemoryMax` | 150%, 1.5 GB | only until the resource handler's first run (every 15 min): it grants CPU as cores go idle and sizes memory from what the host can spare |
+| `state/experiments.json` | per-host trials | none | a trial's name: `true` (e.g. ram feeding was one, before it became how every organism feeds) |
+| environment | `CAMBRIAN_PREY_MODEL` | `models/yolov8n.onnx` next to the code | another detector model |
+| environment | `CAMBRIAN_WORKERS` | from the CPU granted: a worker per core, less one | a fixed number of evolution workers (`1`: serial) |
+| environment | `CAMBRIAN_RUNTIME_DIR` | `/dev/shm/cambrian-perception` | where its live status and frames live (RAM) |
+| environment | `CAMBRIAN_CAMERA_PREVIEW` | `1` | `0`: no recent frames kept for the viewer's replay |
+| environment | `CAMBRIAN_INSTANCE` | unset | parked: a second organism per host (docs/second-organism.md) |
+
+On the machines this was developed on: all in the hive; Tina and Tanzania
+each watch their USB camera through a by-id drop-in (Tina's at `Nice=10`);
+streams are chosen per host in the viewer.
+
 ## Running it
-
-**Install** (docs/packaging.md has every platform and package):
-
-| Host | Install or update | Join the hive |
-|---|---|---|
-| Linux (a checkout in `/srv/cambrian/cambrian-perception`) | `sudo sh deploy/install.sh` | `--hive` (`--no-hive` leaves) |
-| macOS | `sh deploy/macos/install.sh` | `--hive` / `--no-hive` |
-| Windows (elevated) | `deploy\windows\install.ps1` | `-Hive` / `-NoHive` |
-
-Every installer runs the self-test on the incoming code first; if it fails,
-nothing changes and the running organism keeps running. A new install is solo;
-an update keeps the host's choice. Installing is starting: the organism takes
-the camera (docs/suite.md).
 
 **Control:** `cambrian --start | --stop | --restart | --yield | --status`.
 `--stop` saves first; `--yield` also keeps it off at boot until the next

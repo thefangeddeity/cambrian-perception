@@ -1517,7 +1517,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     }
     // data block, top left: what else it senses now (the tapes start below it)
     const rows = [sn.out_of_model ? 'LEARNING HELD' : '', sn.strangeness ? `ODD ${sn.strangeness.toFixed(2)}` : '',
-                  sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
+                  sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.ram != null && sn.ram > 1.01 ? `RAM x${sn.ram.toFixed(1)}` : '',sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
                   sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
                   sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
     const TOP = Math.max(px(70), px(8) + rows.length * px(13) + px(22));
@@ -2669,7 +2669,14 @@ class Handler(BaseHTTPRequestHandler):
             # replace the generation's replay, when it is fresh and of this run.
             actor = LIVE_STATUS_PATH.with_name("live_actor.json")
             try:
-                if actor.exists() and time.time() - actor.stat().st_mtime < 10.0:
+                # Whichever is newer: its live body's frames, unless the
+                # generation's snapshot came after them. (It was "the body's,
+                # if under 10 s old": on a host whose main loop stalls longer
+                # while it publishes -- 11-16 s on 7elwe -- the page fell back to
+                # a snapshot tens of seconds stale, and its replay clock took
+                # that for the floor: "delayed 38.5 s" with its body current.)
+                if actor.exists() and (time.time() - actor.stat().st_mtime < 10.0
+                                       or actor.stat().st_mtime >= LIVE_STATUS_PATH.stat().st_mtime):
                     d, a = json.loads(body or b"{}"), json.loads(_read_shared(actor) or b"{}")
                     if a.get("world_epoch") == d.get("world_epoch"):
                         d.update(a)

@@ -24,11 +24,22 @@ done
 [ -n "$PY" ] || { echo "cambrian-perception: needs Python 3.12+ (with its venv module)"; exit 1; }
 [ -x "$DIR/.venv/bin/python" ] || runuser -u cambrian -- "$PY" -m venv "$DIR/.venv"
 runuser -u cambrian -- "$DIR/.venv/bin/python" -m pip install -q --disable-pip-version-check -r "$DIR/requirements.lock"
-# 4. Its services, under cambrian.target. Installing is starting: the
+# 4. Its self-test, as every installer runs it. A package has already
+#    replaced the code, so a failure can't keep the old code: it leaves the
+#    running organism (the old code, in memory) running and says so.
+if ! (cd "$DIR" && runuser -u cambrian -- "$DIR/.venv/bin/python" "$DIR/tools/selftest.py") > /tmp/cambrian-selftest.log 2>&1; then
+    tail -20 /tmp/cambrian-selftest.log
+    echo "cambrian-perception: self-test FAILED -- not (re)started; see /tmp/cambrian-selftest.log"
+    exit 0
+fi
+echo "cambrian-perception: self-test passed"
+# 5. The detector models, fetched from the release if missing (checksummed;
+#    an install never fails for want of them: it runs with snacks only),
+#    before it starts: its detector loads them once, at start.
+runuser -u cambrian -- "$DIR/.venv/bin/python" "$DIR/tools/fetch_models.py" "$DIR/models" || true
+# 6. Its services, under cambrian.target. Installing is starting: the
 #    livecam, if installed, yields (the camera suite, docs/suite.md).
 systemctl daemon-reload
 systemctl enable -q cambrian-perception.service cambrian-viewer.service cambrian-resource-handler.timer
 if systemctl is-active -q cambrian-perception.service; then "$DIR/tools/cambrian" --restart; else "$DIR/tools/cambrian" --start; fi
-[ -f "$DIR/models/yolov8n.onnx" ] || echo "cambrian-perception: no detector model yet -- put yolov8n.onnx in $DIR/models (no hosts to feed on until then)"
-[ -f "$DIR/models/yolov8n-oiv7.onnx" ] || echo "cambrian-perception: optional -- yolov8n-oiv7.onnx and yolov8n-oiv7.names.json in $DIR/models let it find plants (docs/packaging.md); without them only potted plants are nectar"
 echo "cambrian-perception: cambrian --start | --stop | --restart | --yield | --status; its camera and priority go in drop-ins (docs/packaging.md)"
