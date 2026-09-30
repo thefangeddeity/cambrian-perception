@@ -20,6 +20,10 @@ camdash, from a login profile on the console. It reads the organism's viewer
                (T: what its ground model teaches, F: what its terrain head
                feels), the data block, all in its phosphor green
 
+  On the kernel's own console (/dev/tty1 ...), whose fonts have no Braille,
+  it draws in half blocks instead (half the detail); --blocks / --braille
+  override the guess.
+
   python3 tools/tui.py [--port 8090]      keys: q quit, p the other organism
                                           on this host (8090 / 8091), c colour
 """
@@ -42,21 +46,41 @@ DOT = ((0x01, 0x08), (0x02, 0x10), (0x04, 0x20), (0x40, 0x80))  # [row][col] of 
 GREEN, HOST, PLANT, THING, CYAN, DIM, WARN = range(1, 8)
 
 
-class Canvas:
-    """A Braille canvas: w x h dots on (w / 2) x (h / 4) cells, one colour a cell
-    (the last line drawn through it)."""
+HALF = {1: "▀", 2: "▄", 3: "█"}  # upper half, lower half, full block
 
-    def __init__(self, cols: int, rows: int):
-        self.cols, self.rows = cols, rows
-        self.w, self.h = cols * 2, rows * 4
+
+def on_linux_console() -> bool:
+    """Whether this is the kernel's own text console (/dev/tty1 ...), not a
+    terminal emulator: its fonts have no Braille (checked 2026-09-30: Ubuntu's
+    Terminus, Arch's eurlatgr) but do have the half blocks, as camdash uses."""
+    import os
+    import re
+    try:
+        return re.fullmatch(r"/dev/tty\d+", os.ttyname(sys.stdout.fileno())) is not None
+    except OSError:
+        return False
+
+
+class Canvas:
+    """A dot canvas, one colour a cell (the last line drawn through it):
+    Braille, 2 x 4 dots a cell, in a terminal emulator; half blocks, 1 x 2
+    dots a cell, on the kernel's console, whose fonts have no Braille. A dot
+    is about square either way (a cell is about twice as tall as wide)."""
+
+    def __init__(self, cols: int, rows: int, blocks: bool = False):
+        self.cols, self.rows, self.blocks = cols, rows, blocks
+        self.w, self.h = (cols, rows * 2) if blocks else (cols * 2, rows * 4)
         self.bits = [[0] * cols for _ in range(rows)]
         self.col = [[0] * cols for _ in range(rows)]
 
     def dot(self, x: float, y: float, c: int) -> None:
         xi, yi = int(x), int(y)
         if 0 <= xi < self.w and 0 <= yi < self.h:
-            r, cc = yi >> 2, xi >> 1
-            self.bits[r][cc] |= DOT[yi & 3][xi & 1]
+            if self.blocks:
+                r, cc, bit = yi >> 1, xi, 1 << (yi & 1)
+            else:
+                r, cc, bit = yi >> 2, xi >> 1, DOT[yi & 3][xi & 1]
+            self.bits[r][cc] |= bit
             self.col[r][cc] = c
 
     def line(self, x0: float, y0: float, x1: float, y1: float, c: int) -> None:
@@ -91,7 +115,7 @@ class Canvas:
                 b = self.bits[r][cc]
                 if b:
                     attr = curses.color_pair(self.col[r][cc]) if colour else 0
-                    put(scr, top + r, left + cc, chr(BRAILLE + b), attr)
+                    put(scr, top + r, left + cc, HALF[b] if self.blocks else chr(BRAILLE + b), attr)
 
 
 def put(scr, y: int, x: int, s: str, attr: int = 0) -> None:
@@ -125,9 +149,10 @@ def last(d: dict, k: str) -> list:
     return (v[-1] or []) if v else []
 
 
-def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bool) -> None:
+def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bool, blocks: bool = False) -> None:
     """Its eye's view: ground squares, the things, then the HUD's lines."""
-    cv = Canvas(cols, rows)
+    cv = Canvas(cols, rows, blocks)
+    dpr = cv.h // rows  # dots per character row (4 Braille, 2 half blocks)
     W, H = cv.w, cv.h
     sn = d.get("senses") or {}
     hz = sn.get("horizon")
@@ -192,7 +217,7 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
             cv.line(px - 3, hy, px - 8, hy, GREEN); cv.line(px + 3, hy, px + 8, hy, GREEN)
             cv.line(px, hy - 3, px, hy - 6, GREEN)
     # tapes: speed on the left, nearness on the right (near at the top)
-    ty0, ty1 = 16, H - 8
+    ty0, ty1 = 4 * dpr, H - 2 * dpr  # below the heading tape and the tapes' labels (text rows 0-3)
     for x, side in ((4, 1), (W - 5, -1)):
         cv.line(x, ty0, x, ty1, GREEN)
         for t in range(5):
@@ -246,7 +271,7 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
         put(scr, top + rows // 2, left + max(0, cols // 2 - 7), "no horizon yet", curses.A_DIM)
 
 
-def main(scr, port: int) -> None:
+def main(scr, port: int, blocks: bool = False) -> None:
     curses.curs_set(0)
     scr.nodelay(True)
     colour = curses.has_colors()
@@ -283,7 +308,7 @@ def main(scr, port: int) -> None:
         cols = min(w, int(h * 2 * fw / fh))
         rows = min(h, int(cols * fh / fw / 2))
         if cols >= 20 and rows >= 8:
-            draw_nav(scr, d, (h - rows) // 2, (w - cols) // 2, cols, rows, colour)
+            draw_nav(scr, d, (h - rows) // 2, (w - cols) // 2, cols, rows, colour, blocks)
         if feed.err:  # its viewer is down or restarting: said once, small, over the last picture
             put(scr, h - 1, 0, feed.err, curses.color_pair(WARN) if colour else curses.A_DIM)
         scr.refresh()
@@ -295,7 +320,10 @@ if __name__ == "__main__":
     p = PORT
     if "--port" in sys.argv:
         p = int(sys.argv[sys.argv.index("--port") + 1])
+    # Braille where the font has it; half blocks on the kernel's console (or
+    # when asked: --blocks / --braille override the guess)
+    use_blocks = "--blocks" in sys.argv or ("--braille" not in sys.argv and on_linux_console())
     try:
-        curses.wrapper(main, p)
+        curses.wrapper(main, p, use_blocks)
     except KeyboardInterrupt:
         pass
