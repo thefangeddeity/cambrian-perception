@@ -517,6 +517,23 @@ can afford more and bigger ones.
     angle: rounded to 4 decimals, a receptor near a wide edge's line could
     change sides, so a reloaded tree answered differently from the one scored
     (found by a 5000-mutation save/load test).
+- **Outside its model** (2026-09-29; Friston, Wolpert, Gelman, Dennett,
+  Nesse; a shark turned upside down goes into tonic immobility, and this
+  organism must not freeze, nor quietly mislearn). Each look, its detections
+  are tested against its ground model: each whole box's residual from its
+  class's line, over that class's own residual variance, summed as a
+  chi-square (one degree of freedom a box; p by Wilson & Hilferty 1931).
+  Failing the standard 5% test, it holds its world model's learning that look
+  (ground lines, all three terrain teachers, the felt-terrain head); rewards,
+  memories and its frames of reference still learn. The residual variance
+  always learns: censoring the data that sets its own test would close the
+  gate tighter and tighter, and left open, a long spell of strangeness widens
+  what it accepts, as people adapt to inverting goggles (Stratton 1897), at a
+  pace set only by how much it has lived. Its strangeness, 1 - p (uniform
+  while it sees what it knows), is a sense (input 75, seeded). Tested: in
+  model it holds 6.7% of looks (5% expected; heavy-tailed sizes); upside-down
+  boxes are held 84% of the first 200 looks with its line moving 0.004, then
+  it adapts.
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

@@ -68,7 +68,11 @@ its newer senses: pace, uncertainty, camera motion, horizon, what it looks at
 and how near, how near it feels it is, contact, turning, tilting, heading,
 its speed (eye-heights per second), starting or stopping, what the place it
 is at has been worth, how much of its view rides with it, and the texture at
-its gaze (contrast, fineness, grain).
+its gaze (contrast, fineness, grain). The navigation card's HUD reads like a
+fighter's: heading tape on top, speed (SPD) on the left, nearness (NR: T
+taught, F felt) on the right, the flight-path marker where it is going, and
+a data block; ODD is how strange the look is to its model, and LEARNING HELD
+means it failed its model's test, so it isn't learning from that look.
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
 orange inhibits.

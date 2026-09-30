@@ -316,6 +316,14 @@ yardsticks are found.
 | texture teacher | per-row median, >= 8 cells | S | depth and resolution constant along a row |
 | texture lesson weight | texture_teacher x (1 - noise floor / contrast) | S | `NOISE_FLOOR` |
 
+### Outside its model (fishbowl/organism.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| the test | chi-square of its detections' residuals, 1 df each | S | Wilson & Hilferty 1931's approximation (no scipy) |
+| the gate | p < 0.05 | S | the standard 5% test |
+| a class counts | its line fitted and >= 3 residuals kept | S | as its ground fit's own minimum |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

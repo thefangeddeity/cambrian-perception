@@ -338,6 +338,17 @@ def seed_v4(g, rng: random.Random) -> list[str]:
     return done
 
 
+def seed_strangeness(g, rng: random.Random) -> list[str]:
+    """Its strangeness sense (2026-09-29): wired at the brain's mutation step
+    (the gate that holds its learning outside its model is always on)."""
+    from fishbowl.controller import STRANGENESS_INPUT
+    w = g.brain.weights_ih
+    if STRANGENESS_INPUT < w.shape[1] and not w[:, STRANGENESS_INPUT].any():
+        w[:, STRANGENESS_INPUT] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+        return ["strangeness input wired"]
+    return []
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
@@ -345,7 +356,8 @@ SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus
              "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain,
              "2026-09-29 looking ahead": seed_looking_ahead, "2026-09-29 rotation": seed_rotation,
              "2026-09-29 entorhinal": seed_entorhinal, "2026-09-29 frames of reference": seed_frames,
-             "2026-09-29 flow-taught terrain": seed_flow_teacher, "2026-09-29 V4": seed_v4}
+             "2026-09-29 flow-taught terrain": seed_flow_teacher, "2026-09-29 V4": seed_v4,
+             "2026-09-29 strangeness": seed_strangeness}
 
 
 def main() -> int:

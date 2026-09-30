@@ -1480,7 +1480,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const nr = v => v == null ? '--' : v.toFixed(2);
     tape(W - px(12), null, 0, 1, -1, `NR T${nr(sn.nearness)} F${nr(sn.felt_nearness)}`, [[sn.nearness, 'rgb(156, 207, 122)', 'T'], [sn.felt_nearness, 'rgb(127, 212, 255)', 'F']]);
     // data block, bottom left: what else it senses now
-    const rows = [sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
+    const rows = [sn.out_of_model ? 'LEARNING HELD' : '', sn.strangeness ? `ODD ${sn.strangeness.toFixed(2)}` : '',
+                  sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
                   sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
                   sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
     ctx.fillStyle = G(0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'top';

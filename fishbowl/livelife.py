@@ -199,6 +199,8 @@ def _circuits(org: Organism) -> dict:
                      "acceleration": round(float(org.ec.acceleration), 3) if org.ec is not None else None,
                      "place_value": round(float(org.ec.value()), 3) if org.ec is not None else None, "camera_moving": bool(org.cam_moving),
                      "riding": round(float(org.riding), 3),
+                     "strangeness": round(float(org.strangeness), 3), "out_of_model": bool(org.out_of_model),
+                     "held_share": round(org.model_held / org.model_checks, 3) if org.model_checks else None,
                      "texture": [round(float(v), 3) for v in org.texture_here] if org.texture else None,
                      "colour_gains": None if org.v4_colour is None or org.v4_colour.gains() is None else [round(float(v), 3) for v in org.v4_colour.gains()], "local_frame": None if org.local is None else [int(x) for x in org.local],
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],

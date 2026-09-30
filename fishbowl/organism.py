@@ -789,6 +789,14 @@ class Organism:
         self.texture_teacher = float(getattr(g, "texture_teacher", 0.0))
         self.texture_map = None          # (3, cells) at its latest look, for the viewer
         self.texture_here = (0.0, 0.0, 0.0)
+        # Outside its model (a 2026-09-29 panel -- Friston, Wolpert, Gelman,
+        # Dennett, Nesse; a shark's tonic immobility, turned upside down): each
+        # look, its detections are tested against its ground model (_model_check).
+        # Failing the standard 5% test, it holds its world model's learning
+        # that look (never freezes); how strange it was is a sense (input 75).
+        self.strangeness = 0.0
+        self.out_of_model = False
+        self.model_checks = self.model_held = 0
         self.quota_pct = quota_pct
         self.scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
         self.fps = fps
@@ -889,7 +897,7 @@ class Organism:
                     setattr(self, name, np.zeros(self.field))
         if self.cam_moving and self.field:
             self._vote_frames(sig)
-            if self.flow_teacher > 0.0:
+            if self.flow_teacher > 0.0 and not self.out_of_model:
                 self._learn_terrain_from_flow(sig, shift_size(frame.shape), roll)
         if self.slowness > 0.0:  # slow photoreceptors: its gaze sees the frames low-passed
             a = 1.0 - math.exp(-REFERENCE_GAZES_PER_S / (max(1.0, self.fps) * self.slowness))
@@ -1000,6 +1008,8 @@ class Organism:
         self.felt_nearness = felt
         self.local = self.local_frame()
         self.riding = float(self.local.mean()) if self.local is not None else 0.0
+        if not was_asleep:
+            head_macs += self._model_check((boxes or []) + (plants or []) + self.things)
         texture_in = (0.0, 0.0, 0.0)
         if self.texture and not was_asleep and self.field:
             texture_in = self._texture(frame, state)
@@ -1069,7 +1079,7 @@ class Organism:
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
                 tuple(head_vals), coll, terrain, nearness, felt, contact, self.turning, self.tilting, heading,
-                ego_speed, acceleration, map_value, self.riding, texture_in,
+                ego_speed, acceleration, map_value, self.riding, texture_in, self.strangeness,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1195,8 +1205,8 @@ class Organism:
                     for k in range(self.n_heads):  # scored before it learns (prequential)
                         self.scores["archetypes"].add(float(before[k]), float(targets[k]))
                     self.mb.learn_heads(kc_active, targets, self.learning_rate, self.n_heads)
-                if self.felt_terrain and self.horizon() is not None and self.horizon_precision > 0.0:
-                    # its terrain head, taught by its ground model's nearness at this gaze
+                if self.felt_terrain and not self.out_of_model and self.horizon() is not None and self.horizon_precision > 0.0:
+                    # its terrain head, taught by its ground model's nearness at this gaze (not when its model fails)
                     self._precision_mean.add(self.horizon_precision)
                     weight = min(1.0, self.horizon_precision / max(1e-12, self._precision_mean.mean))
                     if self.lookahead:
@@ -1433,7 +1443,12 @@ class Organism:
         """Each host or plant a measuring stick: its base's height in the frame
         and its own height, into its class's running sums (n, y, h, y^2, y*h),
         weighted by the detector's confidence; and how far it sat from its
-        class's line as fitted then (the residual, for how much to trust it)."""
+        class's line as fitted then (the residual, for how much to trust it).
+        Outside its model (_model_check), only the residuals learn: its lines
+        and terrain hold, while how much it expects to be wrong keeps up with
+        what it sees -- a long spell of strangeness widens what it accepts, as
+        people adapt to inverting goggles (Stratton 1897) -- and censoring the
+        data that sets its own test would close the gate ever tighter."""
         self.ground = _ground_shape(self.ground)
         for c, conf, x0, y0, x1, y1 in boxes:
             if any(prey_lib.cut_by_frame((c, conf, x0, y0, x1, y1), self.aspect)):
@@ -1446,11 +1461,12 @@ class Organism:
                     self.ground[k, 5:7] += w * np.array([1.0, ((y1 - y0) - (a * y1 + b)) ** 2])
                     pred = a * y1 + b
                     cell = self._cell((x0 + x1) / 2, min(y1, 1.0 - 1e-6))
-                    if pred > 0 and self._terrain_map() is not None and self._in_map(cell) and self.flow_teacher < 1.0:
+                    if pred > 0 and self._terrain_map() is not None and self._in_map(cell) and self.flow_teacher < 1.0 and not self.out_of_model:
                         elev = float(np.clip(1.0 - pred / (y1 - y0), -1.0, 1.0))
                         self.scores["terrain_map_vs_detector"].add(self.terrain_at((x0 + x1) / 2, min(y1, 1.0 - 1e-6)), elev)
                         self.terrain[cell[0] * self.place.shape[1] + cell[1]] += w * (1.0 - self.flow_teacher) * np.array([1.0, elev])
-                self.ground[k, :5] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+                if not self.out_of_model:
+                    self.ground[k, :5] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
 
     def _texture(self, frame, state) -> tuple[float, float, float]:
         """Its V4's texture statistics over its field (v4.texture), the texture
@@ -1462,7 +1478,7 @@ class Organism:
         tex = v4.texture(frame, self.field, NOISE_FLOOR)
         self.texture_map = tex
         hz = self.horizon()
-        if self.texture_teacher > 0.0 and hz is not None and 0.0 < hz < 1.0 and self._terrain_map() is not None:
+        if self.texture_teacher > 0.0 and not self.out_of_model and hz is not None and 0.0 < hz < 1.0 and self._terrain_map() is not None:
             e_now, _ = self._terrain_blend()
             for k, elev in v4.terrain_lessons(tex, self.field, hz, e_now.ravel(), self.local):
                 self.scores["terrain_map_vs_texture"].add(float(e_now.ravel()[k]), elev)
@@ -1474,6 +1490,38 @@ class Organism:
         most = 0.25 * frame.shape[0]
         self.texture_here = (float(min(1.0, 2.0 * tex[0, k])), float(min(1.0, tex[1, k] / most)), float(tex[2, k]))
         return self.texture_here
+
+    def _model_check(self, items: list) -> int:
+        """Is this look inside its model? Each whole detection's residual from
+        its class's ground line, over that class's own residual variance (kept
+        by _learn_ground), summed over the look's detections: chi-square, one
+        degree of freedom a detection; p by Wilson & Hilferty's cube-root
+        approximation (1931). Failing the standard 5% test, its world model's
+        learning is held this look. Its strangeness sense is 1 - p (uniform
+        while it sees what it knows, near 1 outside); with no detection to test,
+        0 and the gate open. Returns its multiply-adds."""
+        self.ground = _ground_shape(self.ground)
+        x, k = 0.0, 0
+        for c, conf, x0, y0, x1, y1 in items:
+            if int(c) not in GROUND_CLASSES or y1 <= y0 or any(prey_lib.cut_by_frame((c, conf, x0, y0, x1, y1), self.aspect)):
+                continue
+            row = self.ground[GROUND_CLASSES.index(int(c))]
+            fit = self._ground_fit(row)
+            if fit is None or row[5] < 3 or row[6] <= 0.0:
+                continue
+            r = (y1 - y0) - (fit[0] * y1 + fit[1])
+            x += r * r / (row[6] / row[5])
+            k += 1
+        if k == 0:
+            self.strangeness, self.out_of_model = 0.0, False
+            return 0
+        v = 2.0 / (9.0 * k)
+        z = ((x / k) ** (1.0 / 3.0) - (1.0 - v)) / math.sqrt(v)
+        p = 0.5 * math.erfc(z / math.sqrt(2.0))
+        self.strangeness, self.out_of_model = float(1.0 - p), p < 0.05
+        self.model_checks += 1
+        self.model_held += int(self.out_of_model)
+        return 4 * k
 
     def _learn_terrain_from_flow(self, sig, small: tuple, roll: float) -> None:
         """Its terrain taught by its own ground flow (a 2026-09-29 panel; Gibson,

@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 75  # ... + its V4's texture at its gaze (contrast, fineness, anisotropy) + how much of its view rides with it + terrain at its gaze + how near what it looks at is + how near it feels it is + how soon it will reach it + turning, tilting, heading sin/cos + its speed, acceleration, place value; 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
+BASE_INPUTS = 76  # ... + how strange this look is to its model + its V4's texture at its gaze (contrast, fineness, anisotropy) + how much of its view rides with it + terrain at its gaze + how near what it looks at is + how near it feels it is + how soon it will reach it + turning, tilting, heading sin/cos + its speed, acceleration, place value; 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
@@ -91,6 +91,7 @@ ARCHETYPE_INPUTS = (53, 54, 55, 56)
 COLLICULUS_INPUTS = (57, 58, 59)  # where its collicular priority map's winner is, and how strong (organism.py)  # its archetype heads: mushroom-body readouts taught by the detector's classes
 TURN_INPUT, TILT_INPUT = 64, 65  # its vestibular sense: yaw and roll per look, in its half field of view (organism.py)
 EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT = 68, 69, 70  # its entorhinal map (entorhinal.py)
+STRANGENESS_INPUT = 75  # how far outside its model this look is: 1 - p of its detections against its ground model (organism.py)
 TEXTURE_INPUTS = (72, 73, 74)  # its V4's texture at its gaze: contrast, fineness, anisotropy (v4.py)
 RIDING_INPUT = 71  # the share of its view that is its local frame, riding with it (organism.py)
 HEADING_INPUTS = (66, 67)  # its compass (head direction): sin, cos of its heading
@@ -261,6 +262,7 @@ class MosquitoBrain:
         map_value=0.0,
         riding=0.0,
         texture=(0.0, 0.0, 0.0),
+        strangeness=0.0,
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -296,6 +298,7 @@ class MosquitoBrain:
             ego_speed, acceleration, map_value,  # its speed cells, its otolith, what this place on its map has been worth
             riding,  # how much of its view rides with it (its local frame)
             *texture,  # its V4's texture at its gaze
+            strangeness,  # how strange this look is to its model
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):
