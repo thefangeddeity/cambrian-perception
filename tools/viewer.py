@@ -1035,7 +1035,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
     if (eat > 0.01) {
       ctx.fillStyle = 'rgba(255, 95, 162, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top';
-      ctx.fillText(`BITING \u00b7 JĪNG ${(eat * 100).toFixed(0)}%`, 10, 10);
+      ctx.fillText(`ABSORBING \u00b7 JĪNG ${(eat * 100).toFixed(0)}%`, 10, 10);
     } else {
       const sip = (d.snacks && d.snacks[Math.min(cur, d.snacks.length - 1)]) || 0;  // nectar: a surprise snack
       if (sip > 0.01) { ctx.fillStyle = 'rgba(200, 136, 255, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top'; ctx.fillText('SIPPING \u00b7 QÌ', 10, 10); }
@@ -1848,7 +1848,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fillRect(mx, my, ms, ms);
       ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(mx, my, ms, ms);
       ctx.fillStyle = 'rgba(255, 95, 162, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-      ctx.fillText(`BITING \u00b7 JĪNG ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(`ABSORBING \u00b7 JĪNG ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     } else if (cells && !shut && (R.snack || 0) > 0.01) {  // nectar: a surprise snack, sipped
       ctx.fillStyle = 'rgba(200, 136, 255, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
       ctx.fillText('SIPPING \u00b7 QÌ', W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
