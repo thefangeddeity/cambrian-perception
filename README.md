@@ -11,6 +11,8 @@ for everything it does.
 - Living live on a feed: [docs/live-actor.md](docs/live-actor.md)
 - Packages and installers: [docs/packaging.md](docs/packaging.md)
 - The camera suite (organism and livecam never run together): [docs/suite.md](docs/suite.md)
+- A developing organism, and fitness that knows its stage (proposed): [docs/design-ontogeny.md](docs/design-ontogeny.md)
+- Its self-test, which every installer runs first: `python tools/selftest.py`
 
 Licence: GPL-3.0-only.
 

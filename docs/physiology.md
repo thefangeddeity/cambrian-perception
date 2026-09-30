@@ -663,6 +663,26 @@ and starve for hours, and a starving body never died.
   already exists; real mosquitoes need a blood meal to make eggs), and egg
   resorption when starving (oosorption).
 
+## Migration, and a self-test that guards it (2026-09-30)
+
+**Migration** (Wright's island model; Gelman): when a lineage goes extinct
+(it died with no egg), its host's next start holds the fleet's tournament --
+every organism it can reach (tools/fleet.py's discovery, pulled, never pushed)
+and a new random founder, each scored as it would arrive (its genome in a
+newborn body, no memories) on this host's own first snapshot at the reference
+prices. The winner arrives as an egg (kappa stepped). No peer reachable, or
+any failure: a new random founder, as before. Recorded in life_history.
+
+**Self-test** (tools/selftest.py): the checks it was developed with -- genome,
+tree, brain bound, body, organisms at both size extremes, scoring in a
+worker, a live body, adoptions, statistics, migration, the viewer's scripts --
+offline, in a temporary folder. Every installer runs it on the incoming code
+before touching the running organism, and keeps the running code if it
+fails. On its first night it caught two real faults: its own gate running from
+a folder the service user couldn't enter (Linux), and OpenCV segfaulting in a
+forked worker whose parent had started OpenCV's thread pool (macOS) -- workers
+now run OpenCV single-threaded.
+
 ## Development kept: the cyst and upbringing (2026-09-30)
 
 (See docs/design-ontogeny.md.) Dormancy is a prepared capacity with a cost,
