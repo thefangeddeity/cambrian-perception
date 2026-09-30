@@ -1929,8 +1929,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     catch (e) {
       const r = document.documentElement;
       r.dataset.jsErrors = (+(r.dataset.jsErrors || 0) + 1) + '';
-      r.dataset.jsLast = `${fn.name || 'card'}: ${String(e && e.message).slice(0, 160)} @${String(e && e.stack || '').split('
-')[1] || ''}`.slice(0, 300);
+      r.dataset.jsLast = `${fn.name || 'card'}: ${String(e && e.message).slice(0, 160)} @${String(e && e.stack || '').split(/\n/)[1] || ''}`.slice(0, 300);
     }
   }
   function drawBrain(d) {
