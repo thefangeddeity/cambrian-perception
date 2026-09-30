@@ -137,12 +137,15 @@ def find(name: str) -> Path:
 
 def save(state: Path, dest: Path | None = None, name: str | None = None) -> Path:
     blob, _ = save_bytes(state, name)
-    if dest is None:
-        dest = games_dir()
+    # Any folder that doesn't exist yet is made, parents and all (~/Games
+    # included): the default one, one given, or the one a given file goes in.
+    # A given path is a folder unless it ends in .cambrioid.
+    dest = games_dir() if dest is None else Path(dest).expanduser()
+    if dest.is_dir() or dest.suffix != SUFFIX:
         dest.mkdir(parents=True, exist_ok=True)
-    dest = Path(dest).expanduser()
-    if dest.is_dir():
         dest = dest / default_name(Path(state))
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
     tmp.write_bytes(blob)
     tmp.replace(dest)

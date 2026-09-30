@@ -414,6 +414,11 @@ def _():
         "damaged": blob[:200] + bytes(b ^ 0x5A for b in blob[200:600]) + blob[600:],
         "cut short": blob[:len(blob) // 2],
     }
+    # folders that don't exist yet are made: a new folder given, and a file in a new folder
+    made = of.save(src, TMP / "new" / "Games" / "Lifeforms" / "Cambrioids")
+    assert made.parent == TMP / "new" / "Games" / "Lifeforms" / "Cambrioids" and made.suffix == ".cambrioid", made
+    named = of.save(src, TMP / "other" / "deep" / "mine.cambrioid")
+    assert named == TMP / "other" / "deep" / "mine.cambrioid" and named.exists(), named
     (src / "checkpoint.json").write_text(json.dumps({"genome": ck["genome"]}))  # no generation recorded
     assert "?" not in of.default_name(src) and of.default_name(src).endswith(".cambrioid"), of.default_name(src)
     for why, b in bad.items():
