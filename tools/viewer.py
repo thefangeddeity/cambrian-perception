@@ -852,7 +852,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+1.0</td><td>flinch</td><td>Reacting to something looming.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="plus">+18 &times;</td><td>curiosity (gaze)</td><td>Reaching new gaze positions.</td></tr>
     <tr><td><span class="tag hand">hand-written</span></td><td class="minus">-1.0 / -0.5</td><td>dead field, corner / edge</td><td>Long stretches of nothing; its gaze centre in a corner or on an edge.</td></tr>
-    <tr><td><span class="tag hand" style="text-decoration:line-through">retired</span></td><td>0</td><td>correlation scores, movement cost</td><td>Measured, not scored.</td></tr>
   </table>
 </div>
 
