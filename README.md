@@ -184,22 +184,27 @@ body, memories, episodes, the individuals it knows, its founder -- fits in one
 is saved from its latest checkpoint, which it writes every 10 minutes and at
 every stop.
 
-- **From the viewer:** *Save organism* and *Load organism*, on the brain card
-  beside *Reset to founder*. A save downloads to wherever your browser keeps
-  downloads (a web page can't choose). To load, choose a file, then click
-  *Load organism* again.
-- **From a terminal:** `cambrian --save [file]` and `cambrian --load <file>`.
-  Saves go by default to your own **Lifeforms/Cambrioids** folder, made on
-  first save, named after the ecohost, generation and date
-  (e.g. `tina-gen1326-2026-09-30.cambrioid`):
+- **From the viewer,** on the brain card beside *Reset to founder*:
+  - **Save** writes it straight into the ecohost's own **Lifeforms/Cambrioids**
+    folder -- no dialog (the folder is made if it's missing).
+  - **Save as…** downloads it: your browser decides where, and may ask (a web
+    page can't choose a folder). Use it from another device, or to put it
+    somewhere else.
+  - **Load…**: choose a file, then click *Load* again.
+- **From a terminal:** `cambrian --save [file or folder]` and
+  `cambrian --load <file>`. Without a path it saves to your own
+  **Lifeforms/Cambrioids** folder; any missing folder is made.
 
-  | | Saved to |
-  |---|---|
-  | Linux | `/home/<you>/Games/Lifeforms/Cambrioids/` |
-  | macOS | `/Users/<you>/Games/Lifeforms/Cambrioids/` |
-  | Windows | `C:\Users\<you>\Games\Lifeforms\Cambrioids\` |
+Files are named after the ecohost, generation and date
+(e.g. `tina-gen1326-2026-09-30.cambrioid`). Where they go:
 
-  `--load` takes a path, or just a file name to look for in that folder.
+| | `cambrian --save` | the viewer's *Save* |
+|---|---|---|
+| Linux | `/home/<you>/Games/Lifeforms/Cambrioids/` | `/srv/cambrian/Games/Lifeforms/Cambrioids/` (the viewer runs as the organism's own account; readable by you) |
+| macOS | `/Users/<you>/Games/Lifeforms/Cambrioids/` | the same (the viewer runs as you) |
+| Windows | `C:\Users\<you>\Games\Lifeforms\Cambrioids\` | the same (the viewer runs as you) |
+
+`--load` takes a path, or just a file name to look for in those folders.
 
 Loading replaces the organism at its next generation: it saves first, the
 lineage it replaces moves to `state/backup-<time>-before-load/` (nothing is

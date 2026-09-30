@@ -124,15 +124,23 @@ def games_dir() -> Path:
     return Path.home() / "Games" / "Lifeforms" / "Cambrioids"
 
 
+# Where the viewer's "Save on this ecohost" puts one on a Linux install: the
+# games_dir() of the organism's own account (home /srv/cambrian), which the
+# viewer runs as; on Windows and macOS the viewer runs as you, so it is yours.
+LINUX_ECOHOST_SAVES = Path("/srv/cambrian/Games/Lifeforms/Cambrioids")
+
+
 def find(name: str) -> Path:
-    """A file as given, else the same name (with or without .cambrioid) in games_dir()."""
+    """A file as given, else the same name (with or without .cambrioid) in
+    games_dir(), then in the Linux ecohost's own save folder."""
     p = Path(name).expanduser()
     if p.exists():
         return p
-    for q in (games_dir() / name, games_dir() / (name + SUFFIX)):
-        if q.exists():
-            return q
-    raise Refused(f"no such file: {name} (nor in {games_dir()})")
+    for d in (games_dir(), LINUX_ECOHOST_SAVES):
+        for q in (d / name, d / (name + SUFFIX)):
+            if q.exists():
+                return q
+    raise Refused(f"no such file: {name} (nor in {games_dir()} or {LINUX_ECOHOST_SAVES})")
 
 
 def save(state: Path, dest: Path | None = None, name: str | None = None) -> Path:

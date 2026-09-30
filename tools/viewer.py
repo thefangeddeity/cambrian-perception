@@ -732,7 +732,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   #mb-hud .g { color: #7cffa0; } #mb-hud .b { color: #ffb000; } #mb-hud .w { color: #ff4040; } #mb-hud .n { color: #e8e8e8; }
   #mb-hud .h { color: #c8c8c8; }
   @media (max-width: 600px) { #mb-hud { font-size: 11px; } #mb-hud .q { line-height: 14px; } }
-  #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder, #save-organism, #load-organism { color: #b88a80; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
+  #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder, #save-organism, #save-here, #load-organism { color: #b88a80; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
   .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
@@ -803,7 +803,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-organism">Save organism</a> <span id="save-organism-note"></span> &middot; <a href="#" id="load-organism">Load organism</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="load-organism-note"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span> &middot; <a href="#" id="save-organism" title="Download the organism: your browser asks where to put it">Save as&hellip;</a> <span id="save-organism-note"></span> &middot; <a href="#" id="load-organism" title="Load a saved organism in this one's place (this one is kept in a backup)">Load&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="load-organism-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -1961,8 +1961,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         .catch(() => { note.textContent = 'no answer'; });
     });
   });
-  // Save organism: the whole organism as a .cambrioid file (tools/organism_file.py),
-  // downloaded where the browser keeps downloads. Load organism: choose a file,
+  // Save as... (the download): the whole organism as a .cambrioid file (tools/organism_file.py),
+  // downloaded where the browser keeps downloads. Load...: choose a file,
   // then click again within 8 s -- this organism is kept in a backup, and the
   // loaded one takes its place at its next generation.
   (() => {
@@ -1978,6 +1978,13 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
           sn.textContent = `saved ${name} (in your downloads)`;
         });
       }).catch(() => { sn.textContent = 'no answer'; });
+    });
+    // Save: straight into this machine's Games/Lifeforms/Cambrioids, no dialog
+    const h = $('save-here'), hn = $('save-here-note');
+    if (h) h.addEventListener('click', ev => {
+      ev.preventDefault(); hn.textContent = 'saving...';
+      fetch('/save-here', { method: 'POST', headers: { 'X-Cambrian': '1' } }).then(r => r.json())
+        .then(j => { hn.textContent = j.ok ? `saved: ${j.path}` : `refused: ${j.error}`; }, () => { hn.textContent = 'no answer'; });
     });
     const l = $('load-organism'), ln = $('load-organism-note'), f = $('load-file');
     let chosen = null, armed = 0;
@@ -1995,7 +2002,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       });
       f.addEventListener('change', () => {
         chosen = f.files && f.files[0]; if (!chosen) return;
-        armed = Date.now(); ln.textContent = `${chosen.name}: click Load organism again to load it (this one is kept in a backup)`;
+        armed = Date.now(); ln.textContent = `${chosen.name}: click Load again to load it (this one is kept in a backup)`;
       });
     }
   })();
@@ -2756,7 +2763,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/organism/save":
-            # Save organism (the brain card): the whole organism as a .cambrioid
+            # Save as... (the brain card): the whole organism as a .cambrioid
             # file (tools/organism_file.py). Only this page's own fetch sends
             # X-Cambrian (a peer's never does), so a solo organism is still
             # never handed to another machine's tools.
@@ -2896,7 +2903,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/load")) or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/load", "/save-here")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -2915,8 +2922,26 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path.startswith("/save-here"):
+            # Save (the brain card): the .cambrioid written straight into this
+            # machine's Games/Lifeforms/Cambrioids (the viewer's own account's:
+            # yours on Windows and macOS, /srv/cambrian/... on Linux) -- no
+            # browser dialog. Save as... (the download) is for other devices.
+            from tools import organism_file
+            try:
+                where = organism_file.save(STATE_DIR)
+                body = json.dumps({"ok": True, "path": str(where)}).encode("utf-8")
+                print(f"save-here: {where}", flush=True)
+            except (organism_file.Refused, OSError) as e:
+                body = json.dumps({"ok": False, "error": str(e)}).encode("utf-8")
+            self.send_response(200 if b'"ok": true' in body else 409)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith("/load"):
-            # Load organism: the file checked here (tools/organism_file.py: sizes,
+            # Load...: the file checked here (tools/organism_file.py: sizes,
             # checksums, no pickles, its genome held to this ecohost's limits),
             # staged beside a request; the organism saves, moves its lineage
             # aside and takes the loaded one's place at its next generation.
