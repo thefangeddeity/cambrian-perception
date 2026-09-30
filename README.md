@@ -75,7 +75,7 @@ means it failed its model's test, so it isn't learning from that look.
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
 orange inhibits. Randomize (two clicks) draws its brain afresh as a founder's at its
-next generation, keeping everything else; New founder (two clicks) replaces it with a new
+next generation, keeping everything else; New random founder (two clicks) replaces it with a new
 random founder, as a fresh install has: eye, body, memories and traits included. Both keep a
 backup in its state folder.
 
