@@ -99,7 +99,9 @@ rebuild (asleep, its eye sees it: a dream); "what it saw" is for you only,
 never the organism. The place map shows replay paths: blue NREM, violet REM,
 grey awake replay, gold dreamt.
 
-**Body.** Gut, blood sugar and stores:
+**Body.** The first line says whether it is awake and gives its sense of time:
+how long one of its looks takes and how many it takes a second (a look is its
+moment; people make about 3-4 fixations a second). Gut, blood sugar and stores:
 - blood sugar pays for everything (~10 min of waking burn);
 - the gut digests into blood sugar over minutes;
 - glycogen lasts ~6 h and is released fast;

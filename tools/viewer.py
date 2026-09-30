@@ -1058,7 +1058,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
                    s.place_value != null && Math.abs(s.place_value) > 0.01 ? `this place: ${s.place_value.toFixed(2)}` : '',
                    s.riding ? `riding: ${Math.round(100 * s.riding)}% of its view` : '',
                    s.texture && s.texture[0] ? `texture: contrast ${s.texture[0].toFixed(2)}, fineness ${s.texture[1].toFixed(2)}, grain ${s.texture[2].toFixed(2)}` : '',
-                   s.contact ? `<b style="color:#ff6f8a">approaching</b>: contact in ~${Math.max(1, Math.round(1 / s.contact))} looks` : '',
+                   s.contact ? `<b style="color:#ff6f8a">approaching</b>: contact in ~${(s.pace_s / s.contact).toFixed(1)} s` : '',  // tau is in its looks: shown in our seconds
                    s.felt_nearness ? `it feels: ${s.felt_nearness >= 0.67 ? 'near' : s.felt_nearness >= 0.33 ? 'mid' : 'far'} (${s.felt_nearness.toFixed(2)})` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
     if (s.archetypes && s.archetypes.length) parts.push('sees ' + s.archetypes.map(([n, v]) => `${n} ${bar(v)}`).join(' '));
@@ -1855,7 +1855,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function drawBody(d) {
     const b = d.body_now || d.body || {};
     $('gauges').innerHTML =
-      `<div class="cap" style="margin:0 0 4px">${(b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b>' : '<b style="color:var(--green)">awake</b>'}</div>` +
+      `<div class="cap" style="margin:0 0 4px">${(b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b>' : '<b style="color:var(--green)">awake</b>'}`
+      // its sense of time (a 2026-09-29 panel): a look is its moment -- how many it takes a second, beside ours (Rayner 1998: ~200-300 ms fixations)
+      + (d.senses && d.senses.pace_s ? ` &middot; its time: a look every ${d.senses.pace_s.toFixed(2)} s (${(1 / d.senses.pace_s).toFixed(1)} a second; people fixate ~3&ndash;4)` : '') + `</div>` +
       gauge('blood sugar', b.energy, '#ffe2d6', 'pays for everything; ~10 min of waking burn') +
       gauge('gut', b.gut, '#e8c170', 'what it ate, digesting into blood sugar over minutes; full = cannot eat more') +
       gauge('glycogen', b.glycogen, '#6d9', '~6 h; fills first when fed, released fast for waking and bursts') +

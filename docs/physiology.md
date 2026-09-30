@@ -380,7 +380,9 @@ can afford more and bigger ones.
   "2026-09-29 everything" switches on, at random, whatever else can evolve and
   is still off (replay backup, dream steps, colour, any unwired input, and
   receptor leaves where a tree reads only constants -- a tree that never reads
-  its eye can never grow a line).
+  its eye can never grow a line). A founder is saved the moment it is made: one
+  killed before its first save used to be founded afresh at every restart
+  (7elwe, 2026-09-29: 34 founders in one evening).
 - **Its terrain head, its model card, the lite export** (2026-09-29): a
   mushroom-body readout (gene `felt_terrain`, born off) taught at each look by
   its ground model's nearness at its gaze -- lesson and look share one gaze, so

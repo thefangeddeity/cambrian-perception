@@ -1254,6 +1254,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # a genome with fewer is prefix-compatible: every existing tree index
     # keeps its meaning. (Genome.from_dict migrates the older flat layout,
     # receptors included, to receptors read by position.)
+    founded = False
     genome = G.Genome.from_dict(checkpoint["genome"]) if checkpoint is not None else None
     if genome is not None and 0 < genome.n_vars <= n_vars:
         print(f"Resuming from checkpoint (previous best_fitness={checkpoint['best_fitness']:.4f}; "
@@ -1270,6 +1271,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     else:
         genome = G.random_genome(rng, n_vars=n_vars, receptors=fovea.DEFAULT_RECEPTORS)
         _default_brain(genome)
+        founded = True
 
 
     # NEVER trust a best_fitness carried over from a different world
@@ -1390,6 +1392,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
         })
 
+    if founded:
+        # A founder is saved the moment it is made: killed or crashed before
+        # its first save, it used to be founded afresh at every restart (7elwe,
+        # 2026-09-29: 34 founders in one evening), each with new random draws.
+        _save()
+        print("Its founder is saved: a restart resumes it.")
+
     # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
     # switch in the viewer) ends the loop cleanly so the checkpoint is
     # saved below -- it used to die mid-loop and lose up to 99 generations.
@@ -1443,6 +1452,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                         sandbox.LIVE_STATUS_PATH.with_name("live_actor.json"), metrics, _fps())
 
     phase: dict = {}
+    phase_worst: dict = {}
     while box.should_continue() and not stop["now"]:
         if sandbox.STOP_REQUEST_PATH.exists():  # a deliberate stop (docs/packaging.md)
             print("Stop requested -- saving and exiting.")
@@ -1626,13 +1636,17 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                     life.set_prices(price_quota, host_rate)
                 body_now, memory_now = life.snapshot()  # the children start from the living body and memory
         memory_eval = _for_evaluation(memory_now)  # the children are scored without the imagery prototypes
-        # Where the organism's own process spends each generation (a 2026-09-29
-        # check: 7elwe's body starved while this process built worlds): printed
-        # when its body is a second behind, and every 25 generations.
+        # Where the organism's own process spends its generations (a 2026-09-29
+        # check: 7elwe's body starved while this process worked): the worst of
+        # each phase since the last report, printed when its body is a second
+        # behind and every 25 generations.
         behind = life._latency if life is not None else 0.0
-        if phase and (behind > 1.0 or box.generation % 25 == 0):
-            print("phases (s): " + ", ".join(f"{k} {v:.2f}" for k, v in phase.items()) + f"; its body {behind:.1f} s behind")
+        for k, v in phase.items():
+            phase_worst[k] = max(phase_worst.get(k, 0.0), v)
         phase = {}
+        if phase_worst and (behind > 1.0 or box.generation % 25 == 0):
+            print("phases, worst (s): " + ", ".join(f"{k} {v:.2f}" for k, v in phase_worst.items()) + f"; its body {behind:.1f} s behind")
+            phase_worst = {}
         # Every genome -- the parent too -- is scored in a worker process, even
         # a pool of one (a host short of memory): the organism's own process
         # only lives and keeps the books, so evolution never takes its body's
