@@ -1397,7 +1397,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         # its first save, it used to be founded afresh at every restart (7elwe,
         # 2026-09-29: three founders in ten minutes), each with new random draws.
         _save()
-        print("Its founder is saved: a restart resumes it.")
+        # and kept as it was at birth, for Reset to founder (with the seed sets its genome holds now)
+        import shutil
+        try:
+            shutil.copy2(sandbox.CHECKPOINT_PATH, sandbox.FOUNDER_PATH)
+            if (sandbox.STATE_DIR / "seeded.txt").exists():
+                shutil.copy2(sandbox.STATE_DIR / "seeded.txt", sandbox.FOUNDER_SEEDED_PATH)
+        except OSError as e:
+            print(f"Its founder couldn't be kept for a reset ({e}).")
+        print("Its founder is saved: a restart resumes it, and Reset to founder returns to it.")
 
     # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
     # switch in the viewer) ends the loop cleanly so the checkpoint is
@@ -1458,6 +1466,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             print("Stop requested -- saving and exiting.")
             sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
             break
+        if sandbox.RESET_FOUNDER_REQUEST_PATH.exists():
+            # The owner's Reset to founder: saved as at any stop, then (main)
+            # its state moves aside and its founder, as it was at birth, returns.
+            sandbox.RESET_FOUNDER_REQUEST_PATH.unlink(missing_ok=True)
+            if sandbox.FOUNDER_PATH.exists():
+                print("Reset to founder requested -- saving, then its founder as it was at birth.")
+                _AMNESIA["founder"] = True
+                break
+            print("Reset to founder: no founder was kept for this lineage (born before founders were kept).")
         if sandbox.AMNESIA_REQUEST_PATH.exists():
             # The owner's Amnesia: it saves as at any stop, then (main) its
             # state moves aside as tools/reset_founder.py moves it, and it exits
@@ -2187,7 +2204,7 @@ def _body_at_full_speed() -> None:
         pass
 
 
-_AMNESIA = {"now": False}
+_AMNESIA = {"now": False, "founder": False}
 
 
 def main() -> int:
@@ -2204,6 +2221,17 @@ def main() -> int:
 
     limits = sandbox.Limits(max_generations=args.generations, max_wallclock_seconds=args.seconds)
     run(args.source, limits)
+    if _AMNESIA["founder"]:
+        import shutil
+        from tools.reset_founder import reset
+        backup, moved = reset(sandbox.STATE_DIR, "before-reset-to-founder")
+        for name, into in (("founder.json", ("checkpoint.json", "founder.json")),
+                           ("founder_seeded.txt", ("seeded.txt", "founder_seeded.txt"))):
+            if (backup / name).exists():
+                for target in into:
+                    shutil.copy2(backup / name, sandbox.STATE_DIR / target)
+        print(f"Reset to founder: {len(moved)} files moved to {backup.name}; its founder, as it was at birth, starts again.")
+        return sandbox.EXIT_RESTART_ME
     if _AMNESIA["now"]:
         from tools.reset_founder import reset
         backup, moved = reset(sandbox.STATE_DIR)

@@ -619,15 +619,19 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   #box { position: relative; background: #000; }
   #box img, #box canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
   #box canvas { pointer-events: none; }
+  #fs { position: absolute; right: 8px; bottom: 8px; z-index: 6; width: 28px; height: 28px; padding: 5px; border-radius: 4px; cursor: pointer;
+        background: rgba(5, 7, 10, 0.55); border: 1px solid #3a2a26; color: #ffe2d6; line-height: 0; }
 </style></head>
 <body>
-<div id="wrap"><div id="box"><img id="cam" alt="" style="visibility:hidden"><canvas id="hud"></canvas></div></div>
+<div id="wrap"><div id="box"><img id="cam" alt="" style="visibility:hidden"><canvas id="hud"></canvas><button id="fs" type="button" title="full screen" aria-label="full screen"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5V1h4M11 1h4v4M15 11v4h-4M5 15H1v-4"/></svg></button></div></div>
 <script>
-// a click (or tap) takes the video full screen; another brings it back
-document.addEventListener('click', () => {
+// a click (or tap) takes the video full screen; another brings it back -- and so does its button
+function toggleFull() {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
-});
+}
+document.addEventListener('click', toggleFull);
+document.getElementById('fs').addEventListener('click', e => { e.stopPropagation(); toggleFull(); });
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
   let D = null;
@@ -686,6 +690,13 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   .video16x9 canvas { pointer-events: none; }
   /* the picture alone full screen (a click on it); where a browser can't, it fills the page */
   .video16x9 { cursor: zoom-in; }
+  /* its full-screen button (a 2026-09-29 UX panel: a visible control, where every video player puts one) */
+  .panel { position: relative; }
+  .fsbtn { position: absolute; z-index: 6; width: 28px; height: 28px; padding: 5px; border-radius: 4px; cursor: pointer;
+           background: rgba(5, 7, 10, 0.55); border: 1px solid var(--line); color: #ffe2d6; line-height: 0; }
+  .fsbtn:hover { background: rgba(5, 7, 10, 0.85); }
+  .video16x9 > .fsbtn { right: 8px; bottom: 8px; }
+  .panel > .fsbtn { right: 10px; top: 8px; }
   .video16x9:fullscreen, .video16x9.filling { aspect-ratio: auto; cursor: zoom-out; background: #000; }
   /* iPhone: no full screen for anything but <video>, so the picture is lifted out of the page and fills the
      screen -- black to the edges, under the notch and the home bar, the page frozen behind it */
@@ -777,7 +788,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">Randomize</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">Randomize</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -1894,7 +1905,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   // New random founder (the Amnesia request): randomized AND its eye, body, memories and traits back to a fresh
   // install's (tools/reset_founder.py; everything is kept in a backup).
   [['randomize', 'click again to draw a new brain', 'a new brain at its next generation'],
-   ['amnesia', 'click again: a new random founder, everything it was kept in a backup', 'a new founder at its next generation']].forEach(([id, arm, done]) => {
+   ['amnesia', 'click again: a new random founder, everything it was kept in a backup', 'a new founder at its next generation'],
+   ['reset-founder', 'click again: back to its founder as it was at birth (a backup is kept)', 'its founder at its next generation']].forEach(([id, arm, done]) => {
     const a = $(id), note = $(id + '-note'); if (!a) return;
     let armed = 0;
     a.addEventListener('click', ev => {
@@ -1902,7 +1914,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       if (Date.now() - armed > 4000) { armed = Date.now(); note.textContent = arm; return; }
       armed = 0; note.textContent = 'asking...';
       fetch('/' + id, { method: 'POST', headers: { 'X-Cambrian': '1' } })
-        .then(r => { note.textContent = r.ok ? done : 'refused'; })
+        .then(r => r.ok ? (note.textContent = done) : r.json().then(j => { note.textContent = j.error || 'refused'; }, () => { note.textContent = 'refused'; }))
         .catch(() => { note.textContent = 'no answer'; });
     });
   });
@@ -2435,6 +2447,24 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { const p = document.querySelector('.panel.maximized'); if (p) setMax(p); }
   });
+  // A full-screen button on every display that goes full screen: the video (bottom right) and
+  // the cards drawn from its mind (top right). It does what a click on them does.
+  function videoFull(vid) {
+    if (document.fullscreenElement === vid) document.exitFullscreen().catch(() => {});
+    else if (vid.classList.contains('filling')) fillScreen(vid, false);
+    else if (vid.requestFullscreen) vid.requestFullscreen({ navigationUI: 'hide' }).catch(() => fillScreen(vid, true));
+    else fillScreen(vid, true);
+    requestAnimationFrame(redrawAll);
+  }
+  function fsButton(host, act) {
+    const b = document.createElement('button');
+    b.className = 'fsbtn'; b.type = 'button'; b.title = 'full screen'; b.setAttribute('aria-label', 'full screen');
+    b.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5V1h4M11 1h4v4M15 11v4h-4M5 15H1v-4"/></svg>';
+    b.addEventListener('click', e => { e.stopPropagation(); act(); });  // not also the page's own click (it would toggle twice)
+    host.appendChild(b);
+  }
+  document.querySelectorAll('.video16x9').forEach(v => fsButton(v, () => videoFull(v)));
+  ['space-panel', 'look-panel', 'field-panel', 'brain-panel', 'mb-panel'].forEach(id => { const p = $(id); if (p) fsButton(p, () => setMax(p)); });
   window.addEventListener('resize', () => requestAnimationFrame(redrawAll));
 
   async function fetchHistory() {
@@ -2732,7 +2762,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith(("/select", "/randomize", "/amnesia")) or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -2742,6 +2772,24 @@ class Handler(BaseHTTPRequestHandler):
             print(f"select: refused (origin {origin} is not this page's host {self.headers.get('Host', '')})", flush=True)
             self.send_response(403)
             self.end_headers()
+            return
+        if self.path.startswith("/reset-founder") and not (STATE_DIR / "founder.json").exists():
+            body = json.dumps({"ok": False, "error": "no founder kept for this lineage (born before founders were kept)"}).encode("utf-8")
+            self.send_response(409)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/reset-founder"):
+            _write_json_atomic(STATE_DIR / "reset_founder.request", {"t": time.time()})
+            print("reset to founder: requested", flush=True)
+            body = json.dumps({"ok": True}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if self.path.startswith(("/randomize", "/amnesia")):
             # The owner's Randomize (its brain drawn afresh) or Amnesia (a

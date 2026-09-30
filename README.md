@@ -76,7 +76,11 @@ means it failed its model's test, so it isn't learning from that look.
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
 orange inhibits. Randomize (two clicks) draws its brain afresh as a founder's at its
 next generation, keeping everything else; New random founder (two clicks) replaces it with a new
-random founder, as a fresh install has: eye, body, memories and traits included. Both keep a
+random founder, as a fresh install has: eye, body, memories and traits included. Reset to founder
+(two clicks) returns to its founder exactly as it was at birth -- the same
+genome, a fresh body, no memories -- so a lineage can be run again from the
+same start (lineages born before founders were kept can't). The cards and the
+video each have a full-screen button (clicking them works too). Both keep a
 backup in its state folder.
 
 **Mushroom body.** Its HUD is its life's tally, each per hour lived (its last

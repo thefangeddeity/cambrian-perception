@@ -22,9 +22,9 @@ KEEP = {".gitkeep", "selected_source.json", "host_limits.json", "handler_state.j
         "service.log", "run.log", "viewer.log", "launchd.log", "service.stop"}
 
 
-def reset(state: Path) -> tuple[Path, list]:
+def reset(state: Path, suffix: str = "before-reset") -> tuple[Path, list]:
     """Moves the being's state aside; returns (the backup folder, what moved)."""
-    backup = state / f"backup-{time.strftime('%Y%m%d-%H%M%S')}-before-reset"
+    backup = state / f"backup-{time.strftime('%Y%m%d-%H%M%S')}-{suffix}"
     backup.mkdir()
     moved = []
     for f in sorted(state.iterdir()):
