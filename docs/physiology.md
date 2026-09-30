@@ -67,7 +67,7 @@ backup fuel.
   is more muscle to keep. At the reference rate its upkeep is 5% of the resting
   burn, scaled with pump size and metabolic strategy. **This 5% is a guess**,
   borrowed from the brain's measured share (Mink 1981); see the audit.
-- **Host defense: a swat.** A host it is biting can swat it: the same host,
+- **Host defense: a swat.** A host it is absorbing jīng from can swat it: the same host,
   nearer than at its last look (its box overlaps the last one and grew),
   while the field looms past the line that already counts as a big change
   (`WAKE_LOOM`). A swat takes back **that bite's blood**. Blood-full
