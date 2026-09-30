@@ -57,7 +57,8 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
             "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
-            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain", "mutate_lookahead", "mutate_extrapolation", "mutate_compass", "mutate_entorhinal", "mutate_flow_teacher")
+            "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain", "mutate_lookahead", "mutate_extrapolation", "mutate_compass", "mutate_entorhinal", "mutate_flow_teacher",
+            "mutate_colour_constancy", "mutate_texture", "mutate_texture_teacher")
 STABILIZER_SIGMA = 0.1
 MAX_SLEEP_SET = 1024  # a safety bound on its sleep test set (looks kept); its price is the edits tested on it
 MAX_SCENES = 64  # a safety bound only: its price (matching each look) is what limits it
@@ -97,6 +98,8 @@ LEARNING_MIN, LEARNING_MAX, LEARNING_SIGMA = 1e-3, 1.0, 0.5
 # learning) and an adult Aedes' life (~30 nights); past that, evolution walks
 # freely under a safety cap of ten years.
 MATURATION_MIN, MATURATION_BIRTH_MAX, MATURATION_MAX = 1.0, 30.0, 3650.0
+COLOUR_ADAPT_SEED_S = 20.0  # colour constancy's adaptation time when gained: Fairchild & Reniff 1995 (v4.py)
+COLOUR_ADAPT_MAX_S = 3600.0  # a safety bound: past an hour it adapts to nothing within a look
 EXTRAPOLATION_MAX = 3.0  # a safety bound (1 = exact compensation of its lag)
 MAX_COLOUR_CHANNELS = 2  # 0 = light only, 1 = + red-green, 2 = + blue-yellow
 MIN_PACE, MAX_PACE = 1, 6  # resting gaze interval: every 1st .. 6th frame
@@ -179,6 +182,7 @@ def _become(target: blocks.Node, other: blocks.Node) -> None:
     """Turns target into other in place (its parent keeps pointing at it)."""
     target.kind, target.op, target.children = other.kind, other.op, other.children
     target.index, target.value, target.kx, target.ky, target.angle = other.index, other.value, other.kx, other.ky, other.angle
+    target.bend = other.bend
 
 
 def random_genome(rng: random.Random, n_vars: int = 3, channels: tuple[str, ...] = DEFAULT_CHANNELS,
@@ -241,6 +245,9 @@ class Genome:
         compass: int = 0,
         entorhinal: int = 0,
         flow_teacher: float = 0.0,
+        colour_constancy: float = 0.0,
+        texture: int = 0,
+        texture_teacher: float = 0.0,
         colliculus: list | None = None,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
@@ -308,6 +315,12 @@ class Genome:
         # counts flow_teacher, the detector's measuring sticks 1 - flow_teacher.
         # Born 0 (the detector alone, as before).
         self.flow_teacher = float(np.clip(flow_teacher, 0.0, 1.0))
+        # Its V4 (v4.py): colour constancy's adaptation time (seconds; 0 =
+        # none), its texture statistics (0/1) and how much the texture
+        # gradient teaches its terrain (0-1). Born 0 (none).
+        self.colour_constancy = float(np.clip(colour_constancy, 0.0, COLOUR_ADAPT_MAX_S))
+        self.texture = int(bool(texture))
+        self.texture_teacher = float(np.clip(texture_teacher, 0.0, 1.0))
         # Its collicular priority map's weights (organism.COLLICULAR_FEATURES), born 0.
         self.colliculus = ([float(w) for w in (colliculus or [])] + [0.0] * 6)[:6]
         # Its fuel set points (state.py), inherited, born at the rulebook's
@@ -407,6 +420,9 @@ class Genome:
             self.compass,
             self.entorhinal,
             self.flow_teacher,
+            self.colour_constancy,
+            self.texture,
+            self.texture_teacher,
             list(self.colliculus),
             self.mobilize,
             self.store,
@@ -444,7 +460,8 @@ class Genome:
         or narrows by a ring (narrowed to nothing, it is one receptor again),
         or becomes oriented (an edge detector at a random angle); an oriented
         pool turns (by a constant's mutation step, 0.5 rad), widens or narrows,
-        or loses its orientation."""
+        bends (its curvature stepped by that step over its radius: a curved
+        contour fragment, V4's), straightens, or loses its orientation."""
         leaves = [n for n in self._all_nodes(channel) if n.kind in ("cell", "pool", "edge")]
         if not leaves:
             return False
@@ -455,7 +472,7 @@ class Genome:
             node.kind, node.value = "pool", 1.0
         elif node.kind == "pool":
             if rng.random() < 0.5:
-                node.kind, node.angle = "edge", rng.uniform(0.0, math.pi)
+                node.kind, node.angle, node.bend = "edge", rng.uniform(0.0, math.pi), 0.0
                 node.value = float(max(1, int(node.value)))
             else:
                 r = ring()
@@ -464,13 +481,17 @@ class Genome:
                 else:
                     node.value = float(min(r, cap))
         else:
-            what = rng.choice(("turn", "ring", "unorient"))
-            if what == "turn":
+            what = rng.choice(("turn", "ring", "bend", "unorient") + (("straighten",) if node.bend else ()))
+            if what == "bend":
+                node.bend = float(node.bend + rng.gauss(0.0, 0.5) / max(1, int(node.value)))
+            elif what == "straighten":
+                node.bend = 0.0
+            elif what == "turn":
                 node.angle = float((node.angle + rng.gauss(0.0, 0.5)) % math.pi)
             elif what == "ring":
                 node.value = float(min(max(1, ring()), cap))
             else:
-                node.kind = "pool"
+                node.kind, node.bend = "pool", 0.0
         return True
 
     def _mutate_op(self, rng: random.Random, channel: str) -> bool:
@@ -638,6 +659,22 @@ class Genome:
         if choice == "mutate_apical":  # its pyramidal units' coincidence gain, stepped like a trait
             self.brain.apical = float(self.brain.apical + rng.gauss(0.0, TRAIT_SIGMA))
             return "brain", choice
+        if choice == "mutate_colour_constancy":  # gained at the human time course, then stepped as rates are; it can be lost
+            old = self.colour_constancy
+            if old <= 0.0:
+                self.colour_constancy = float(np.clip(COLOUR_ADAPT_SEED_S * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), 0.0, COLOUR_ADAPT_MAX_S))
+            elif rng.random() < 0.1:
+                self.colour_constancy = 0.0
+            else:
+                self.colour_constancy = float(np.clip(old * np.exp(rng.gauss(0.0, LEARNING_SIGMA)), 0.0, COLOUR_ADAPT_MAX_S))
+            return "brain", (choice if self.colour_constancy != old else "noop_inapplicable")
+        if choice == "mutate_texture":  # gained or lost, like its other senses
+            self.texture = 1 - self.texture
+            return "brain", choice
+        if choice == "mutate_texture_teacher":
+            old = self.texture_teacher
+            self.texture_teacher = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA), 0.0, 1.0))
+            return "brain", (choice if self.texture_teacher != old else "noop_inapplicable")
         if choice == "mutate_flow_teacher":  # stepped as its other traits, within its two teachers' share
             old = self.flow_teacher
             self.flow_teacher = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA), 0.0, 1.0))
@@ -920,6 +957,9 @@ class Genome:
             "compass": self.compass,
             "entorhinal": self.entorhinal,
             "flow_teacher": self.flow_teacher,
+            "colour_constancy": self.colour_constancy,
+            "texture": self.texture,
+            "texture_teacher": self.texture_teacher,
             "colliculus": list(self.colliculus),
             "mobilize": self.mobilize,
             "store": self.store,
@@ -1002,6 +1042,9 @@ class Genome:
             compass=int(data.get("compass", 0)),
             entorhinal=int(data.get("entorhinal", 0)),
             flow_teacher=float(data.get("flow_teacher", 0.0)),
+            colour_constancy=float(data.get("colour_constancy", 0.0)),
+            texture=int(data.get("texture", 0)),
+            texture_teacher=float(data.get("texture_teacher", 0.0)),
             colliculus=data.get("colliculus"),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),

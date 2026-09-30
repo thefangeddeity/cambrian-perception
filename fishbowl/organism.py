@@ -34,6 +34,7 @@ from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER
                          NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT, HEADING_INPUTS,
                          EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT)
 from .entorhinal import Entorhinal
+from . import v4
 from .retina import field_shape
 from .genome import RETINA_PLANES
 from .mushroom import PROTO_SIDE, MushroomBody, macs as kc_macs
@@ -618,6 +619,7 @@ class Organism:
         # construction. For its model card (run_vision.py) and its export.
         self.scores = {"terrain": _Prequential(), "archetypes": _Prequential(),
                        "terrain_map_vs_detector": _Prequential(), "terrain_map_vs_flow": _Prequential(),
+                       "terrain_map_vs_texture": _Prequential(),
                        "host_position": _Prequential(), "host_position_plain": _Prequential()}
         self.lookahead = int(getattr(g, "lookahead", 0))
         self.flow_teacher = float(getattr(g, "flow_teacher", 0.0))
@@ -777,6 +779,16 @@ class Organism:
         self.colour_n = int(getattr(g, "colour_channels", 0)) if colour else 0
         self.cones = int(min(getattr(g, "cones", self.state.n), self.state.n))
         self.last_colour = None
+        # Its V4 (v4.py; a 2026-09-29 panel): colour constancy (its cones' von
+        # Kries gains, adapting over genome.colour_constancy seconds), texture
+        # statistics over its field (genome.texture) and the texture gradient
+        # as a teacher of its terrain (genome.texture_teacher).
+        tau = float(getattr(g, "colour_constancy", 0.0))
+        self.v4_colour = v4.ColourAdaptation(tau) if tau > 0.0 and self.colour_n else None
+        self.texture = int(getattr(g, "texture", 0))
+        self.texture_teacher = float(getattr(g, "texture_teacher", 0.0))
+        self.texture_map = None          # (3, cells) at its latest look, for the viewer
+        self.texture_here = (0.0, 0.0, 0.0)
         self.quota_pct = quota_pct
         self.scarcity = REFERENCE_QUOTA_PCT / max(1.0, quota_pct)
         self.fps = fps
@@ -988,6 +1000,10 @@ class Organism:
         self.felt_nearness = felt
         self.local = self.local_frame()
         self.riding = float(self.local.mean()) if self.local is not None else 0.0
+        texture_in = (0.0, 0.0, 0.0)
+        if self.texture and not was_asleep and self.field:
+            texture_in = self._texture(frame, state)
+            head_macs += 3 * self.field[0] * self.field[1]  # its V4 texture cells: three statistics a field cell, as its collicular map's
         contact, contact_macs = self._contact(frame, state) if not was_asleep else (0.0, 0)
         head_macs += contact_macs
         # what its body felt turning and tilting since its last look, in its half field of view
@@ -1053,7 +1069,7 @@ class Organism:
                 recalled, recalled_dx, recalled_dy, host_vx, host_vy,
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
                 tuple(head_vals), coll, terrain, nearness, felt, contact, self.turning, self.tilting, heading,
-                ego_speed, acceleration, map_value, self.riding,
+                ego_speed, acceleration, map_value, self.riding, texture_in,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1071,9 +1087,13 @@ class Organism:
         # The perception tree reads its receptors by position (the look, the
         # previous look, its colour planes) and, as plain inputs, its own
         # last movement and the brain's recurrent memory.
-        col = fovea.extract_colour(colour_frame, state, colour_on, self.cones) if colour_on else np.zeros(0)
+        gains = self.v4_colour.gains() if (colour_on and self.v4_colour is not None) else None
+        col = fovea.extract_colour(colour_frame, state, colour_on, self.cones, gains) if colour_on else np.zeros(0)
         if colour_on:
             self.last_colour = col
+            if self.v4_colour is not None and colour_frame is not None:  # its cones adapt to what they saw (von Kries)
+                self.v4_colour.see(v4.cone_mean(fovea._window(colour_frame, state), state.n, self.cones),
+                                   self.last_interval / max(1.0, self.fps))
         planes = np.zeros((1, RETINA_PLANES, n, n))
         planes[0, 0], planes[0, 1] = v.reshape(n, n), self.prev_v.reshape(n, n)
         for c in range(len(col) // self.n_cells):
@@ -1431,6 +1451,29 @@ class Organism:
                         self.scores["terrain_map_vs_detector"].add(self.terrain_at((x0 + x1) / 2, min(y1, 1.0 - 1e-6)), elev)
                         self.terrain[cell[0] * self.place.shape[1] + cell[1]] += w * (1.0 - self.flow_teacher) * np.array([1.0, elev])
                 self.ground[k, :5] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+
+    def _texture(self, frame, state) -> tuple[float, float, float]:
+        """Its V4's texture statistics over its field (v4.texture), the texture
+        gradient's lessons to its terrain (weighted texture_teacher x the
+        cell's share of signal, 1 - noise floor / contrast; scored before it
+        learns), and what the texture is at its gaze: contrast (x 2: the most a
+        0-1 image's spread can be is 1/2), fineness over the most it can measure
+        (a quarter cycle a pixel: v4.texture), anisotropy."""
+        tex = v4.texture(frame, self.field, NOISE_FLOOR)
+        self.texture_map = tex
+        hz = self.horizon()
+        if self.texture_teacher > 0.0 and hz is not None and 0.0 < hz < 1.0 and self._terrain_map() is not None:
+            e_now, _ = self._terrain_blend()
+            for k, elev in v4.terrain_lessons(tex, self.field, hz, e_now.ravel(), self.local):
+                self.scores["terrain_map_vs_texture"].add(float(e_now.ravel()[k]), elev)
+                self.terrain[k] += self.texture_teacher * (1.0 - NOISE_FLOOR / max(float(tex[0, k]), NOISE_FLOOR)) * np.array([1.0, elev])
+        cell = self._cell(state.cx, state.cy)
+        if not self._in_map(cell):
+            return 0.0, 0.0, 0.0
+        k = cell[0] * self.field[1] + cell[1]
+        most = 0.25 * frame.shape[0]
+        self.texture_here = (float(min(1.0, 2.0 * tex[0, k])), float(min(1.0, tex[1, k] / most)), float(tex[2, k]))
+        return self.texture_here
 
     def _learn_terrain_from_flow(self, sig, small: tuple, roll: float) -> None:
         """Its terrain taught by its own ground flow (a 2026-09-29 panel; Gibson,
@@ -2018,7 +2061,7 @@ class Organism:
         # only living receptors cost; a slow receptor costs less (1 / (1 + slowness))
         gaze_cost = 0.0 if asleep else _receptor_cost(self.live_n, self.quota_pct) / (1.0 + self.slowness)
         body.update(p["periph_motion"], p["loom"], p["effort"],
-                    gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"]
+                    gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"] * (2 if self.v4_colour is not None else 1)
                                  + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
                                  + (THINK_COST * (kc_macs(self.live_kc) + (self.live_kc if self.aversive_rate > 0.0 else 0))

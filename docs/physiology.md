@@ -481,6 +481,42 @@ can afford more and bigger ones.
   0.05; MAE 0.032), and a plateau raised 0.3 on the right half reads a step
   of 0.38. Flow gives relative terrain; with half the ground raised, the level
   floats, and the detector's lessons anchor it.
+- **Its V4** (2026-09-29; `fishbowl/v4.py`; Zeki, Conway, Roe, Pasupathy &
+  Connor, Freeman & Simoncelli, Gibson): the ventral stream's middle stage, as
+  functions (bees keep colour constant, an insect's lobula builds shape), each
+  an evolvable, priced trait.
+  - **Colour constancy:** its cones' von Kries gains adapt to what they have
+    seen, over `colour_constancy` seconds (gene; 0 = none; gained at Fairchild
+    & Reniff 1995's human time course, 20 s, then stepped). Luminance is kept.
+    Its wide field stays monochrome, so its surround is what its cones saw, in
+    time. Priced as a second pass over its cones. Tested: a grey card under
+    warm light goes from red-green 0.60 / blue-yellow 0.35 to 0.51 / 0.49
+    (neutral 0.5).
+  - **The visual cortex** removes the frame's colour cast before its hue
+    histograms (grey world, Buchsbaum 1980). Individuals seen before relearn
+    their colour (a new histogram kind).
+  - **Texture statistics** per field cell (gene `texture`): contrast, fineness
+    (the spectrum's second moment, with the derivative filter's
+    sin(2 pi f) response undone exactly: 9.0 / 18.0 / 36.0 read for 9 / 18 /
+    36 cycles), and anisotropy (the structure tensor's coherence: 1.0 on
+    stripes, 0.17 on isotropic noise). At its gaze they are inputs 72-74
+    (contrast x 2, fineness over its measurable limit, anisotropy). Priced 3
+    a field cell a look.
+  - **The texture gradient** teaches its terrain (gene `texture_teacher`):
+    across-fineness grows as depth on ground of one texture, so each ground
+    cell is compared with the median of its own row (at least 8 cells). Along
+    a row, the depth on flat ground and the camera's resolution limit are the
+    same; pooled over rows, texture reaching the pixel scale near the horizon
+    read as a rise toward it. It teaches what is raised or sunk beside its
+    row, never the whole ground's tilt; its local frame is excluded. Tested
+    on rendered ground: flat within +-0.1; a 0.3 plateau reads a 0.27 step.
+    Scored `terrain_map_vs_texture`.
+  - **Curvature:** an oriented pool can bend (its dividing line becomes an
+    arc; Pasupathy & Connor's curved contour fragments). Mutation bends,
+    straightens or turns it, at an edge's price. Edges now save their exact
+    angle: rounded to 4 decimals, a receptor near a wide edge's line could
+    change sides, so a reloaded tree answered differently from the one scored
+    (found by a 5000-mutation save/load test).
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

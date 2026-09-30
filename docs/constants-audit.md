@@ -304,6 +304,18 @@ yardsticks are found.
 | `LK_HALF_WINDOW` | 10 px | P | half of OpenCV's default 21 px Lucas-Kanade window |
 | `flow_teacher` seed | 0.5 + 3 mutation steps | S | equal weights: the ignorance prior |
 
+### Its V4 (fishbowl/v4.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| `COLOUR_ADAPT_SEED_S` | 20 s | S | Fairchild & Reniff 1995: ~95% adapted in 60 s; the gene is the adaptation time |
+| `COLOUR_ADAPT_MAX_S` | 3600 s | B | safety only |
+| colour constancy's price | a second pass over its cones | P | one gain per cone per channel |
+| fineness | spectrum's second moment, arcsin-corrected | S | Rice 1944; the central difference's transfer function |
+| texture inputs | contrast x 2; fineness / (h / 4); anisotropy | P | the most each can be |
+| texture teacher | per-row median, >= 8 cells | S | depth and resolution constant along a row |
+| texture lesson weight | texture_teacher x (1 - noise floor / contrast) | S | `NOISE_FLOOR` |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

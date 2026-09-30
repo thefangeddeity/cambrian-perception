@@ -152,14 +152,20 @@ def cone_mask(n: int, cones: int) -> np.ndarray:
     return m
 
 
-def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int, cones: int | None = None) -> np.ndarray:
+def extract_colour(full_frame_bgr: np.ndarray, state: FoveaState, channels: int, cones: int | None = None,
+                   gain: np.ndarray | None = None) -> np.ndarray:
     """The gaze's colour receptors: `channels` opponent grids (0, 1 = red-green,
     2 = + blue-yellow) over the same receptors as extract(), flattened; empty if
     0. Only cones see colour: outside the central cones x cones patch (rods)
-    the colour planes read 0, as a receptor it doesn't have."""
+    the colour planes read 0, as a receptor it doesn't have. gain: its cones'
+    von Kries gains per channel (B, G, R; v4.py), applied before the opponent
+    channels, as a receptor's adaptation is."""
     if channels <= 0 or full_frame_bgr is None:
         return np.zeros(0)
-    rg, by = opponent_planes(_window(full_frame_bgr, state))  # black -> neutral (0.5)
+    win = _window(full_frame_bgr, state)
+    if gain is not None:
+        win = np.clip(win.astype(np.float64) * np.asarray(gain, dtype=float), 0.0, 255.0)
+    rg, by = opponent_planes(win)  # black -> neutral (0.5)
     planes = [rg, by][:channels]
     mask = cone_mask(state.n, state.n if cones is None else cones).reshape(-1)
     return np.concatenate([np.where(mask, frame_to_vector(pl, (state.n, state.n)), 0.0) for pl in planes])

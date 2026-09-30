@@ -38,6 +38,7 @@ import cv2
 import numpy as np
 
 from . import prey as prey_lib
+from .v4 import grey_world
 
 IOU_MATCH = 0.3        # SORT's association threshold
 MAX_AGE, MIN_HITS = 1, 3  # SORT's defaults: a track ends after a detection it missed; it is real (and signs) after 3
@@ -59,7 +60,10 @@ def _iou(a, b) -> float:
 
 
 def _hist(colour, grey, box) -> tuple[str, np.ndarray] | None:
-    """Its colour inside a box: hue x saturation (8 x 4) if it sees colour, else grey levels (16)."""
+    """Its colour inside a box: hue x saturation (8 x 4) if it sees colour --
+    of a frame with its colour cast removed (v4.grey_world: the same shirt at
+    noon and at dusk; kind "hs_cc", so colours seen before it corrected them
+    are relearnt, never compared) -- else grey levels (16)."""
     src = colour if colour is not None else grey
     if src is None:
         return None
@@ -70,7 +74,7 @@ def _hist(colour, grey, box) -> tuple[str, np.ndarray] | None:
     patch = src[y0:y1, x0:x1]
     if colour is not None:
         hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV)
-        hist, kind = cv2.calcHist([hsv], [0, 1], None, [8, 4], [0, 180, 0, 256]).ravel(), "hs"
+        hist, kind = cv2.calcHist([hsv], [0, 1], None, [8, 4], [0, 180, 0, 256]).ravel(), "hs_cc"
     else:
         hist, kind = cv2.calcHist([patch], [0], None, [16], [0, 256]).ravel(), "grey"
     s = float(hist.sum())
@@ -189,6 +193,8 @@ class Cortex:
         if grey is not None and self.prev_grey is not None and self.prev_grey.shape == grey.shape:
             motion = cv2.absdiff(grey, self.prev_grey)
         self.prev_grey = grey
+        if fresh and colour is not None and boxes:
+            colour = grey_world(colour)  # V4's colour constancy, over the whole frame it sees
         free = list(self.tracks)
         for b in boxes or []:
             cls, box = int(b[0]), tuple(float(v) for v in b[2:6])

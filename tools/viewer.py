@@ -1050,6 +1050,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
                    s.acceleration != null && Math.abs(s.acceleration) > 0.05 ? (s.acceleration > 0 ? 'starting' : 'stopping') : '',
                    s.place_value != null && Math.abs(s.place_value) > 0.01 ? `this place: ${s.place_value.toFixed(2)}` : '',
                    s.riding ? `riding: ${Math.round(100 * s.riding)}% of its view` : '',
+                   s.texture && s.texture[0] ? `texture: contrast ${s.texture[0].toFixed(2)}, fineness ${s.texture[1].toFixed(2)}, grain ${s.texture[2].toFixed(2)}` : '',
                    s.contact ? `<b style="color:#ff6f8a">approaching</b>: contact in ~${Math.max(1, Math.round(1 / s.contact))} looks` : '',
                    s.felt_nearness ? `it feels: ${s.felt_nearness >= 0.67 ? 'near' : s.felt_nearness >= 0.33 ? 'mid' : 'far'} (${s.felt_nearness.toFixed(2)})` : '',
                    s.nearness != null && s.horizon != null ? `what it looks at: ${s.nearness >= 0.67 ? 'near' : s.nearness >= 0.33 ? 'mid' : s.nearness > 0 ? 'far' : 'beyond its ground'} (${s.nearness.toFixed(2)})` : ''].filter(Boolean);
@@ -1589,12 +1590,13 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     ctx.fillStyle = 'rgba(5, 7, 10, 0.9)'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);
     ctx.strokeStyle = '#1c2a36'; ctx.lineWidth = 1; ctx.strokeRect(ox, oy, side, side);
     let edges = 0;
+    const arc = (x, y, a, L, pr, bend, ys) => { ctx.beginPath(); for (let i = 0; i <= 12; i++) { const tp = (i / 6 - 1) * L, np = 0.5 * (bend || 0) * (tp / pr) * (tp / pr) * pr, px = x - tp * Math.sin(a) + np * Math.cos(a), py = y + (tp * Math.cos(a) + np * Math.sin(a)) * ys; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); } ctx.stroke(); };  // an oriented pool's line (an arc when it bends: blocks.py)
     (function walk(n) {
       if (!n) return;
       if (n.kind === 'edge' || n.kind === 'pool') {
         const x = ox + (n.kx + N / 2 + 0.5) * cell, y = oy + (n.ky + N / 2 + 0.5) * cell, r = (Math.round(n.value) + 0.5) * cell, col = PLANE_COL[n.index] || '200,200,200';
         ctx.strokeStyle = `rgba(${col},0.5)`; ctx.strokeRect(x - r, y - r, 2 * r, 2 * r);
-        if (n.kind === 'edge') { const a = n.angle || 0; ctx.strokeStyle = `rgb(${col})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - r * Math.sin(a), y + r * Math.cos(a)); ctx.lineTo(x + r * Math.sin(a), y - r * Math.cos(a)); ctx.stroke(); ctx.lineWidth = 1; edges++; }
+        if (n.kind === 'edge') { ctx.strokeStyle = `rgb(${col})`; ctx.lineWidth = 2; arc(x, y, n.angle || 0, r, cell, n.bend, 1); ctx.lineWidth = 1; edges++; }
       }
       (n.children || []).forEach(walk);
     })(d.trees && d.trees.response);
@@ -2116,9 +2118,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         const k2 = q.n.kind === 'pool' || q.n.kind === 'edge' ? 2 * Math.round(q.n.value) + 1 : 1;
         ctx.fillStyle = `rgba(${PLANE_COL[q.n.index] || '200,200,200'},${k2 > 1 ? 0.55 : 1})`; ctx.fillRect(q.sx - r * k2, q.sy - r * k2 / 2, 2 * r * k2, r * k2);
         if (q.n.kind === 'edge') {  // its orientation: the line that splits its patch
-          const a = q.n.angle || 0, L = r * k2;
-          ctx.strokeStyle = `rgb(${PLANE_COL[q.n.index] || '200,200,200'})`; ctx.lineWidth = 1.5; ctx.beginPath();
-          ctx.moveTo(q.sx - L * Math.sin(a), q.sy + L * Math.cos(a) / 2); ctx.lineTo(q.sx + L * Math.sin(a), q.sy - L * Math.cos(a) / 2); ctx.stroke();
+          const arc = (x, y, a, L, pr, bend, ys) => { ctx.beginPath(); for (let i = 0; i <= 12; i++) { const tp = (i / 6 - 1) * L, np = 0.5 * (bend || 0) * (tp / pr) * (tp / pr) * pr, px = x - tp * Math.sin(a) + np * Math.cos(a), py = y + (tp * Math.cos(a) + np * Math.sin(a)) * ys; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); } ctx.stroke(); };  // an oriented pool's line (an arc when it bends: blocks.py)
+          ctx.strokeStyle = `rgb(${PLANE_COL[q.n.index] || '200,200,200'})`; ctx.lineWidth = 1.5; arc(q.sx, q.sy, q.n.angle || 0, r * k2, 2 * r, q.n.bend, 0.5);
         }
       }
       else { ctx.fillStyle = op ? '#0a2a1a' : '#1a1a2a'; ctx.strokeStyle = op ? '#ffe2d6' : '#ffb4a6'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(q.sx, q.sy, r, 0, 7); ctx.fill(); ctx.stroke(); }

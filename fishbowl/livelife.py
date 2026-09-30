@@ -198,7 +198,9 @@ def _circuits(org: Organism) -> dict:
                      "speed": round(float(org.ec.speed), 3) if org.ec is not None else None,
                      "acceleration": round(float(org.ec.acceleration), 3) if org.ec is not None else None,
                      "place_value": round(float(org.ec.value()), 3) if org.ec is not None else None, "camera_moving": bool(org.cam_moving),
-                     "riding": round(float(org.riding), 3), "local_frame": None if org.local is None else [int(x) for x in org.local],
+                     "riding": round(float(org.riding), 3),
+                     "texture": [round(float(v), 3) for v in org.texture_here] if org.texture else None,
+                     "colour_gains": None if org.v4_colour is None or org.v4_colour.gains() is None else [round(float(v), 3) for v in org.v4_colour.gains()], "local_frame": None if org.local is None else [int(x) for x in org.local],
                      "priority": None if org.priority_map is None else [round(float(x), 3) for x in org.priority_map],
                      "colliculus": [round(float(w), 3) for w in org.colliculus],
                      "archetypes": [[names.get(int(c), str(c)), round(float(v), 3)]

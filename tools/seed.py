@@ -309,6 +309,35 @@ def seed_flow_teacher(g, rng: random.Random) -> list[str]:
     return [f"flow teacher {g.flow_teacher:.2f}"]
 
 
+def seed_v4(g, rng: random.Random) -> list[str]:
+    """Its V4 (2026-09-29): colour constancy gained at the human time course
+    (Fairchild & Reniff) a few steps along, its texture statistics on, the
+    texture gradient teaching at the ignorance prior a few steps along, and its
+    texture inputs wired."""
+    import math
+    from fishbowl import genome as G
+    from fishbowl.controller import TEXTURE_INPUTS
+    done = []
+    if g.colour_constancy <= 0.0:
+        g.colour_constancy = float(min(G.COLOUR_ADAPT_MAX_S, G.COLOUR_ADAPT_SEED_S * math.exp(sum(rng.gauss(0.0, G.LEARNING_SIGMA) for _ in range(3)))))
+        done.append(f"colour constancy {g.colour_constancy:.1f} s")
+    if not g.texture:
+        g.texture = 1
+        done.append("texture on")
+    if g.texture_teacher <= 0.0:
+        g.texture_teacher = float(min(1.0, max(0.0, 0.5 + sum(rng.gauss(0.0, G.TRAIT_SIGMA) for _ in range(3)))))
+        done.append(f"texture teacher {g.texture_teacher:.2f}")
+    w = g.brain.weights_ih
+    wired = 0
+    for c in TEXTURE_INPUTS:
+        if c < w.shape[1] and not w[:, c].any():
+            w[:, c] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
+            wired += 1
+    if wired:
+        done.append(f"{wired} texture inputs wired")
+    return done
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
@@ -316,7 +345,7 @@ SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus
              "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain,
              "2026-09-29 looking ahead": seed_looking_ahead, "2026-09-29 rotation": seed_rotation,
              "2026-09-29 entorhinal": seed_entorhinal, "2026-09-29 frames of reference": seed_frames,
-             "2026-09-29 flow-taught terrain": seed_flow_teacher}
+             "2026-09-29 flow-taught terrain": seed_flow_teacher, "2026-09-29 V4": seed_v4}
 
 
 def main() -> int:

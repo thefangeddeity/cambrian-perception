@@ -57,7 +57,8 @@ and how much of the frame its gaze covers.
 
 **Perception tree.** Its evolved program that guesses "a host in my gaze?",
 graded by YOLO, drawn as a cone tree growing down onto its retina: leaves plug
-in where they read (receptors, pooled patches, oriented edges).
+in where they read (receptors, pooled patches, oriented edges; a curved line is
+an edge that bends, its V4's curvature).
 
 **Visual field.** Its wide-field eyes: where things move, as heat. The box is
 its gaze; dashed boxes are hosts, dotted ones plants; a red frame means
@@ -66,7 +67,8 @@ what still surprises it and its collicular priority. The senses strip lists
 its newer senses: pace, uncertainty, camera motion, horizon, what it looks at
 and how near, how near it feels it is, contact, turning, tilting, heading,
 its speed (eye-heights per second), starting or stopping, what the place it
-is at has been worth, and how much of its view rides with it.
+is at has been worth, how much of its view rides with it, and the texture at
+its gaze (contrast, fineness, grain).
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
 orange inhibits.

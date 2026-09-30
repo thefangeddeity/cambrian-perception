@@ -83,7 +83,10 @@ class Node:
       - an oriented pool (kind="edge"): the same patch split by a line through
         its centre at `angle` (radians); the mean of one side minus the mean of
         the other -- an edge detector at that orientation, as V1's simple
-        cells and insects' oriented cells are (a 2026-09-29 panel);
+        cells and insects' oriented cells are (a 2026-09-29 panel); with a
+        `bend` (curvature, 1 / receptors) its dividing line is an arc through
+        the centre instead -- a curved contour fragment, as V4's curvature
+        cells prefer (Pasupathy & Connor 2001; a 2026-09-29 panel);
       - a constant (kind="const", value=a float already clamped to
         [-MAX_CONST, MAX_CONST] at construction time -- not at eval time,
         so a mutation can never smuggle in an unbounded value).
@@ -98,6 +101,7 @@ class Node:
     kx: int = 0
     ky: int = 0
     angle: float = 0.0  # an oriented pool's orientation (radians)
+    bend: float = 0.0   # an oriented pool's curvature (1 / receptors; 0 = straight)
 
     def node_count(self) -> int:
         return 1 + sum(child.node_count() for child in self.children)
@@ -139,6 +143,9 @@ class Node:
                 if x0 < x1 and y0 < y1:
                     ys, xs = np.mgrid[y0 - iy:y1 - iy, x0 - ix:x1 - ix]
                     side = xs * np.cos(self.angle) + ys * np.sin(self.angle)
+                    if self.bend:  # the line bent into an arc: the normal offset of a parabola along it
+                        along = -xs * np.sin(self.angle) + ys * np.cos(self.angle)
+                        side = side - 0.5 * self.bend * along * along
                     pos, neg = side > 1e-9, side < -1e-9
                     if pos.any() and neg.any():
                         patch = retina[:, self.index, y0:y1, x0:x1]
@@ -163,8 +170,10 @@ class Node:
         }
         if self.kind in ("cell", "pool", "edge"):
             d["kx"], d["ky"] = self.kx, self.ky
-        if self.kind == "edge":
-            d["angle"] = round(float(self.angle), 4)
+        if self.kind == "edge":  # exact: rounded, a receptor near its line could change sides (a saved tree must answer as the one scored)
+            d["angle"] = float(self.angle)
+            if self.bend:
+                d["bend"] = float(self.bend)
         return d
 
     def macs(self) -> int:
@@ -179,4 +188,5 @@ class Node:
             value=data.get("value", 0.0), op=data.get("op", ""),
             children=[Node.from_dict(c) for c in data.get("children", [])],
             kx=int(data.get("kx", 0)), ky=int(data.get("ky", 0)), angle=float(data.get("angle", 0.0)),
+            bend=float(data.get("bend", 0.0)),
         )
