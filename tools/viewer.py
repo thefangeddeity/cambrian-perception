@@ -1428,8 +1428,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   // for the world; conformal where it can be (horizon, flight-path marker at
   // the focus of expansion), tapes for the rest: heading on top (its compass),
   // speed on the left (its speed cells; the caret leans with starting or
-  // stopping), nearness on the right (T what its ground model teaches, F what
-  // its terrain head feels; near at the top), a bank pointer (its tilting),
+  // stopping), nearness on the right (NR: T what its ground model teaches, F what
+  // its terrain head feels, their values beside the label; near at the top), a bank pointer (its tilting),
   // and a data block top left; its path and its tree's lines sit in the bottom
   // corners, the middle kept clear. Text scales with the picture, floored as the video's HUD.
   function hudNav(ctx, W, H, hz, sn, d) {
@@ -1477,7 +1477,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       const top = Math.max(0.5, Math.ceil(Math.abs(spd) * 2) / 2);
       tape(px(12), spd, 0, top, 1, `SPD ${spd.toFixed(2)}${acc > 0.05 ? ' ▲' : acc < -0.05 ? ' ▼' : ''}`, [[Math.max(0, spd), G(0.95), '']]);
     }
-    tape(W - px(12), null, 0, 1, -1, 'NEAR', [[sn.nearness, 'rgb(156, 207, 122)', 'T'], [sn.felt_nearness, 'rgb(127, 212, 255)', 'F']]);
+    const nr = v => v == null ? '--' : v.toFixed(2);
+    tape(W - px(12), null, 0, 1, -1, `NR T${nr(sn.nearness)} F${nr(sn.felt_nearness)}`, [[sn.nearness, 'rgb(156, 207, 122)', 'T'], [sn.felt_nearness, 'rgb(127, 212, 255)', 'F']]);
     // data block, bottom left: what else it senses now
     const rows = [sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
                   sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
