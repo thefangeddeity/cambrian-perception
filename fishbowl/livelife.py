@@ -102,6 +102,8 @@ def _carry(old: Organism, new: Organism) -> None:
     new.night_lessons, new._tonight, new._night = list(old.night_lessons), old._tonight, old._night
     new.scores, new._precision_mean = old.scores, old._precision_mean
     new._ahead, new._predicted, new._last_local_s = old._ahead, old._predicted, old._last_local_s
+    if new._ahead is not None and new.mb.n_kc < old.mb.n_kc:  # its last look's code, trimmed as its episodes are
+        new._ahead = new._ahead[new._ahead < new.mb.n_kc]
     new.heading = old.heading  # where it faces goes on, whatever genome thinks
     if new.ec is not None and old.ec is not None:
         new.ec = old.ec  # and its map: where it is, and what its places have been worth  # its prequential record goes on with its mushroom body
@@ -260,6 +262,7 @@ class LiveLife:
         self.field_motion = None  # per-cell change its motion sense is fed, smoothed over a few frames (the viewer's heat)
         self._pursuit = None  # (gaze, pursued box, last step) of the host it is following, for the metrics
         self.error = None
+        self.error_trace = ""
         self._stop = False
         self._written = 0.0
         self._thread = threading.Thread(target=self._run, name="LiveLife", daemon=True)
@@ -436,7 +439,9 @@ class LiveLife:
                 if time.time() - self._written >= WRITE_EVERY_S:
                     self._write()
         except Exception as e:  # its death must not take evolution with it; the run's end reports it
+            import traceback
             self.error = repr(e)
+            self.error_trace = traceback.format_exc()
 
     def _live(self, items: list) -> None:
         present = max(1.0, self.org.last_interval) / max(1.0, self.org.fps)  # its look interval, seconds

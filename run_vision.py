@@ -1580,8 +1580,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 time.sleep(0.1)
         if life is not None:
             if life.error:
-                print(f"Its live body failed ({life.error}); the survivors carry its body for the rest of this run.")
-                life = None
+                # A living body is reborn from its last snapshot (its body and
+                # memory as of the last generation), not left dead: runs are
+                # unbounded now, and "the rest of this run" meant hours without one.
+                print(f"Its live body failed ({life.error}); reborn from its last snapshot.\n{life.error_trace}")
+                sandbox.log_event({"t": round(time.time(), 1), "event": "live body failed", "error": life.error, "trace": life.error_trace[-2000:]})
+                life = LiveLife(feed, genome, body_now, memory_now, price_quota, host_rate, feed_epoch,
+                                sandbox.LIVE_STATUS_PATH.with_name("live_actor.json"), metrics, _fps()) if feed is not None else None
             else:
                 if box.generation % 50 == 0:
                     life.set_prices(price_quota, host_rate)

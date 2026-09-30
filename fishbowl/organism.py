@@ -32,7 +32,7 @@ from . import fovea, prey as prey_lib
 from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER_INPUT, MISMATCH_INPUTS, PARALLAX_INPUTS, PLACE_INPUTS,
                          PLANT_INPUTS, RECALL_INPUTS, REFERENCE_MACS, UNCERTAINTY_INPUT, COLLICULUS_INPUTS, TERRAIN_INPUT,
                          NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT, HEADING_INPUTS,
-                         EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT)
+                         EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT, RIDING_INPUT, TEXTURE_INPUTS, STRANGENESS_INPUT)
 from .entorhinal import Entorhinal
 from . import v4
 from .retina import field_shape
@@ -2118,7 +2118,7 @@ class Organism:
                                  + PREY_SENSE_COST * brain.sense_synapses(PLACE_INPUTS + (INTRUDER_INPUT, DANGER_INPUT) + MISMATCH_INPUTS + RECALL_INPUTS
                                                                          + (UNCERTAINTY_INPUT,) + GROUND_INPUTS + PARALLAX_INPUTS + ARCHETYPE_INPUTS
                                                                          + COLLICULUS_INPUTS + (TERRAIN_INPUT, NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT) + HEADING_INPUTS
-                                                                         + (EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT))
+                                                                         + (EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT, RIDING_INPUT, STRANGENESS_INPUT) + TEXTURE_INPUTS)
                                  + (PREY_SENSE_COST * brain.sense_synapses(PLANT_INPUTS[:1 if self.plant_level == 1 else 3])
                                     if self.plant_level else 0.0)
                                  + THINK_COST * (p["replay_macs"] + p.get("proto_macs", 0)
