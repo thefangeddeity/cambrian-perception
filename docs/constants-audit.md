@@ -384,6 +384,8 @@ yardsticks are found.
 | a migrant's limits | `MAX_CONST`, `Limits().max_tree_nodes` / `max_tree_depth`, `MAX_THINK_FACTOR` | D | this host's own evolution's limits, reused |
 | a failed stream that isn't counted | its host name doesn't resolve | D | no network is the machine's failure, not the stream's |
 | after a damaged checkpoint | its previous copy, then its founder | D | the lineage's own saved states; never another lineage's backup |
+| a detection split by what hides it (`prey.drop_contained`) | overlap over the smaller box >= `NMS_IOU` (0.7), same class: the surer box stays | D | the detector's own NMS threshold, measured over the smaller box instead of the union (containment: the usual remedy for occlusion splits); found on Ariana, a person behind a chair back at 0.69 of the union |
+| `MAX_MEMBER_BYTES`, `MAX_TOTAL_BYTES` (tools/organism_file.py) | 16 MiB, 64 MiB | H | 20x and 80x the largest checkpoint measured in the fleet (0.83 MB); a larger .cambrioid is refused before anything is unpacked |
 
 ### Viewer only (tools/viewer.py)
 

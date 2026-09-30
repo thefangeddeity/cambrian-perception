@@ -279,7 +279,34 @@ def _yolo(net, bgr: np.ndarray, wanted: dict[int, int]) -> list[list[float]]:
         result.append([wanted[int(cls[i])], round(float(conf[i]), 3),
                        round(float(np.clip(x0[i], 0, 1)), 4), round(float(np.clip(y0[i], 0, 1)), 4),
                        round(float(np.clip(x0[i] + b[i, 2], 0, 1)), 4), round(float(np.clip(y0[i] + b[i, 3], 0, 1)), 4)])
-    return result
+    return drop_contained(result)
+
+
+def drop_contained(boxes: list[list[float]]) -> list[list[float]]:
+    """One thing split in two by what hides part of it (a person behind a chair
+    back: "upper body" and "whole person") survives NMS, whose overlap is over
+    the UNION -- 0.69 on Ariana, 2026-09-30, just under NMS_IOU. The same
+    overlap measured over the SMALLER box catches it (containment, the usual
+    remedy for occlusion splits): a box whose area lies at least NMS_IOU inside
+    a surer box of the same class is the same thing, and goes. No new number:
+    the detector's own threshold. Its one cost: a child right in front of an
+    adult merges into the adult -- rare at a livecam's framing, and it errs
+    toward fewer, never more, hosts and individuals."""
+    kept: list[list[float]] = []
+    for bx in sorted(boxes, key=lambda b: -b[1]):
+        a = max(1e-9, (bx[4] - bx[2]) * (bx[5] - bx[3]))
+        dup = False
+        for k in kept:
+            if k[0] != bx[0]:
+                continue
+            iw = min(bx[4], k[4]) - max(bx[2], k[2])
+            ih = min(bx[5], k[5]) - max(bx[3], k[3])
+            if iw > 0 and ih > 0 and iw * ih / min(a, max(1e-9, (k[4] - k[2]) * (k[5] - k[3]))) >= NMS_IOU:
+                dup = True
+                break
+        if not dup:
+            kept.append(bx)
+    return kept
 
 def prey_in_window(boxes: list[list[float]], cx: float, cy: float, hx: float, hy: float) -> float:
     """How much of the WHOLE gaze window prey covers, 0..1, confidence-

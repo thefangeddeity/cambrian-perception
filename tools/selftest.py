@@ -440,6 +440,19 @@ def _():
         assert "reconfigure(" in src.split('if __name__ == "__main__":', 1)[1][:600], f"{f}: no output guard at its entry"
 
 
+@check("one person split by a chair back is one host; two people side by side stay two")
+def _():
+    from fishbowl import prey
+    # Ariana, 2026-09-30: her upper body and her whole self, overlapping 0.69 of their union
+    split = [[0, 0.62, 0.49, 0.09, 0.65, 0.56], [0, 0.48, 0.49, 0.09, 0.66, 0.73]]
+    kept = prey.drop_contained(split)
+    assert kept == [split[0]], kept  # the surer box stays
+    pair = [[0, 0.8, 0.10, 0.2, 0.30, 0.9], [0, 0.7, 0.28, 0.2, 0.48, 0.9]]  # two people, shoulders touching
+    assert len(prey.drop_contained(pair)) == 2
+    mixed = [[0, 0.9, 0.2, 0.2, 0.6, 0.9], [56, 0.6, 0.25, 0.5, 0.55, 0.85]]  # a person in a chair: different classes
+    assert len(prey.drop_contained(mixed)) == 2
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")

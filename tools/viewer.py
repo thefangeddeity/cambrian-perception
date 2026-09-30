@@ -1734,11 +1734,13 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     $('space-cap').innerHTML = note;
     const ts = d.scores && d.scores.terrain;
     $('space-cap').innerHTML += ts ? ` &middot; felt vs taught nearness: off by ${ts.mae.toFixed(2)} &plusmn; ${ts.mae_se.toFixed(2)} of 1 (${ts.n} looks)` : '';
-    const cx = d.cortex, ago = s => s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`;
-    $('cortex-cap').innerHTML = !cx ? '' : `<b>who it knows</b> (${cx.individuals}): `
-      + (cx.known.length ? cx.known.map(k => `#${k.id} ${k.name} &times;${k.seen}`
-          + (k.height != null ? ` ${k.height.toFixed(2)} tall` : '') + (k.cadence != null ? ` ${k.cadence.toFixed(1)} steps/s` : '')
-          + ` ${ago(Math.max(0, (cx.now || k.last) - k.last))} ago`).join(' &middot; ') : 'nobody yet');
+    // who it knows, as a tally by kind (most first): "8 cats, 6 cars, 2 persons" --
+    // one line however many it knows (each individual's own record was a list
+    // of dozens once vehicles became hosts)
+    const cx = d.cortex, plural = (n, w) => n === 1 || w === 'sheep' ? w : /(s|sh|ch|x)$/.test(w) ? w + 'es' : w + 's';
+    const kinds = {}; ((cx && cx.known) || []).forEach(k => { kinds[k.name] = (kinds[k.name] || 0) + 1; });
+    const tally = Object.entries(kinds).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([w, n]) => `${n} ${plural(n, w)}`).join(', ');
+    $('cortex-cap').innerHTML = !cx ? '' : `<b>who it knows</b>: ${tally ? esc(tally) : 'nobody yet'}`;
   }
   // Its sense of space is not ours to steer: it shows what its eye sees, from
   // where its eye is (a 2026-09-29 decision) -- nothing here moves it.
