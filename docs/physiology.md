@@ -663,6 +663,26 @@ and starve for hours, and a starving body never died.
   already exists; real mosquitoes need a blood meal to make eggs), and egg
   resorption when starving (oosorption).
 
+## Development kept: the cyst and upbringing (2026-09-30)
+
+(See docs/design-ontogeny.md.) Dormancy is a prepared capacity with a cost,
+not a reward for being accomplished (Storey's wood frog, Clegg's brine shrimp
+cysts, tardigrades that must dry slowly). A body is **developed** when its
+paired lead over its own founder -- scored beside it, newborn, on the same
+frames at each new snapshot -- is beyond 1.96 standard errors over 3 pairs
+(the model card's `development`). Only a developed body may encyst, and only
+when its energy over its last hour has gone down (heading to starvation, not
+between meals), at the last moment it can still pay: a cyst's protective
+sugar is 15% of its body (Clegg 1962), made from its sugar and glycogen. A
+starving newborn can't afford it and dies as before. Encysted, nothing runs
+-- no burn, no ageing, no evolution -- until a host big enough to bite comes
+into view or its stream changes; its sugar then returns to its glycogen.
+**Upbringing**: an egg carries its mother's learned parts (its food and
+danger readouts, heads, distilled habits), given to the hatchling once, as a
+young vampire bat learns from its mother. Tested: encysted 3 s into a losing
+fast with 15 B to spare; no damage while encysted; a person in reach revived
+it with 0.60 glycogen back; a hatchling took its mother's readouts.
+
 ## Ram feeding, a trial (2026-09-30)
 
 On a tram it starved: its snack -- the new structure in its gaze -- was paid

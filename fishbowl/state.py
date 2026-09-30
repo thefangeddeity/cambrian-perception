@@ -200,6 +200,14 @@ DAMAGE_FRACTION = 0.0015
 # slowly (its damage is a share of what it burns), and never wasting: torpor
 # can't starve it to death. A real, food-poor world still can.
 TORPOR_SHARE = 0.05
+# A developed body's cyst (a 2026-09-30 panel -- Storey, Clegg, Hand, Boothby,
+# Jonsson, Gelman): dormancy is a prepared capacity with a cost, not a reward
+# for being accomplished. To encyst it makes a protective sugar of
+# PROTECTANT_SHARE of its body (brine shrimp cysts are ~15% trehalose by dry
+# weight: Clegg 1962), from its sugar and glycogen only (as Artemia makes it
+# from glycogen), at STORE_EFFICIENCY; encysted, nothing runs; at revival the
+# sugar returns to its glycogen, as a cyst's trehalose is burned on waking.
+PROTECTANT_SHARE = 0.15
 CIRC_PERIOD_S = 24 * 3600.0
 CIRC_SHIFT_RATE = (2 * math.pi / 24.0) / (24 * 3600.0)  # rad/s of phase at most: one hour a day
 
@@ -246,12 +254,36 @@ class MosquitoState:
     damage: float = 0.0        # the damage its burning has done, B (DAMAGE_FRACTION of all it burned); age = damage / PROTEIN_CAP
     kappa: float = 1.0         # its share of assimilation kept for its body (genome.kappa; set by the organism, not saved)
     torpid: bool = False       # hibernating: its eyes get no world (set by its live body, not saved)
+    encysted: float = 0.0      # 1 while in its cyst (a developed body's dormancy; saved: a restart keeps it)
+    protectant: float = 0.0    # B of protective sugar its cyst holds (returned at revival)
+    burned: float = 0.0        # B burned so far (a running count, for its energy balance; not saved)
+    assimilated: float = 0.0   # B assimilated so far (the same)
 
     # ---- its life history ----------------------------------------------
     @property
     def age(self) -> float:
         """How much of its tissue its burning has damaged (0..1; 1 = dead of age)."""
         return self.damage / PROTEIN_CAP
+
+    @property
+    def sugar(self) -> float:
+        """What it can make its cyst's sugar from: blood sugar and glycogen, B."""
+        return self.energy * G_CAP + self.glycogen * GLYCOGEN_CAP
+
+    def encyst(self, cost: float) -> None:
+        """Into its cyst: cost B of protective sugar made from its sugar (glycogen first)."""
+        need = cost / STORE_EFFICIENCY
+        gly = min(self.glycogen * GLYCOGEN_CAP, need)
+        self.glycogen = _clamp(self.glycogen - gly / GLYCOGEN_CAP)
+        self.energy = _clamp(self.energy - (need - gly) / G_CAP)
+        self.protectant, self.encysted = cost, 1.0
+
+    def revive(self) -> None:
+        """Out of its cyst: its protective sugar back into its glycogen (what overflows, into its blood)."""
+        gly_bs = self.glycogen * GLYCOGEN_CAP + self.protectant
+        self.glycogen = _clamp(gly_bs / GLYCOGEN_CAP)
+        self.energy = _clamp(self.energy + max(0.0, gly_bs - GLYCOGEN_CAP) / G_CAP)
+        self.protectant, self.encysted = 0.0, 0.0
 
     def death(self) -> str | None:
         """What it died of, or None: starvation (wasting at its ceiling) or age."""
@@ -457,11 +489,13 @@ class MosquitoState:
             aerobic_need, brain, glyco_fuel = aerobic_need * TORPOR_SHARE, brain * TORPOR_SHARE, glyco_fuel * TORPOR_SHARE
         # the damage of burning (its ageing): a share of everything it burns this step
         self.damage += DAMAGE_FRACTION * (aerobic_need + brain + glyco_fuel)
+        self.burned += aerobic_need + brain + glyco_fuel
         # --- digestion: gut -> blood sugar (costs part of the meal: SDA) ---
         gut_bs = self.gut * GUT_CAP
         moved = gut_bs * (1.0 - math.exp(-seconds / DIGEST_TAU_S))
         gut_bs -= moved
         assimilated = moved * (1.0 - SDA_FRACTION)
+        self.assimilated += assimilated
         self.repro += (1.0 - self.kappa) * assimilated  # the kappa rule: only what it assimilates feeds its eggs
         g_bs = self.energy * G_CAP + self.kappa * assimilated + back * LACTATE_RETURN
         gly_bs, fat_bs = self.glycogen * GLYCOGEN_CAP, self.reserve * FAT_CAP
@@ -604,7 +638,7 @@ class MosquitoState:
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
               "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt",
               "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch", "protein", "circ_phase",
-              "repro", "damage")
+              "repro", "damage", "encysted", "protectant")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
@@ -626,3 +660,5 @@ def newborn_energy() -> float:
 
 
 EGG_COST = newborn_energy() / STORE_EFFICIENCY  # an egg: a newborn's stores, made from sugar
+
+CYST_COST = PROTECTANT_SHARE * PROTEIN_CAP  # B of protective sugar in its cyst: 15% of its body (its tissue)

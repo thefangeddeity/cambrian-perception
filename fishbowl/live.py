@@ -43,6 +43,34 @@ def _unb64(d):
     return np.frombuffer(base64.b64decode(d["f16"]), dtype=np.float16).astype(float).reshape(d["shape"])
 
 
+def _b64(a) -> dict:
+    """An array, compact: float16 bytes, base64, with its shape."""
+    import base64
+    a = np.asarray(a, dtype=np.float16)
+    return {"shape": list(a.shape), "f16": base64.b64encode(a.tobytes()).decode("ascii")}
+
+
+def _learned_parts(org) -> dict | None:
+    """What its body has learned that runs from its own eye with no teacher (its
+    model card's frozen parts): its mushroom body's code (size, seed), its food
+    and danger readouts, its archetype heads (taught by the detector) and its
+    terrain head (taught by its ground model), and its distilled output layer."""
+    if org is None:
+        return None
+    mb = org.mb
+    rows = list(range(org.n_heads)) + ([len(mb.heads) - 1] if org.felt_terrain else [])
+    out = {"n_kc": mb.n_kc, "kc_seed": int(getattr(org.g, "kc_seed", 0)),
+           "food": _b64(mb.weights), "heads": _b64(mb.heads[rows]) if rows else None,
+           "head_classes": [int(c) for c in org.head_classes[:org.n_heads]], "terrain_head": bool(org.felt_terrain),
+           "terrain_target": "the next look" if org.lookahead else "this look",
+           "extrapolation": round(float(org.extrapolation), 3)}
+    if getattr(mb, "danger_weights", None) is not None:
+        out["danger"] = _b64(mb.danger_weights)
+    if org.plasticity > 0.0 and org.brain is not org.g.brain:
+        out["distilled"] = {"weights_ho": _b64(org.brain.weights_ho), "bias_o": _b64(org.brain.bias_o)}
+    return out
+
+
 def apply_learned(org, learned: dict | None) -> list[str]:
     """Its model card's frozen learned parts (run_vision._learned_parts) into a
     body built from the same genome: its mushroom body's readouts (when its

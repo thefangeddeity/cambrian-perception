@@ -1432,7 +1432,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const span = L.expected_lifespan_s ? ` of ~${dur(L.expected_lifespan_s)}` : '';  // its lifespan, as its own damage rate so far says
     el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD \u00b7 /h \u00b7 since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}${row('g', 'EGGS', 'eggs')}</div>`
       + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD \u00b7 /h \u00b7 since birth</div>${row('b', 'SWATS', 'swats')}${row('b', 'MISSED', 'missed')}${row('b', 'STARVING', 'starving_min').replace('/h', ' min/h')}<div class="b">DEATHS${'\u00a0'.repeat(4)} ${L.deaths || 0} on this host</div></div>`
-      + `<div class="q" style="left:10px;bottom:8px">${row('n', 'APPROACH', 'approaches')}${row('n', 'TORPOR', 'torpor_min').replace('/h', ' min/h')}</div>`
+      + `<div class="q" style="left:10px;bottom:8px">${row('n', 'APPROACH', 'approaches')}${row('n', 'TORPOR', 'torpor_min').replace('/h', ' min/h')}${row('n', 'CYST', 'cyst_min').replace('/h', ' min/h')}${L.developed ? '<div class="n">DEVELOPED: beats its founder</div>' : ''}</div>`
       + `<div class="q h" style="right:10px;bottom:8px">age ${age}${span}</div>`;
   }
   function drawMB(d) {
@@ -1868,7 +1868,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function drawBody(d) {
     const b = d.body_now || d.body || {};
     $('gauges').innerHTML =
-      `<div class="cap" style="margin:0 0 4px">${d.life && d.life.torpid ? '<b style="color:#9cf">TORPID</b> (no world in its eyes: hibernating at 5% of its burn)' : (b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b>' : '<b style="color:var(--green)">awake</b>'}`
+      `<div class="cap" style="margin:0 0 4px">${d.life && d.life.encysted ? '<b style="color:#e8c170">IN ITS CYST</b> (starving in a world with no food; a developed body waits, unchanged, until a host comes within reach)' : d.life && d.life.torpid ? '<b style="color:#9cf">TORPID</b> (no world in its eyes: hibernating at 5% of its burn)' : (b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b>' : '<b style="color:var(--green)">awake</b>'}`
       // its sense of time (a 2026-09-29 panel): a look is its moment -- how many it takes a second, beside ours (Rayner 1998: ~200-300 ms fixations)
       + (d.senses && d.senses.pace_s ? ` &middot; its time: a look every ${d.senses.pace_s.toFixed(2)} s (${(1 / d.senses.pace_s).toFixed(1)} a second; people fixate ~3&ndash;4)` : '') + `</div>` +
       gauge('blood sugar', b.energy, '#ffe2d6', 'pays for everything; ~10 min of waking burn') +

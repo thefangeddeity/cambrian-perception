@@ -64,6 +64,7 @@ from fishbowl import prey as prey_lib
 from fishbowl.bouts import FeedingRecord, fit_bout_criterion
 from fishbowl.metrics import HourlyMetrics
 from fishbowl.livelife import LiveLife
+from fishbowl.live import _b64, _learned_parts, apply_learned  # a body's frozen learned parts (model card, eggs)
 from fishbowl.controller import TREE_HIDDEN
 # The organism itself and the world's fixed physics it lives by -- one
 # implementation, shared with any live host (fishbowl/organism.py).
@@ -1338,6 +1339,20 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # module sets its own bar. Out-of-sample fitness: the champion scored on
     # the snapshots after the one it won on.
     card = {"adopted_fitness": None, "adopted_world": None, "oos": [0, 0.0, 0.0]}  # n, mean, M2
+    # Its development (a 2026-09-30 panel; Gelman): at each new world snapshot
+    # its founder, as it was at birth (a newborn body, no memories), is scored
+    # beside it on the same frames: the paired lead (it - its founder), n / mean
+    # / M2. Developed = a lead beyond 1.96 standard errors, over 3 pairs at least
+    # (as the ground fit's own minimum) -- only then may it encyst (state.py).
+    card["dev"] = list((checkpoint or {}).get("development", [0, 0.0, 0.0]))
+    founder_genome = None
+    if sandbox.FOUNDER_PATH.exists():
+        try:
+            import json
+            founder_genome = G.Genome.from_dict(json.loads(sandbox.FOUNDER_PATH.read_text(encoding="utf-8"))["genome"])
+            founder_genome.n_vars = n_vars
+        except (OSError, ValueError, KeyError) as e:
+            print(f"Its founder couldn't be read for its development test ({e}).")
     life = None  # its live body, once it starts (below)
 
     def _publish_champion() -> None:
@@ -1353,6 +1368,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                                "rules_version": RULES_VERSION, "code_version": CODE_VERSION,
                                "learned": learned, "scores": scores,
                                "life_history": _life_card(life),
+                               "development": _development_card(card.get("dev")),
                                "fitness": {"at_adoption": card["adopted_fitness"],
                                            "out_of_sample": None if n < 2 else {"n": n, "mean": round(mean, 4),
                                                                                 "se": round(math.sqrt(m2 / (n - 1) / n), 4)}}})
@@ -1391,6 +1407,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                        "frames": np.round(memory_now[14], 3).tolist() if len(memory_now) > 14 and memory_now[14] is not None else None}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
+            "development": card.get("dev", [0, 0.0, 0.0]),
         })
 
     if founded:
@@ -1461,6 +1478,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         life = LiveLife(feed, genome, body_now, memory_now, price_quota, host_rate, feed_epoch,
                         sandbox.LIVE_STATUS_PATH.with_name("live_actor.json"), metrics, _fps())
         life.torpor_after_s = STREAM_STALL_MIN_S  # torpor: no world for longer than its feed's own stall line
+        life.developed = _developed(card["dev"])  # its development test, as saved
+        if checkpoint and checkpoint.get("hatched") and checkpoint.get("upbringing") and not checkpoint.get("raised"):
+            # a hatchling's upbringing: what its mother's body learned (an egg carries it), given once
+            with life.lock:
+                took = apply_learned(life.org, checkpoint["upbringing"])
+            print(f"Its upbringing: {', '.join(took) if took else 'nothing that fits'} from its mother.")
 
     phase: dict = {}
     phase_worst: dict = {}
@@ -1469,9 +1492,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             print("Stop requested -- saving and exiting.")
             sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
             break
-        if life is not None and life.torpid:
-            # torpid (its eyes get no world): evolution waits -- nothing is
-            # scored on blank frames, so nothing drifts on them
+        if life is not None and (life.torpid or life.encysted):
+            # torpid (its eyes get no world) or encysted: evolution waits --
+            # nothing is scored on blank frames, and a cyst doesn't change
             watchdog.tick()
             time.sleep(1.0)
             continue
@@ -1691,7 +1714,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         # only lives and keeps the books, so evolution never takes its body's
         # time (a 2026-09-29 panel: 7elwe, short of memory, scored parent and
         # child in its body's process every generation and fell minutes behind).
-        futures, parent_future = None, None
+        futures, parent_future, founder_future = None, None, None
         if workers is not False:
             try:
                 if workers is None:
@@ -1701,6 +1724,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 phase["publish"] = time.perf_counter() - t_pub
                 if published:
                     parent_future = workers.submit(genome, price_quota, body_now, _fps(), memory_eval, host_rate)
+                    if founder_genome is not None and card.get("dev_world") is not world:  # its founder, newborn, on this snapshot
+                        card["dev_world"] = world
+                        founder_future = workers.submit(founder_genome, price_quota, MosquitoState().to_dict(), _fps(), None, host_rate)
                     futures = [workers.submit(c, price_quota, body_now, _fps(), memory_eval, host_rate) for c, _, _ in children]
             except Exception as e:  # no worker processes on this host: serial from here on
                 print(f"Parallel evaluation unavailable ({e}); continuing serially.")
@@ -1714,6 +1740,19 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                     print(f"Worker failed ({type(e).__name__}); scoring the parent here.")
         if parent_fitness is None:
             parent_fitness, _, parent_info = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_eval, world.colour, host_rate)
+        if founder_future is not None:
+            try:
+                f_fit = founder_future.result(timeout=600)[0]
+                if math.isfinite(f_fit) and math.isfinite(parent_fitness):
+                    n, mean, m2 = card["dev"]
+                    lead = parent_fitness - f_fit
+                    n += 1; dd = lead - mean; mean += dd / n; m2 += dd * (lead - mean)
+                    card["dev"] = [n, mean, m2]
+            except Exception as e:  # a lost worker: this snapshot gives no pair
+                if not stop["now"]:
+                    print(f"Its founder's score failed ({type(e).__name__}).")
+            if life is not None:
+                life.developed = _developed(card["dev"])
         if card["adopted_world"] is not None and world is not card["adopted_world"] and math.isfinite(parent_fitness):
             n, mean, m2 = card["oos"]  # the champion on a snapshot it didn't win on
             n += 1; d = parent_fitness - mean; mean += d / n; m2 += d * (parent_fitness - mean)
@@ -2125,34 +2164,6 @@ RULES_VERSION = _fingerprint(list((_HERE / "fishbowl").glob("*.py")))
 CODE_VERSION = _fingerprint(list((_HERE / "fishbowl").glob("*.py")) + [_HERE / "run_vision.py"])
 
 
-def _b64(a) -> dict:
-    """An array, compact: float16 bytes, base64, with its shape."""
-    import base64
-    a = np.asarray(a, dtype=np.float16)
-    return {"shape": list(a.shape), "f16": base64.b64encode(a.tobytes()).decode("ascii")}
-
-
-def _learned_parts(org) -> dict | None:
-    """What its body has learned that runs from its own eye with no teacher (its
-    model card's frozen parts): its mushroom body's code (size, seed), its food
-    and danger readouts, its archetype heads (taught by the detector) and its
-    terrain head (taught by its ground model), and its distilled output layer."""
-    if org is None:
-        return None
-    mb = org.mb
-    rows = list(range(org.n_heads)) + ([len(mb.heads) - 1] if org.felt_terrain else [])
-    out = {"n_kc": mb.n_kc, "kc_seed": int(getattr(org.g, "kc_seed", 0)),
-           "food": _b64(mb.weights), "heads": _b64(mb.heads[rows]) if rows else None,
-           "head_classes": [int(c) for c in org.head_classes[:org.n_heads]], "terrain_head": bool(org.felt_terrain),
-           "terrain_target": "the next look" if org.lookahead else "this look",
-           "extrapolation": round(float(org.extrapolation), 3)}
-    if getattr(mb, "danger_weights", None) is not None:
-        out["danger"] = _b64(mb.danger_weights)
-    if org.plasticity > 0.0 and org.brain is not org.g.brain:
-        out["distilled"] = {"weights_ho": _b64(org.brain.weights_ho), "bias_o": _b64(org.brain.bias_o)}
-    return out
-
-
 def _sd_notify(message: str) -> None:
     """systemd's notify protocol (a datagram to $NOTIFY_SOCKET); nothing elsewhere."""
     addr = os.environ.get("NOTIFY_SOCKET")
@@ -2230,6 +2241,22 @@ MARGIN_START = 0.05  # a new lineage's acceptance margin (it shrinks as it runs)
 _AMNESIA = {"now": False, "founder": False, "died": None}
 
 
+def _developed(dev) -> bool:
+    """Its paired lead over its founder beyond 1.96 standard errors, over 3 pairs at least."""
+    n, mean, m2 = dev
+    if n < 3:
+        return False
+    se = math.sqrt(max(0.0, m2 / (n - 1)) / n)
+    return mean > 1.96 * se
+
+
+def _development_card(dev) -> dict:
+    n, mean, m2 = dev or [0, 0.0, 0.0]
+    se = math.sqrt(max(0.0, m2 / (n - 1)) / n) if n > 1 else None
+    return {"pairs": n, "lead_over_founder": round(mean, 4) if n else None, "se": None if se is None else round(se, 4),
+            "developed": _developed([n, mean, m2])}
+
+
 def _life_card(life) -> dict:
     """Its life history for the model card: eggs this life, and this host's
     record of lives -- lifespans of the dead, deaths by cause, eggs per lifetime."""
@@ -2274,6 +2301,7 @@ def _bury_and_hatch(cause: str) -> int:
         "body": MosquitoState().to_dict(),  # a newborn's body
         "memory": None, "feeding_record": {},
         "hatched": {"egg": eggs[-1].name, "laid_at": egg.get("laid_at"), "mother_died_of": cause, "mother_backup": backup.name},
+        "upbringing": egg.get("upbringing"),  # its mother's learned parts, given at its first start (not saved after)
     })
     sandbox.record_life({"event": "hatched", "egg": eggs[-1].name, "kappa": egg["genome"].get("kappa"),
                          "mother_died_of": cause, "eggs_left_with_mother": len(eggs) - 1})

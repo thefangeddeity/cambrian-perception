@@ -39,7 +39,8 @@ from .metrics import HourlyMetrics
 from .mushroom import PROTO_SIDE
 from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENCE_MACS, RESTING_BURN, THINK_COST,
                        Organism, kc_macs)
-from .state import EGG_COST, EMPTY_G, LEGACY_UNIT, PROTEIN_CAP
+from .live import _learned_parts
+from .state import CYST_COST, EGG_COST, EMPTY_G, LEGACY_UNIT, PROTEIN_CAP, STORE_EFFICIENCY
 
 # Living in the present, and oxygen (a 2026-09-29 panel). Its present is its
 # own look interval (the time between two looks: its pace): a frame older than
@@ -78,11 +79,12 @@ class Tally:
       bad  -- swats: a host swatted it; missed: looks it was still thinking
               when it had to act; starving: minutes its body was empty
       neither -- approaches: something began coming at its gaze (tau);
-              torpor: minutes it hibernated because its eyes got no world
+              torpor: minutes it hibernated because its eyes got no world;
+              cyst: minutes a developed body spent encysted
 
     Rates are per hour lived: what the last 60 minutes of its life held."""
 
-    KINDS = ("meals", "sips", "snacks", "eggs", "approaches", "torpor_min", "swats", "missed", "starving_min")
+    KINDS = ("meals", "sips", "snacks", "eggs", "approaches", "torpor_min", "cyst_min", "swats", "missed", "starving_min")
 
     def __init__(self, saved: dict | None = None):
         saved = saved or {}
@@ -317,6 +319,11 @@ class LiveLife:
         # longer than its feed's own stall line (run_vision.STREAM_STALL_MIN_S)
         self.torpor_after_s = 30.0
         self.torpid = False
+        # its cyst (state.py): only a developed body (run_vision's paired test
+        # against its founder) may encyst; its energy over its last hour lived
+        self.developed = False
+        self._energy_hist: collections.deque = collections.deque(maxlen=61)  # (lived s, burned, assimilated), a minute apart
+        self._sugar_prev = None
         self._noworld_since = None
         self._prev_grey = None
         self._rng = random.Random(time.time_ns())
@@ -349,6 +356,7 @@ class LiveLife:
         """Another stream chosen: its body goes on living, on the new feed (a
         new place: its field starts afresh; its scene library decides the rest)."""
         with self.lock:
+            self._revive("a new stream")  # a cyst wakes in new water
             self.feed, self.epoch = feed, epoch
             self.last, self.last_time = None, None
             self.shown.clear()
@@ -531,6 +539,10 @@ class LiveLife:
             tried0, kept0 = org.edits_tried, org.edits_kept
             img0 = list(org.imagery_sums)
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
+                if self._cyst(org, boxes):  # encysted: nothing runs until a host it could bite comes
+                    self.last, self.last_time = index, arrived
+                    self.lived_at = time.time()
+                    continue
                 if self._torpor(org, grey, arrived):  # hibernating: no look, no learning -- a sliver of its burn
                     self.last, self.last_time = index, arrived
                     self.lived_at = time.time()
@@ -650,6 +662,49 @@ class LiveLife:
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)
 
+    @property
+    def encysted(self) -> bool:
+        return self.org.body.encysted >= 0.5
+
+    def _cyst(self, org, boxes) -> bool:
+        """Its cyst. Encysted: nothing runs -- no burn, no ageing, no looks --
+        until a host big enough to bite (a box at least its mouth's size) comes
+        into view, or its stream changes (switch_feed); then its protective
+        sugar returns to its glycogen. Not encysted: a developed body encysts
+        at the last moment it can still pay for its cyst (its sugar about to
+        drop below the cost) when its energy over its last hour lived has gone
+        down -- heading to starvation, not merely between meals."""
+        b = org.body
+        if b.encysted >= 0.5:
+            if any(int(bx[0]) in prey_lib.PREY_CLASSES and bx[5] - bx[3] >= prey_lib.MOUTH_SIDE for bx in (boxes or [])):
+                self._revive("a host in reach")
+                return False
+            self.tally.add("cyst_min", 1.0 / max(1.0, org.fps) / 60.0, org.lived_s)
+            return True
+        lived = self.tally.lived_s
+        if not self._energy_hist or lived - self._energy_hist[-1][0] >= 60.0:
+            self._energy_hist.append((lived, b.burned, b.assimilated))
+        sugar, need = b.sugar, CYST_COST / STORE_EFFICIENCY
+        prev, self._sugar_prev = self._sugar_prev, sugar
+        if not self.developed or prev is None or len(self._energy_hist) < 2:
+            return False
+        t0, burned0, assim0 = self._energy_hist[0]
+        losing = (b.assimilated - assim0) - (b.burned - burned0) < 0.0
+        last_chance = prev >= need and sugar - (prev - sugar) < need <= sugar
+        if losing and last_chance:
+            b.encyst(CYST_COST)
+            self._event("encysted", lived_s=round(lived, 1), protectant=round(CYST_COST, 1))
+            sandbox.record_life({"event": "encysted", "lived_s": round(lived, 1)})
+            return True
+        return False
+
+    def _revive(self, cue: str) -> None:
+        if self.org.body.encysted >= 0.5:
+            self.org.body.revive()
+            self._sugar_prev = None
+            self._event("revived from its cyst", cue=cue, lived_s=round(self.tally.lived_s, 1))
+            sandbox.record_life({"event": "revived", "cue": cue, "lived_s": round(self.tally.lived_s, 1)})
+
     def _torpor(self, org, grey, arrived: float) -> bool:
         """Whether it is hibernating on this frame. A real sensor always has
         noise, so a frame with less spread than the sensor-noise floor
@@ -692,7 +747,11 @@ class LiveLife:
                                        {"genome": egg.to_dict(), "laid_at": round(now, 1),
                                         "mother_lived_s": round(self.tally.lived_s, 1), "mother_kappa": round(org.g.kappa, 4),
                                         "mother_stores": {"energy": round(b.energy, 3), "glycogen": round(b.glycogen, 3),
-                                                          "fat": round(b.reserve, 3), "age": round(b.age, 4)}})
+                                                          "fat": round(b.reserve, 3), "age": round(b.age, 4)},
+                                        # its upbringing (a 2026-09-30 panel: Jablonka & Lamb, Wilkinson -- a
+                                        # vampire bat learns from its mother): what its mother's body learned,
+                                        # its frozen parts (live._learned_parts), given to it when it hatches
+                                        "upbringing": _learned_parts(org)})
         except OSError as e:
             print(f"An egg couldn't be kept ({e}).")
             return
@@ -714,7 +773,7 @@ class LiveLife:
             self._damage0 = (lived, b.damage)
         dl, dd = lived - self._damage0[0], b.damage - self._damage0[1]
         span = lived + (PROTEIN_CAP - b.damage) * dl / dd if dd > 1e-9 and dl > 0 else None
-        return {"torpid": self.torpid,
+        return {"torpid": self.torpid, "encysted": self.encysted, "developed": self.developed,
                 "egg_progress": round(b.repro / EGG_COST, 4), "egg_cost": round(EGG_COST, 1), "kappa": round(self.org.g.kappa, 4),
                 "age": round(b.age, 5), "lived_s": round(lived, 1),
                 "expected_lifespan_s": round(span, 0) if span else None,

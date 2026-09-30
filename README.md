@@ -94,7 +94,10 @@ began coming at its gaze; the navigation card's ring tightens as it comes). Torp
 hibernated because its eyes got no world (a dead camera: black, blank or frozen
 frames); torpid, it burns 5% of its usual, can't starve, and evolution waits.
 While its process isn't running at all (the machine off, its feed down) no time
-passes for it (cryptobiosis).
+passes for it (cryptobiosis). Cyst: minutes a developed body (one that beats its own
+founder on the same frames) spent encysted, starving in a world with no food:
+nothing runs until a host comes within reach. An egg also carries its mother's
+learned parts, given to the hatchling (its upbringing).
 Its Kenyon cells, each coloured by what it has learned:
 green food, red danger, amber food it learned to avoid, grey lost to wasting.
 Firing cells glow phosphor green, brighter the more they have learned. In 3D

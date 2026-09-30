@@ -364,6 +364,18 @@ yardsticks are found.
 | its dilution | `FOOD_PER_LOOK` (1/6 of a blood look) | H | the snack's own, unchanged; blood stays its rich food |
 | on which host | `state/experiments.json` {"ram_feeding": true} | -- | Tanzania from 2026-09-30, Tina the control |
 
+### Development, the cyst, upbringing (2026-09-30)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| developed | its paired lead over its founder > 1.96 SE, >= 3 pairs | S / D | the standard paired test; 3 = the ground fit's own minimum |
+| a pair | once per new world snapshot | D | the snapshot's own refresh |
+| `PROTECTANT_SHARE` | 0.15 of its body | S | brine shrimp cysts ~15% trehalose by dry weight (Clegg 1962) |
+| `CYST_COST` | 0.15 x `PROTEIN_CAP` = 12,960 B, from sugar and glycogen at `STORE_EFFICIENCY` | D | only a well-fed body can afford it |
+| when it encysts | developed, energy over its last hour down, sugar about to drop below the cost | D | the tally's hour; its last affordable moment |
+| revival | a host at least `MOUTH_SIDE` tall in view, or a new stream | D | its own mouth |
+| upbringing | its mother's learned parts (live._learned_parts), once | D | the model card's frozen parts, reused |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px
