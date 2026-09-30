@@ -53,7 +53,56 @@ it doesn't spend living.
 written durably, each with its previous copy kept. A cut loses at most the
 last few minutes; a damaged file is set aside (never silently replaced) and
 it resumes from the previous copy, or at worst from its own founder -- it
-never crash-loops and never starts a stranger over its lineage.
+never crash-loops and never starts a stranger over its lineage. Downtime
+isn't charged: it doesn't starve or age while its host is off. After a boot
+it waits for the network, and a stream that can't open because the machine
+has no network yet is not held against the stream (your choice of video is
+kept).
+
+## Running it
+
+**Install** (docs/packaging.md has every platform and package):
+
+| Host | Install or update | Join the hive |
+|---|---|---|
+| Linux (a checkout in `/srv/cambrian/cambrian-perception`) | `sudo sh deploy/install.sh` | `--hive` (`--no-hive` leaves) |
+| macOS | `sh deploy/macos/install.sh` | `--hive` / `--no-hive` |
+| Windows (elevated) | `deploy\windows\install.ps1` | `-Hive` / `-NoHive` |
+
+Every installer runs the self-test on the incoming code first; if it fails,
+nothing changes and the running organism keeps running. A new install is solo;
+an update keeps the host's choice. Installing is starting: the organism takes
+the camera (docs/suite.md).
+
+**Control:** `cambrian --start | --stop | --restart | --yield | --status`.
+`--stop` saves first; `--yield` also keeps it off at boot until the next
+`--start`.
+
+**Its navigation display in a terminal (Linux):** `cambrian --tui` -- the
+viewer's nav display alone, drawn in Braille dots with the standard library
+(no camera access: it reads only the viewer's `/state` on the same machine).
+`q` quits, `c` toggles colour. A small trick for a headless Linux box: put
+this in the console user's login profile (`.bash_profile`/`.profile` for bash,
+`.zprofile` for zsh) to boot straight into it on the first console:
+
+```sh
+[ "$(tty)" = /dev/tty1 ] && exec cambrian --tui
+```
+
+**What happens to a lineage over time:**
+- it lives on the feed, evolves in the background, and lays eggs when it has
+  energy to spare; a body dies of starvation or of age, and its newest egg
+  hatches;
+- a dead camera or stalled stream puts it in torpor (5% of its usual burn,
+  no starvation, evolution waits) until the world comes back;
+- a lineage that has developed (it beats its own founder, by a paired
+  t-test) and is losing energy encysts instead of dying, and revives when food
+  or a new stream appears;
+- if a lineage dies out, a new founder starts -- or, in the hive, whichever of
+  its peers' genomes and a new founder does best on this host's own frames
+  arrives as an egg.
+
+Its life history (`state/life_history.json`) records each of these.
 
 ## Reading the viewer
 
@@ -129,8 +178,9 @@ backup in its state folder.
 snacks (looks that fed on something new), eggs laid. Bad: swats, missed looks
 (still thinking when it had to act), minutes starving, and deaths on this host
 (a body dies of starvation or of age; its newest egg hatches, or its lineage
-ends). Bottom right: its age, and the lifespan its own damage rate so far
-gives. Neither: approaches (something
+ends). Bottom right: HIVE on or SOLO (and, for a lineage that arrived by
+migration, which host it came from), its age, and the lifespan its own damage
+rate so far gives. Neither: approaches (something
 began coming at its gaze; the navigation card's ring tightens as it comes). Torpor: minutes it
 hibernated because its eyes got no world (a dead camera: black, blank or frozen
 frames); torpid, it burns 5% of its usual, can't starve, and evolution waits.
