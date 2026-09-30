@@ -92,16 +92,32 @@ def _ffmpeg_binary() -> str | None:
     return shutil.which("ffmpeg") or shutil.which("ffmpeg", path="/opt/homebrew/bin:/usr/local/bin")
 
 
+def capture_kind(source) -> str:
+    """How open_capture opens a source: "camera" (an index, or a Linux device
+    path such as /dev/video0 or /dev/v4l/by-id/... -- through V4L2), "ffmpeg"
+    (a stream or file, straight to OpenCV's FFmpeg), or "pipe" (a stream or
+    file through an ffmpeg process, where OpenCV has no FFmpeg: macOS).
+    A camera PATH went to FFmpeg from 2026-09-28 -- which can't read a V4L2
+    camera -- and a Linux ecohost back on its by-id camera never got a frame
+    (Tanzania, 2026-09-30: ten minutes' wait, a restart, over and over)."""
+    if isinstance(source, int) or (isinstance(source, str) and source.startswith("/dev/")):
+        return "camera"
+    if cv2.videoio_registry.hasBackend(cv2.CAP_FFMPEG):
+        return "ffmpeg"
+    return "pipe" if _ffmpeg_binary() else "ffmpeg"
+
+
 def open_capture(source):
     """cv2.VideoCapture, or an ffmpeg pipe for a stream/file when this
     OpenCV was built without FFmpeg (and an ffmpeg is installed)."""
-    if not isinstance(source, int) and not cv2.videoio_registry.hasBackend(cv2.CAP_FFMPEG):
-        ffmpeg = _ffmpeg_binary()
-        if ffmpeg:
-            return _FFmpegPipe(str(source), ffmpeg)
-    if not isinstance(source, int) and cv2.videoio_registry.hasBackend(cv2.CAP_FFMPEG):
-        return cv2.VideoCapture(source, cv2.CAP_FFMPEG)  # a URL straight to FFmpeg, not tried as an image sequence first
-    return cv2.VideoCapture(source)
+    kind = capture_kind(source)
+    if kind == "camera":
+        if isinstance(source, str) and cv2.videoio_registry.hasBackend(cv2.CAP_V4L2):
+            return cv2.VideoCapture(source, cv2.CAP_V4L2)
+        return cv2.VideoCapture(source)
+    if kind == "pipe":
+        return _FFmpegPipe(str(source), _ffmpeg_binary())
+    return cv2.VideoCapture(source, cv2.CAP_FFMPEG)  # a URL straight to FFmpeg, not tried as an image sequence first
 
 
 def read_frames(source: str, stride: int = 1, max_frames: int | None = None, max_dim: int = DEFAULT_MAX_DIM) -> Iterator[np.ndarray]:
