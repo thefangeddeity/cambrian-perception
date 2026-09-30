@@ -299,13 +299,24 @@ def seed_frames(g, rng: random.Random) -> list[str]:
     return []
 
 
+def seed_flow_teacher(g, rng: random.Random) -> list[str]:
+    """Flow-taught terrain (2026-09-29): its two teachers weighed equally (the
+    ignorance prior), then a few mutation steps along the trait at random."""
+    from fishbowl import genome as G
+    if g.flow_teacher > 0.0:
+        return []
+    g.flow_teacher = float(min(1.0, max(0.0, 0.5 + sum(rng.gauss(0.0, G.TRAIT_SIGMA) for _ in range(3)))))
+    return [f"flow teacher {g.flow_teacher:.2f}"]
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
              "2026-09-29 maturation": seed_maturation, "2026-09-29 maturation in nights": seed_maturation_nights,
              "2026-09-29 kenyon cells": seed_kenyon_cells, "2026-09-29 felt terrain": seed_felt_terrain,
              "2026-09-29 looking ahead": seed_looking_ahead, "2026-09-29 rotation": seed_rotation,
-             "2026-09-29 entorhinal": seed_entorhinal, "2026-09-29 frames of reference": seed_frames}
+             "2026-09-29 entorhinal": seed_entorhinal, "2026-09-29 frames of reference": seed_frames,
+             "2026-09-29 flow-taught terrain": seed_flow_teacher}
 
 
 def main() -> int:

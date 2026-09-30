@@ -182,6 +182,7 @@ MEAN_RATE, VAR_RATE = 0.1, 0.05
 SHIFT_WIDTH = 160
 SHIFT_MIN_RESPONSE = 0.2
 SHIFT_MAX = 0.08  # of the frame, per frame
+LK_HALF_WINDOW = 10  # px: half of cv2.calcOpticalFlowPyrLK's default 21 px window, which every tracker here uses
 
 
 def new_memory() -> tuple[np.ndarray, np.ndarray]:
@@ -302,7 +303,7 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
     itself move takes wide-field flow (vection; Brandt, Dichgans & Koenig 1973);
     when most stood still it may be stopped among things moving on their own,
     or a big cab may fill its view -- it can't tell, so nothing votes. Appended
-    as (x, y, +1 local / -1 world), frame fractions."""
+    as (x, y, +1 local / -1 world, x then, y then), frame fractions."""
     a, b = prev_small.astype(np.uint8), cur_small.astype(np.uint8)
     if votes is not None:
         votes.append(None)
@@ -339,7 +340,7 @@ def global_scale(prev_small: np.ndarray, cur_small: np.ndarray, keep: list | Non
         off = np.hypot(*(pb - expect).T)
         v = np.where(should & (moved < 1.0) & (off >= 1.0), 1.0, np.where(should & (off < 1.0) & (moved >= 1.0), -1.0, 0.0))
         h, w = prev_small.shape[:2]
-        votes[-1] = np.column_stack([pa[:, 0] / w, pa[:, 1] / h, v])[v != 0.0].astype(np.float32)
+        votes[-1] = np.column_stack([pa[:, 0] / w, pa[:, 1] / h, v, pb[:, 0] / w, pb[:, 1] / h])[v != 0.0].astype(np.float32)
     if roll is not None:
         # its roll: the camera's rotation about its view (+ clockwise), the
         # opposite of the world's on screen; for a similarity its error equals
@@ -616,8 +617,10 @@ class Organism:
         # scored on a look before it learns from it -- out-of-sample by
         # construction. For its model card (run_vision.py) and its export.
         self.scores = {"terrain": _Prequential(), "archetypes": _Prequential(),
+                       "terrain_map_vs_detector": _Prequential(), "terrain_map_vs_flow": _Prequential(),
                        "host_position": _Prequential(), "host_position_plain": _Prequential()}
         self.lookahead = int(getattr(g, "lookahead", 0))
+        self.flow_teacher = float(getattr(g, "flow_teacher", 0.0))
         self.extrapolation = float(getattr(g, "extrapolation", 0.0))
         self._ahead = None            # (its code, the moment) of its last look, for a lesson from the next one
         self._last_local_s = 0.0      # tau: the expansion at its gaze on its last look (replication)
@@ -874,6 +877,8 @@ class Organism:
                     setattr(self, name, np.zeros(self.field))
         if self.cam_moving and self.field:
             self._vote_frames(sig)
+            if self.flow_teacher > 0.0:
+                self._learn_terrain_from_flow(sig, shift_size(frame.shape), roll)
         if self.slowness > 0.0:  # slow photoreceptors: its gaze sees the frames low-passed
             a = 1.0 - math.exp(-REFERENCE_GAZES_PER_S / (max(1.0, self.fps) * self.slowness))
             f = frame.astype(np.float32)
@@ -1421,10 +1426,76 @@ class Organism:
                     self.ground[k, 5:7] += w * np.array([1.0, ((y1 - y0) - (a * y1 + b)) ** 2])
                     pred = a * y1 + b
                     cell = self._cell((x0 + x1) / 2, min(y1, 1.0 - 1e-6))
-                    if pred > 0 and self._terrain_map() is not None and self._in_map(cell):
+                    if pred > 0 and self._terrain_map() is not None and self._in_map(cell) and self.flow_teacher < 1.0:
                         elev = float(np.clip(1.0 - pred / (y1 - y0), -1.0, 1.0))
-                        self.terrain[cell[0] * self.place.shape[1] + cell[1]] += w * np.array([1.0, elev])
+                        self.scores["terrain_map_vs_detector"].add(self.terrain_at((x0 + x1) / 2, min(y1, 1.0 - 1e-6)), elev)
+                        self.terrain[cell[0] * self.place.shape[1] + cell[1]] += w * (1.0 - self.flow_teacher) * np.array([1.0, elev])
                 self.ground[k, :5] += w * np.array([1.0, y1, y1 - y0, y1 * y1, y1 * (y1 - y0)])
+
+    def _learn_terrain_from_flow(self, sig, small: tuple, roll: float) -> None:
+        """Its terrain taught by its own ground flow (a 2026-09-29 panel; Gibson,
+        Longuet-Higgins & Prazdny 1980, Friston): on a frame where it moves
+        straight ahead -- a significant expansion, no shift of a pixel, no
+        significant roll -- a ground point at row y (depth (1 - e) / (y -
+        horizon) eye-heights on ground raised e) flows out of the focus (the
+        horizon's middle) by its speed / depth of its distance a frame. Its
+        speed is read off the ground's own flow through its map (the median over
+        the frame's ground corners, at least 8, ego-motion's own minimum: where
+        most of its ground agrees with its map), not from the whole-frame fit,
+        which on a ground plane locks onto the near rows and reads ~35% fast
+        (tested on rendered ground). Each corner that moved with the
+        world, below its horizon, where that is at least a pixel, is a lesson:
+        flowing faster than its map's flat ground says, the ground there is
+        nearer -- raised by 1 - predicted / measured camera heights, the
+        detector's lesson's own formula. Weighted flow_teacher x its share of
+        signal (1 - one pixel / how far it moved); scored before it learns."""
+        w_px, h_px = small
+        if (self.cam_scale == 0.0 or roll != 0.0
+                or abs(self.cam_shift[0]) * w_px >= 1.0 or abs(self.cam_shift[1]) * h_px >= 1.0):
+            return
+        try:
+            votes = sig["frame_votes"]
+        except (KeyError, IndexError, TypeError):
+            return
+        hz = self.horizon()
+        if votes is None or not len(votes) or hz is None or not 0.0 < hz < 1.0 or self._terrain_map() is None:
+            return
+        v = np.asarray(votes, dtype=float)
+        if v.shape[1] < 5:
+            return
+        # its tracker's window (Lucas-Kanade's default, 21 px) must stay inside
+        # the frame, then and now: past an edge it reads fast flow short
+        mx, my = LK_HALF_WINDOW / w_px, LK_HALF_WINDOW / h_px
+        inside = lambda x, y: (x > mx) & (x < 1.0 - mx) & (y < 1.0 - my)  # noqa: E731
+        v = v[(v[:, 2] < 0) & (v[:, 1] > hz) & inside(v[:, 0], v[:, 1]) & inside(v[:, 3], v[:, 4])]
+        if not len(v):
+            return
+        r0 = np.column_stack([(v[:, 0] - 0.5) * self.aspect, v[:, 1] - hz])   # from the focus, in frame heights
+        r1 = np.column_stack([(v[:, 3] - 0.5) * self.aspect, v[:, 4] - hz])
+        n0 = np.hypot(*r0.T)
+        rho = (r1 * r0).sum(axis=1) / np.maximum(n0 ** 2, 1e-12) - 1.0             # its measured outflow a frame
+        e_now, _ = self._terrain_blend()
+        cols = self.place.shape[1]
+        rr = np.clip((v[:, 1] * self.place.shape[0]).astype(int), 0, self.place.shape[0] - 1)
+        cc = np.clip((v[:, 0] * cols).astype(int), 0, cols - 1)
+        e_map = np.clip(e_now[rr, cc], -0.9, 0.9)
+        k = rho * (1.0 - e_map) / (v[:, 1] - hz)       # each corner's reading of its speed (eye-heights a frame), through its map
+        k = k[np.sign(k) == np.sign(self.cam_scale)]
+        if len(k) < 8:
+            return
+        speed = float(np.median(k))
+        rho0 = speed * (v[:, 1] - hz)                   # flat ground's outflow a frame at this speed
+        moved = np.hypot(*(r1 - r0).T) * h_px
+        ok = (np.abs(rho0) * n0 * h_px >= 1.0) & (rho * rho0 > 0.0) & (moved >= 1.0)
+        if not ok.any():
+            return
+        for x, y, r, r_0, d in zip(v[ok, 0], v[ok, 1], rho[ok], rho0[ok], moved[ok]):
+            cell = self._cell(x, y)
+            if not self._in_map(cell):
+                continue
+            elev = float(np.clip(1.0 - r_0 / r, -1.0, 1.0))
+            self.scores["terrain_map_vs_flow"].add(float(e_now[cell]), elev)
+            self.terrain[cell[0] * cols + cell[1]] += self.flow_teacher * (1.0 - 1.0 / d) * np.array([1.0, elev])
 
     def _terrain_map(self):
         """Its terrain sums at the field's grid ((rows x cols, 2): weight, weighted elevation); None without a field."""

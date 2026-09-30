@@ -459,6 +459,28 @@ can afford more and bigger ones.
   are marked (riding 13%) and still marked 200 frames after the stop. First
   deploy: without the vection gate, a stopped tram with people walking past
   voted its whole still view local (62% on Tina); fixed and the maps cleared.
+- **Flow-taught terrain** (2026-09-29; Gibson, Longuet-Higgins & Prazdny
+  1980, Friston): its terrain map predicts how its ground should flow, and the
+  error teaches the map, so no detector is needed. On a frame where it moves
+  straight ahead (a significant expansion, no pixel of shift, no significant
+  roll), each corner that moved with the world (its frames of reference), below
+  its horizon, is read. A ground point at row y on ground raised e lies (1 - e)
+  / (y - horizon) eye-heights away and flows out of the focus by speed / depth
+  a frame. Its speed is read off the ground's own flow through its map (the
+  median over the frame's corners, at least 8), not from the whole-frame fit:
+  on rendered ground that fit reads ~35% fast (it locks onto the near rows);
+  its speed cells share that bias, a finding for the panel. The lesson is 1 -
+  predicted / measured camera heights, the detector's own formula, weighted
+  `flow_teacher` x (1 - 1 px / how far it moved). The detector's lessons now
+  count 1 - `flow_teacher`. Corners within half the tracker's window of an
+  edge teach nothing (past the edge it reads fast flow short). Its felt-terrain
+  head learns the result through its nearness, which reads the map. Gene
+  `flow_teacher` (0-1, born 0, seeded near 0.5). The model card scores the map
+  against each teacher before each lesson (`terrain_map_vs_detector`,
+  `terrain_map_vs_flow`). Tested on rendered ground: flat reads flat (within
+  0.05; MAE 0.032), and a plateau raised 0.3 on the right half reads a step
+  of 0.38. Flow gives relative terrain; with half the ground raised, the level
+  floats, and the detector's lessons anchor it.
 - **Its clock (Process C)** (2026-09-29; Borbely, Siegel, Nesse): an internal
   phase with Earth's 24 h period, set by light as a zeitgeber at most about an
   hour a day (phase-response curves, Czeisler); a founder's clock starts from the

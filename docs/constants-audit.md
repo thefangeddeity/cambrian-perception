@@ -293,6 +293,17 @@ yardsticks are found.
 | local frame | still votes beat half at the 5% test (z > 1.96) | S | a binomial share against 1/2 |
 | one map a life | not per scene | P | its body is the same in every place (Jeffery) |
 
+### Flow-taught terrain (fishbowl/organism.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| ground depth | (1 - e) / (y - horizon) eye-heights | P | pinhole, focal ~ frame height, as its speed cells |
+| its speed | median of the frame's corners' readings through its map, >= 8 | S | robust; 8 = ego-motion's own minimum |
+| straight ahead | shift < 1 px, no significant roll, significant expansion | S | camera_moves' own thresholds |
+| a lesson counts | predicted outflow >= 1 px; weight flow_teacher x (1 - 1 px / moved) | S | RANSAC's pixel |
+| `LK_HALF_WINDOW` | 10 px | P | half of OpenCV's default 21 px Lucas-Kanade window |
+| `flow_teacher` seed | 0.5 + 3 mutation steps | S | equal weights: the ignorance prior |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px
