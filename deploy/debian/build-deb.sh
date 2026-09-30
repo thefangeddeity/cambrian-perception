@@ -6,7 +6,7 @@
 set -eu
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 # the release tag (v0.1.0 -> 0.1.0), commits since it, the commit: 0.1.0+r3.gabc1234
-if VER=$(git -C "$REPO" describe --long --tags --abbrev=7 2>/dev/null); then
+if VER=$(git -C "$REPO" describe --long --tags --abbrev=7 --match 'v[0-9]*' 2>/dev/null); then  # release tags only (not models-v1)
     VER=$(echo "$VER" | sed 's/^v//; s/-\([0-9]*\)-g/+r\1.g/')
 else
     VER="0~r$(git -C "$REPO" rev-list --count HEAD).g$(git -C "$REPO" rev-parse --short HEAD)"
