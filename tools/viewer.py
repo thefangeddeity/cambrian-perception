@@ -1430,7 +1430,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   // speed on the left (its speed cells; the caret leans with starting or
   // stopping), nearness on the right (T what its ground model teaches, F what
   // its terrain head feels; near at the top), a bank pointer (its tilting),
-  // and a data block. Text scales with the picture, floored as the video's HUD.
+  // and a data block top left; its path and its tree's lines sit in the bottom
+  // corners, the middle kept clear. Text scales with the picture, floored as the video's HUD.
   function hudNav(ctx, W, H, hz, sn, d) {
     const k = Math.max(0.6, Math.min(1, W / 560)), px = n => Math.max(8, Math.round(n * k)), G = a => `rgba(124, 255, 160, ${a})`;
     ctx.save(); ctx.lineWidth = 1; ctx.font = `${px(11)}px monospace`;
@@ -1463,7 +1464,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     }
     // a tape with its value boxed at the middle
     const tape = (x, v, lo, hi, side, label, marks) => {
-      const th = H * 0.42, y0 = H / 2 - th / 2, yv = t => y0 + th * (1 - (t - lo) / (hi - lo));
+      const y0 = px(70), th = Math.max(px(30), H - Math.min(110, H * 0.3) - px(34) - y0), yv = t => y0 + th * (1 - (t - lo) / (hi - lo));
       ctx.strokeStyle = G(0.6); ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 + th); ctx.stroke();
       for (let t = 0; t <= 4; t++) { const yy = y0 + th * t / 4; ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + side * px(5), yy); ctx.stroke(); }
       (marks || []).forEach(([mv, col, name]) => { if (mv == null) return; const yy = yv(Math.max(lo, Math.min(hi, mv)));
@@ -1481,8 +1482,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const rows = [sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
                   sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
                   sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
-    ctx.fillStyle = G(0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    rows.forEach((t, i) => ctx.fillText(t, px(12), H - px(8) - (rows.length - 1 - i) * px(13)));
+    ctx.fillStyle = G(0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    rows.forEach((t, i) => ctx.fillText(t, px(8), px(8) + i * px(13)));
     ctx.restore();
   }
   function drawSpace(d) {
@@ -1627,10 +1628,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
              + (nCut ? ` &middot; dashed: cut by the frame` : '') + (sn.parallax && sn.parallax.some(v => v > 0.05) ? ' &middot; <b style="color:#7fd4ff">parallax</b>' : '')
              + (sn.local_frame && sn.local_frame.some(Boolean) ? ' &middot; <b style="color:#8a92a2">rides with it</b>' : '');
     }
-    // its path (path integration: speed x heading), top left; north up = its first heading; its facing now as a tick
-    const path = d.path;
+    // its path (path integration: speed x heading), bottom left; north up = its first heading; its facing now as a tick
+    const path = d.path, INSET = Math.min(110, H * 0.3);
     if (path && path.length > 1) {
-      const side = Math.min(110, H * 0.45), ox = 8, oy = 8;
+      const side = INSET, ox = 8, oy = H - INSET - 20;
       ctx.fillStyle = 'rgba(5, 7, 10, 0.9)'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);
       ctx.strokeStyle = '#1c2a36'; ctx.lineWidth = 1; ctx.strokeRect(ox, oy, side, side);
       const xs = path.map(p => p[0]), ys = path.map(p => p[1]);
@@ -1644,7 +1645,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       ctx.fillText(`path ${span.toFixed(0)} eye-heights`, ox, oy + side + 3);
     }
     // inset: the lines its trees read on its eye
-    const N = d.receptors || 12, side = Math.min(110, H * 0.45), cell = side / N, ox = W - side - 8, oy = 8;
+    const N = d.receptors || 12, side = INSET, cell = side / N, ox = W - side - 8, oy = H - INSET - 20;
     ctx.fillStyle = 'rgba(5, 7, 10, 0.9)'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);
     ctx.strokeStyle = '#1c2a36'; ctx.lineWidth = 1; ctx.strokeRect(ox, oy, side, side);
     let edges = 0;
