@@ -732,7 +732,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   #mb-hud .g { color: #7cffa0; } #mb-hud .b { color: #ffb000; } #mb-hud .w { color: #ff4040; } #mb-hud .n { color: #e8e8e8; }
   #mb-hud .h { color: #c8c8c8; }
   @media (max-width: 600px) { #mb-hud { font-size: 11px; } #mb-hud .q { line-height: 14px; } }
-  #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder { color: #b88a80; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
+  #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder, #save-organism, #load-organism { color: #b88a80; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
   .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
