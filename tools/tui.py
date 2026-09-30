@@ -45,7 +45,7 @@ BRAILLE = 0x2800
 DOT = ((0x01, 0x08), (0x02, 0x10), (0x04, 0x20), (0x40, 0x80))  # [row][col] of a cell's 2 x 4 dots
 
 # colour pairs
-GREEN, HOST, PLANT, THING, CYAN, DIM, WARN = range(1, 8)
+GREEN, HOST, PLANT, THING, CYAN, DIM, WARN, SHEN = range(1, 9)
 
 
 HALF = {1: "▀", 2: "▄", 3: "█"}  # upper half, lower half, full block
@@ -85,11 +85,14 @@ class Canvas:
             self.bits[r][cc] |= bit
             self.col[r][cc] = c
 
-    def line(self, x0: float, y0: float, x1: float, y1: float, c: int) -> None:
+    def line(self, x0: float, y0: float, x1: float, y1: float, c: int, dash: int = 0) -> None:
+        """A line of dots; dash > 0 draws `dash` dots on, `dash` off (lighter)."""
         n = int(max(abs(x1 - x0), abs(y1 - y0))) + 1
         if n > 4 * (self.w + self.h):  # far off the canvas: clip by sampling only
             n = 4 * (self.w + self.h)
         for i in range(n + 1):
+            if dash and (i // dash) % 2:
+                continue
             t = i / n
             self.dot(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, c)
 
@@ -182,22 +185,25 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
         sx = lambda x, z: 0.5 + x / (1.6 * z)
         sy = lambda z: hz + (1 - hz) / z
         # A dot can't fade as the web page's lines do: where lines would crowd
-        # closer than GAP dots they stop instead (the far ground left open).
-        GAP = 3
+        # closer than GAP dots they stop instead (the far ground left open). In
+        # half blocks (a dot a whole character wide) the ground is drawn dashed
+        # -- lighter than the things standing on it -- and a little sparser.
+        GAP = 4 if blocks else 3
+        dash = 1 if blocks else 0
         z_far, prev = zs[0], None
         for z in zs:  # cross-lines, crowding toward the horizon
             y = fy(sy(z))
             if prev is not None and prev - y < GAP:
                 break
-            cv.line(fx(sx(-TX, z)), y, fx(sx(TX, z)), y, DIM)
+            cv.line(fx(sx(-TX, z)), y, fx(sx(TX, z)), y, DIM, dash)
             prev, z_far = y, z
         z_far = min(z_far, W * TS / (1.6 * GAP))  # lines running away stop where they'd merge
         for x in xs:  # lines running away, toward the horizon
-            cv.line(fx(sx(x, zs[0])), fy(sy(zs[0])), fx(sx(x, z_far)), fy(sy(z_far)), DIM)
+            cv.line(fx(sx(x, zs[0])), fy(sy(zs[0])), fx(sx(x, z_far)), fy(sy(z_far)), DIM, dash)
         # parallax: cyan ticks on its cells where things move against the camera
         par = sn.get("parallax")
         shape = (d.get("maps") or {}).get("shape") or d.get("world_grid_shape") or [9, 16]
-        if par:
+        if par and not blocks:  # in half blocks a tick is a whole character: noise, so none
             gr, gc = shape
             for k, v in enumerate(par):
                 if v > 0.05:
@@ -273,6 +279,14 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
     nr = lambda v: "--" if v is None else f"{v:.2f}"
     lab = f"NR T{nr(sn.get('nearness'))} F{nr(sn.get('felt_nearness'))}"
     put(scr, top + 3, left + cols - len(lab) - 1, lab, g)
+    # what it is taking in now, top left (the web viewer's character): jīng
+    # while it absorbs from a host, qì while it sips, shén otherwise (awake,
+    # anything new feeds it); nothing asleep. A console's font has no Chinese:
+    # there, the word.
+    eat, sip, slept = (d.get("eating") or [0])[-1] or 0, (d.get("snacks") or [0])[-1] or 0, (d.get("asleep_frames") or [0])[-1] or 0
+    if not slept and d.get("live_actor"):
+        han, word, col = ("精", "JĪNG", HOST) if eat > 0.01 else ("氣", "QÌ", PLANT) if sip > 0.01 else ("神", "SHÉN", SHEN)
+        put(scr, top + 4, left + 1, word if blocks else f"{han} {word}", (curses.color_pair(col) if colour else 0) | curses.A_BOLD)
     tex = sn.get("texture")
     rows_ = [r for r in (
         "LEARNING HELD" if sn.get("out_of_model") else "",
@@ -283,7 +297,7 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
         f"PLACE {sn['place_value']:+.2f}" if sn.get("place_value") is not None and abs(sn["place_value"]) > 0.01 else "",
     ) if r]
     for i, r in enumerate(rows_):
-        put(scr, top + 5 + i, left + 1, r, g)
+        put(scr, top + 6 + i, left + 1, r, g)
     if hz is None:
         put(scr, top + rows // 2, left + max(0, cols // 2 - 7), "no horizon yet", curses.A_DIM)
 
@@ -303,7 +317,7 @@ def main(scr, port: int, blocks: bool = False) -> None:
         for n, (c256, c8) in {GREEN: (120, curses.COLOR_GREEN), HOST: (211, curses.COLOR_MAGENTA),
                               PLANT: (150, curses.COLOR_GREEN), THING: (248, curses.COLOR_WHITE),
                               CYAN: (117, curses.COLOR_CYAN), DIM: (65, curses.COLOR_GREEN),
-                              WARN: (203, curses.COLOR_RED)}.items():
+                              WARN: (203, curses.COLOR_RED), SHEN: (177, curses.COLOR_MAGENTA)}.items():
             curses.init_pair(n, c256 if many else c8, bg)
     feeds = {port: Feed(port)}
     armed, note = 0.0, ("", 0.0)  # the camera key's first press; a line shown for a few seconds

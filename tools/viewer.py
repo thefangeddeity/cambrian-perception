@@ -1535,7 +1535,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
                   sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.ram != null && sn.ram > 1.01 ? `RAM x${sn.ram.toFixed(1)}` : '',sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
                   sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
                   sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
-    const TOP = Math.max(px(70), px(8) + rows.length * px(13) + px(22));
+    // what it is taking in now, top left: 精 jīng while it absorbs from a host,
+    // 氣 qì while it sips, 神 shén otherwise (awake, anything new feeds it);
+    // nothing asleep -- in its food's colour, outlined as the rest of the HUD
+    const lastOf = k => (d[k] && d[k].length ? d[k][d[k].length - 1] : 0) || 0;
+    const han = d.live_actor && !lastOf('asleep_frames')
+      ? (lastOf('eating') > 0.01 ? ['精', 'rgb(255, 95, 162)'] : lastOf('snacks') > 0.01 ? ['氣', 'rgb(156, 207, 122)'] : ['神', 'rgb(200, 136, 255)']) : null;
+    const hanH = han ? px(30) : 0;
+    const TOP = Math.max(px(70), px(8) + hanH + rows.length * px(13) + px(22));
     // a tape with its value boxed at the middle
     const tape = (x, v, lo, hi, side, label, marks) => {
       const y0 = TOP, th = Math.max(px(30), H - Math.min(110, H * 0.3) - px(34) - y0), yv = t => y0 + th * (1 - (t - lo) / (hi - lo));
@@ -1554,7 +1561,12 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const nr = v => v == null ? '--' : v.toFixed(2);
     tape(W - px(12), null, 0, 1, -1, `NR T${nr(sn.nearness)} F${nr(sn.felt_nearness)}`, [[sn.nearness, 'rgb(156, 207, 122)', 'T'], [sn.felt_nearness, 'rgb(127, 212, 255)', 'F']]);
     ctx.fillStyle = G(0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    rows.forEach((t, i) => ctx.fillText(t, px(8), px(8) + i * px(13)));
+    if (han) {
+      ctx.font = `bold ${px(26)}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif`;
+      ctx.fillStyle = han[1]; ctx.fillText(han[0], px(8), px(6));
+      ctx.font = `${px(11)}px monospace`; ctx.fillStyle = G(0.85);
+    }
+    rows.forEach((t, i) => ctx.fillText(t, px(8), px(8) + hanH + i * px(13)));
     ctx.restore();
   }
   function drawSpace(d) {
