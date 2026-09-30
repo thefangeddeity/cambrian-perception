@@ -1395,7 +1395,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     if founded:
         # A founder is saved the moment it is made: killed or crashed before
         # its first save, it used to be founded afresh at every restart (7elwe,
-        # 2026-09-29: 34 founders in one evening), each with new random draws.
+        # 2026-09-29: three founders in ten minutes), each with new random draws.
         _save()
         print("Its founder is saved: a restart resumes it.")
 
