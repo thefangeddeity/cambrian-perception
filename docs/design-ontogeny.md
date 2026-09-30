@@ -59,4 +59,19 @@ are its zooids.
 - Whether upbringing should also pass its maps and individuals library, or
   only what its body learned to do (the panel's split vote: Dennett, Nesse).
 - How the fleet's lineages should compete: today each host's lineage only
-  replaces itself.
+  replaces itself (and, in the hive, an extinct one may take a migrant).
+
+## Parked (2026-09-30), so the organisms can run undisturbed
+
+- **A second organism per host.** The resource panel (Gregg, Poettering,
+  Russinovich, Gelman): only one host of four has the room, and on it two
+  bodies would share one USB disk (the contention behind the fleet's worst
+  watchdog kills); two organisms on one machine and one stream are weak
+  replicates of each other. The plumbing is in and inert
+  (`CAMBRIAN_INSTANCE`: its own `state-<i>`, runtime folder, service name;
+  fleet discovery probes 8090 and 8091); nothing runs a second one.
+- **Sensing each other, and sharing energy** (Wilkinson's reciprocity). It
+  needs no second organism per host -- the four hosts' organisms can do it
+  across machines, in the hive only, pull-only and data-only -- but it is a
+  new mechanism: its clearance table comes first, after a stretch of
+  undisturbed running.
