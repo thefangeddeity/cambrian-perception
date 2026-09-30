@@ -2,14 +2,14 @@
 """cambrian --tui: its navigation display in a terminal, for a headless Linux
 host -- the picture alone, filling the terminal (a login profile can exec it on
 the console: `[ "$(tty)" = /dev/tty1 ] && exec cambrian --tui`, in bash or zsh).
-It never touches the camera: it reads only the numbers its viewer's nav display
-draws from (/state on this machine).
+It never touches the camera itself: it reads only the numbers its viewer's
+nav display draws from (/state on this machine). The one thing it can ask
+for is the page's own "back to the camera" (key c, pressed twice).
 
 The viewer's POV card (its own eye, tools/viewer.py drawSpace + hudNav) drawn
 cheaply: Braille dots for the lines (2 x 4 per character cell), curses colours,
-the Python standard library only -- a host's plain python3 runs it, as it runs
-camdash, from a login profile on the console. It reads the organism's viewer
-(/state, the same numbers the web page draws) and never writes anything.
+the Python standard library only -- a host's plain python3 runs it from a
+login profile on the console.
 
   its ground   equal squares on its ground plane, seen from its eye: lines
                running away meet at the horizon (frame y = hz + (1 - hz) / z)
@@ -24,8 +24,10 @@ camdash, from a login profile on the console. It reads the organism's viewer
   it draws in half blocks instead (half the detail); --blocks / --braille
   override the guess.
 
-  python3 tools/tui.py [--port 8090]      keys: q quit, p the other organism
-                                          on this host (8090 / 8091), c colour
+  python3 tools/tui.py [--port 8090]      keys: q quit; c c back to its camera
+                                          (the chosen stream cleared; it
+                                          restarts); m colour on/off; p the
+                                          host's other organism (8090 / 8091)
 """
 from __future__ import annotations
 
@@ -142,6 +144,20 @@ class Feed:
             except Exception as e:  # its viewer down or restarting: say so, keep the last picture
                 self.err = f"no viewer on :{self.port} ({type(e).__name__})"
             time.sleep(POLL_S)
+
+
+def camera(port: int) -> str:
+    """Asks its viewer to go back to its camera (the page's own "auto": the
+    chosen stream cleared, the organism restarted onto its camera). The one
+    thing this display ever asks for."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}/select?name=auto", method="POST", data=b"",
+                                 headers={"X-Cambrian": "1"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            ok = json.loads(r.read() or b"{}").get("ok")
+        return "back to its camera: it restarts (a few seconds)" if ok else "its viewer refused the switch"
+    except Exception as e:
+        return f"couldn't reach its viewer ({type(e).__name__})"
 
 
 def last(d: dict, k: str) -> list:
@@ -289,6 +305,7 @@ def main(scr, port: int, blocks: bool = False) -> None:
                               WARN: (203, curses.COLOR_RED)}.items():
             curses.init_pair(n, c256 if many else c8, bg)
     feeds = {port: Feed(port)}
+    armed, note = 0.0, ("", 0.0)  # the camera key's first press; a line shown for a few seconds
     while True:
         k = scr.getch()
         if k in (ord("q"), ord("Q"), 27):
@@ -296,8 +313,15 @@ def main(scr, port: int, blocks: bool = False) -> None:
         if k in (ord("p"), ord("P")):
             port = PORT + 1 if port == PORT else PORT
             feeds.setdefault(port, Feed(port))
-        if k in (ord("c"), ord("C")) and curses.has_colors():
+        if k in (ord("m"), ord("M")) and curses.has_colors():
             colour = not colour
+        if k in (ord("c"), ord("C")):
+            # Back to its camera: the viewer's own "auto" (the chosen stream
+            # cleared). It restarts the organism, so it takes a second press.
+            if time.time() - armed < 3.0:
+                armed, note = 0.0, (camera(port), time.time())
+            else:
+                armed, note = time.time(), ("press c again to switch it to its camera (it restarts)", time.time())
         feed = feeds[port]
         d = feed.d or {}
         scr.erase()
@@ -309,7 +333,9 @@ def main(scr, port: int, blocks: bool = False) -> None:
         rows = min(h, int(cols * fh / fw / 2))
         if cols >= 20 and rows >= 8:
             draw_nav(scr, d, (h - rows) // 2, (w - cols) // 2, cols, rows, colour, blocks)
-        if feed.err:  # its viewer is down or restarting: said once, small, over the last picture
+        if note[0] and time.time() - note[1] < 5.0:
+            put(scr, h - 1, 0, note[0], curses.color_pair(GREEN) | curses.A_BOLD if colour else curses.A_BOLD)
+        elif feed.err:  # its viewer is down or restarting: said once, small, over the last picture
             put(scr, h - 1, 0, feed.err, curses.color_pair(WARN) if colour else curses.A_DIM)
         scr.refresh()
         time.sleep(POLL_S / 2)

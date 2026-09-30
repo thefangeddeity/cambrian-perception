@@ -80,14 +80,32 @@ the camera (docs/suite.md).
 
 **Its navigation display in a terminal (Linux):** `cambrian --tui` -- the
 viewer's nav display alone, drawn in Braille dots with the standard library
-(no camera access: it reads only the viewer's `/state` on the same machine).
-`q` quits, `c` toggles colour. A small trick for a headless Linux box: put
+(it never opens the camera: it reads the viewer's `/state` on the same
+machine). `q` quits; `c` twice switches the organism back to its camera (the
+chosen stream cleared; it restarts); `m` toggles colour. A small trick for a headless Linux box: put
 this in the console user's login profile (`.bash_profile`/`.profile` for bash,
 `.zprofile` for zsh) to boot straight into it on the first console:
 
 ```sh
 [ "$(tty)" = /dev/tty1 ] && exec cambrian --tui
 ```
+
+**What it eats (a host setting).** By default its food (bites) is people and
+every animal the detector names, and its nectar (sips) is plants. A host can
+change that in `cambrian.json` next to the code -- e.g. to feed it a teddy
+bear while testing:
+
+```json
+"diet": {"food":   ["person", "cat", "dog", "bird", "teddy bear"],
+         "nectar": ["potted plant", "Flower", "Tree"]}
+```
+
+`food` names are COCO classes (the list is `COCO_NAMES` in `fishbowl/prey.py`);
+`nectar` also takes the flower model's Open Images names. A list you give
+replaces that default; people are always food. It takes effect at the next
+restart, and the life history records it: a lineage fed on teddy bears learns
+teddy bears. ("Snacks" aren't a class: they're the small bit of food any look
+at something new gives.)
 
 **What happens to a lineage over time:**
 - it lives on the feed, evolves in the background, and lays eggs when it has

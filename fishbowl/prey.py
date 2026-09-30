@@ -72,6 +72,81 @@ NECTAR_OIV7 = {"Plant", "Tree", "Flower", "Houseplant", "Rose", "Lily", "Common 
                "Maple", "Willow", "Palm tree", "Christmas tree"}
 FLOWER_EVERY_S = 30.0
 
+# COCO's 80 class names, in the detector's own order (its class id = the index).
+COCO_NAMES = ("person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+              "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+              "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+              "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+              "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+              "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+              "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard",
+              "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
+              "scissors", "teddy bear", "hair drier", "toothbrush")
+NECTAR_COCO = {PLANT_CLASS}  # COCO classes that are nectar (their boxes are reported as PLANT_CLASS)
+
+
+def _apply_diet() -> list[str]:
+    """The host's own diet, if it sets one: cambrian.json's "diet" (next to
+    the code; the settings panel's file to come), e.g. to feed it a teddy bear
+    while testing:
+
+        "diet": {"food":   ["person", "cat", "dog", "teddy bear"],
+                 "nectar": ["potted plant", "Flower", "Tree"]}
+
+    "food" (bites: its hosts) are COCO names; "nectar" (sips) are COCO names
+    or the flower model's Open Images names. Each list, when given, REPLACES
+    that default above; absent, the default stands. People are always food
+    (the clade's rule: every lineage can track people), and a class can't be
+    both. Read once, when the program starts, by every process alike (its
+    live body and evolution's workers must agree on what food is): a change
+    takes effect at the next restart. A lineage fed on teddy bears learns
+    teddy bears -- it is a test setting, recorded in its life history.
+    Returns what it couldn't use, to be said at startup."""
+    global PREY_CLASSES, NECTAR_COCO, NECTAR_OIV7
+    try:
+        from . import sandbox
+        diet = (sandbox._read_json(sandbox.SETTINGS_PATH, {}) or {}).get("diet") or {}
+    except Exception:
+        return []
+    if not isinstance(diet, dict):
+        return ["diet: not a {...} of lists -- ignored"]
+    problems = []
+    index = {n: i for i, n in enumerate(COCO_NAMES)}
+    food = diet.get("food")
+    if isinstance(food, list):
+        chosen = {0: "person"}
+        for n in food:
+            key = str(n).strip().lower()
+            if key in index:
+                chosen[index[key]] = key
+            else:
+                problems.append(f"diet: food {n!r} is not a COCO class -- ignored")
+        PREY_CLASSES = dict(sorted(chosen.items()))
+    nectar = diet.get("nectar")
+    if isinstance(nectar, list):
+        coco, oiv7 = set(), set()
+        for n in nectar:
+            key = str(n).strip()
+            if key.lower() in index:
+                if index[key.lower()] in PREY_CLASSES:
+                    problems.append(f"diet: {n!r} is food already -- not nectar too")
+                else:
+                    coco.add(index[key.lower()])
+            else:
+                oiv7.add(key)  # the flower model's names (checked against its list when it loads)
+        NECTAR_COCO, NECTAR_OIV7 = coco, oiv7
+    return problems
+
+
+DIET_PROBLEMS = _apply_diet()
+
+
+def diet() -> dict:
+    """What it eats on this host now (for its status and life history)."""
+    return {"food": [PREY_CLASSES[c] for c in sorted(PREY_CLASSES)],
+            "nectar": sorted([COCO_NAMES[c] for c in NECTAR_COCO]) + sorted(NECTAR_OIV7)}
+
+
 def cut_by_frame(box, aspect: float = 16 / 9) -> tuple[bool, bool]:
     """(its base is cut off by the frame's bottom, its top by the frame's top):
     within one detector pixel of the edge (boxes are clipped to the frame). The
@@ -130,6 +205,9 @@ class PreyDetector:
         if flower_model.exists() and names_path.exists():
             names = json.loads(names_path.read_text(encoding="utf-8"))
             self.flower_classes = {int(k): PLANT_CLASS for k, v in names.items() if v in NECTAR_OIV7}
+            unknown = NECTAR_OIV7 - set(names.values())
+            if unknown:
+                print(f"diet: nectar {sorted(unknown)} not in the flower model's classes -- ignored")
             self.flower_net = cv2.dnn.readNetFromONNX(str(flower_model))
         self.flowers, self.flowers_at, self._flowering = [], -1e9, False
 
@@ -143,7 +221,7 @@ class PreyDetector:
         flowers and fruit (as PLANT_CLASS)."""
         if bgr is None or bgr.ndim != 3:
             return []
-        hosts = _yolo(self.net, bgr, {k: k for k in range(COCO_CLASSES)}) if self.net is not None else []
+        hosts = _yolo(self.net, bgr, {k: (PLANT_CLASS if k in NECTAR_COCO else k) for k in range(COCO_CLASSES)}) if self.net is not None else []
         now = time.monotonic()
         if self.flower_net is not None and now - self.flowers_at >= FLOWER_EVERY_S and not self._flowering:
             # on its own thread: a slow host (seconds per run) never delays hosts

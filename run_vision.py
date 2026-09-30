@@ -1476,6 +1476,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         sandbox.record_life({"event": "joined the hive" if in_hive else "solo", "hive": in_hive})
     print("In the hive: it may take a migrant from its peers after an extinction, and serves its own to them."
           if in_hive else "Solo (not in the hive): it neither takes migrants nor serves its organism to peers.")
+    # What it eats here (prey.py: the defaults, or cambrian.json's "diet"),
+    # recorded as it changes -- a lineage fed on teddy bears is a test.
+    eats = prey_lib.diet()
+    for problem in prey_lib.DIET_PROBLEMS:
+        print(problem)
+    print(f"Food (bites): {', '.join(eats['food'])}. Nectar (sips): {', '.join(eats['nectar'])}.")
+    if next((r["diet"] for r in reversed(sandbox.life_history()) if "diet" in r), None) != eats:
+        sandbox.record_life({"event": "diet", "diet": eats})
 
     # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
     # switch in the viewer) ends the loop cleanly so the checkpoint is

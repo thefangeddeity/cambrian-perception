@@ -9,7 +9,8 @@
 #   cambrian --yield     stop, and stay off at boot until the next --start
 #                        (the livecam's start does the same through systemd)
 #   cambrian --status    what is running, and how the organism is doing
-#   cambrian --tui       its navigation display, in this terminal (q quits)
+#   cambrian --tui       its navigation display, in this terminal (q quits,
+#                        c twice: back to its camera, m: colour)
 #
 # Installed by deploy/install.sh as /usr/local/bin/cambrian (a link to this file,
 # so it stays current with the repo). Starting and stopping need root: it asks
@@ -73,5 +74,5 @@ case "$1" in
     --yield|yield)     as_root systemctl disable --quiet --now cambrian.target && echo "stopped (checkpoint saved); off until \`cambrian --start\`" ;;
     --status|status|"") status ;;
     --tui|tui)         exec python3 "$(dirname "$(readlink -f "$0")")/tui.py" ;;
-    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

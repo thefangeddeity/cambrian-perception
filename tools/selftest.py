@@ -353,6 +353,25 @@ def _():
         assert port == want[1] and unit == svc == want[2], (port, unit, svc)
 
 
+@check("its diet from the host's settings: a teddy bear as food, people always food")
+def _():
+    from fishbowl import prey
+    saved = (prey.PREY_CLASSES, prey.NECTAR_COCO, prey.NECTAR_OIV7)
+    try:
+        assert prey.COCO_NAMES[0] == "person" and prey.COCO_NAMES[58] == "potted plant" and prey.COCO_NAMES[77] == "teddy bear"
+        assert prey.diet()["food"][0] == "person" and "potted plant" in prey.diet()["nectar"]  # the defaults (no settings)
+        sandbox.SETTINGS_PATH.write_text(json.dumps({"diet": {"food": ["cat", "Teddy Bear", "unicorn"], "nectar": ["banana", "cat", "Flower"]}}))
+        problems = prey._apply_diet()
+        assert prey.PREY_CLASSES == {0: "person", 15: "cat", 77: "teddy bear"}, prey.PREY_CLASSES
+        assert prey.NECTAR_COCO == {46} and prey.NECTAR_OIV7 == {"Flower"}, (prey.NECTAR_COCO, prey.NECTAR_OIV7)
+        assert any("unicorn" in p for p in problems) and any("'cat' is food already" in p for p in problems), problems
+        bear = [[77, 0.9, 0.4, 0.4, 0.6, 0.9]]
+        assert prey.hosts_only(bear) == bear and prey.things_only(bear) == []
+    finally:
+        prey.PREY_CLASSES, prey.NECTAR_COCO, prey.NECTAR_OIV7 = saved
+        sandbox.SETTINGS_PATH.unlink(missing_ok=True)
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")
