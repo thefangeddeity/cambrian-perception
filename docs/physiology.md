@@ -669,8 +669,9 @@ and starve for hours, and a starving body never died.
 not a reward for being accomplished (Storey's wood frog, Clegg's brine shrimp
 cysts, tardigrades that must dry slowly). A body is **developed** when its
 paired lead over its own founder -- scored beside it, newborn, on the same
-frames at each new snapshot -- is beyond 1.96 standard errors over 3 pairs
-(the model card's `development`). Only a developed body may encyst, and only
+frames at each new snapshot -- passes a one-sided paired t-test at the
+standard 5%, its pairs counted as the effective number (successive snapshots
+overlap), from 2 pairs (the model card's `development`). Only a developed body may encyst, and only
 when its energy over its last hour has gone down (heading to starvation, not
 between meals), at the last moment it can still pay: a cyst's protective
 sugar is 15% of its body (Clegg 1962), made from its sugar and glycogen. A

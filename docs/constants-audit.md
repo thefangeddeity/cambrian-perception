@@ -368,7 +368,7 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| developed | its paired lead over its founder > 1.96 SE, >= 3 pairs | S / D | the standard paired test; 3 = the ground fit's own minimum |
+| developed | one-sided paired t-test at 5%, effective pairs (AR(1)), from 2 pairs | S / D | was 1.96 SE over 3 pairs: the wrong distribution for few pairs, the wrong side, and a minimum borrowed from the ground fit; t tail by Numerical Recipes' incomplete beta (no scipy) |
 | a pair | once per new world snapshot | D | the snapshot's own refresh |
 | `PROTECTANT_SHARE` | 0.15 of its body | S | brine shrimp cysts ~15% trehalose by dry weight (Clegg 1962) |
 | `CYST_COST` | 0.15 x `PROTEIN_CAP` = 12,960 B, from sugar and glycogen at `STORE_EFFICIENCY` | D | only a well-fed body can afford it |

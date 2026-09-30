@@ -731,9 +731,8 @@ def _n_children(quota_pct: float) -> int:
     return max(1, min(cap, int(quota_pct // 100) - 1))
 
 
-def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict, fps: float, memory, sec_per_mac: float = 0.0):
-    """Runs in a worker process: attaches to the snapshot's frames (once per
-    snapshot) and scores one child."""
+def _worker_attach(meta: dict) -> None:
+    """In a worker: its snapshot's frames, mapped from shared memory (once per snapshot)."""
     from multiprocessing import shared_memory
     if _WORKER["id"] != meta["id"]:
         for old in _WORKER["shm"]:
@@ -752,6 +751,20 @@ def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict
         _WORKER["frames"] = [arrays["grey"][k] for k in range(arrays["grey"].shape[0])]
         _WORKER["colour"] = [arrays["colour"][k] for k in range(arrays["colour"].shape[0])] if arrays["colour"] is not None else None
         _WORKER["id"] = meta["id"]
+
+
+def _worker_signals(meta: dict, vectors, fps: float) -> dict:
+    """Runs in a worker process: this snapshot's world signals (World.at_pace),
+    built here so the organism's own process -- its live body's -- never
+    spends its time on them (a 2026-09-30 measurement: 7 s a snapshot)."""
+    _worker_attach(meta)
+    return World(_WORKER["frames"], vectors, fps, meta["prey"], _WORKER["colour"]).at_pace(1)[1]
+
+
+def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict, fps: float, memory, sec_per_mac: float = 0.0):
+    """Runs in a worker process: attaches to the snapshot's frames (once per
+    snapshot) and scores one child."""
+    _worker_attach(meta)
     g = G.Genome.from_dict(genome_dict)
     return evaluate_genome(g, _WORKER["frames"], meta["ws"], quota_pct, body, fps, meta["prey"], memory, _WORKER["colour"], sec_per_mac)
 
@@ -854,6 +867,7 @@ class _Workers:
         self.pool = concurrent.futures.ProcessPoolExecutor(max_workers=n, mp_context=multiprocessing.get_context(method),
                                                            initializer=_worker_below_the_body)
         self.world, self.meta, self.shm = None, None, []
+        self.prev_world, self.prev_meta, self.prev_shm = None, None, []  # the snapshot before, kept for the re-check
         import atexit
         atexit.register(self.close)  # however the run ends, its shared frames are released
 
@@ -862,41 +876,60 @@ class _Workers:
         if world is self.world:
             return self.meta is not None
         from multiprocessing import shared_memory
-        self.world, meta, blocks = world, None, []
+        meta, blocks = None, []
         try:
             arrays = {"grey": np.stack(world.frames)}
             if world.colour is not None:
                 arrays["colour"] = np.stack(world.colour)
-            meta = {"id": f"{os.getpid()}-{time.time_ns()}", "prey": world.prey, "ws": world.at_pace(1)[1], "colour": None}
+            meta = {"id": f"{os.getpid()}-{time.time_ns()}", "prey": world.prey, "colour": None}
             for key, arr in arrays.items():
                 block = shared_memory.SharedMemory(create=True, size=max(1, arr.nbytes))
                 np.ndarray(arr.shape, dtype=arr.dtype, buffer=block.buf)[...] = arr
                 blocks.append(block)
                 meta[key] = (block.name, arr.shape, arr.dtype.str)
+            # its signals, built by a worker (this process only waits: its live body's thread runs on);
+            # kept as the snapshot's own, so nothing here computes them again
+            if 1 in world._cache:
+                meta["ws"] = world._cache[1][1]
+            else:
+                try:
+                    ws = self.pool.submit(_worker_signals, meta, world.vectors, world.fps).result(timeout=600)
+                except Exception as e:  # a lost worker: built here instead
+                    print(f"Worker failed building the snapshot's signals ({type(e).__name__}); building them here.")
+                    ws = world.at_pace(1)[1]
+                world._cache[1] = (world.frames[::1], ws)
+                meta["ws"] = ws
         except (ValueError, OSError) as e:  # frames of different sizes, or no shared memory
             print(f"Parallel evaluation off for this snapshot ({e}).")
             for block in blocks:
                 block.close()
                 block.unlink()
             meta, blocks = None, []
-        old, self.shm, self.meta = self.shm, blocks, meta
-        for block in old:  # workers still mapping these keep them until they move on
+        # the snapshot before stays shared (its re-check runs there); the one before that is released
+        older = self.prev_shm
+        self.prev_world, self.prev_meta, self.prev_shm = self.world, self.meta, self.shm
+        self.world, self.meta, self.shm = world, meta, blocks
+        for block in older:  # workers still mapping these keep them until they move on
             block.close()
             block.unlink()
         return meta is not None
 
-    def submit(self, genome, quota_pct: float, body: dict, fps: float, memory, sec_per_mac: float = 0.0):
-        return self.pool.submit(_worker_evaluate, self.meta, genome.to_dict(), quota_pct, body, fps, memory, sec_per_mac)
+    def meta_for(self, world: "World"):
+        """The shared snapshot for this world (the current one or the one before), or None."""
+        return self.meta if world is self.world else self.prev_meta if world is self.prev_world else None
+
+    def submit(self, genome, quota_pct: float, body: dict, fps: float, memory, sec_per_mac: float = 0.0, meta: dict | None = None):
+        return self.pool.submit(_worker_evaluate, meta or self.meta, genome.to_dict(), quota_pct, body, fps, memory, sec_per_mac)
 
     def close(self) -> None:
         self.pool.shutdown(wait=False, cancel_futures=True)
-        for block in self.shm:
+        for block in self.shm + self.prev_shm:
             try:
                 block.close()
                 block.unlink()
             except (FileNotFoundError, OSError):
                 pass
-        self.shm = []
+        self.shm, self.prev_shm = [], []
 
 
 WORLD_REFRESH_GENERATIONS = 5
@@ -1344,7 +1377,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # beside it on the same frames: the paired lead (it - its founder), n / mean
     # / M2. Developed = a lead beyond 1.96 standard errors, over 3 pairs at least
     # (as the ground fit's own minimum) -- only then may it encyst (state.py).
-    card["dev"] = list((checkpoint or {}).get("development", [0, 0.0, 0.0]))
+    card["dev"] = [float(v) for v in ((checkpoint or {}).get("development_leads") or [])]  # its leads over its founder, one a snapshot
     founder_genome = None
     if sandbox.FOUNDER_PATH.exists():
         try:
@@ -1407,7 +1440,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                        "frames": np.round(memory_now[14], 3).tolist() if len(memory_now) > 14 and memory_now[14] is not None else None}
                       if memory_now is not None else None,
             "feeding_record": {kind: rec.gaps for kind, rec in feeding.items()},
-            "development": card.get("dev", [0, 0.0, 0.0]),
+            "development_leads": card.get("dev", []),
         })
 
     if founded:
@@ -1744,10 +1777,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             try:
                 f_fit = founder_future.result(timeout=600)[0]
                 if math.isfinite(f_fit) and math.isfinite(parent_fitness):
-                    n, mean, m2 = card["dev"]
-                    lead = parent_fitness - f_fit
-                    n += 1; dd = lead - mean; mean += dd / n; m2 += dd * (lead - mean)
-                    card["dev"] = [n, mean, m2]
+                    card["dev"].append(round(parent_fitness - f_fit, 5))
             except Exception as e:  # a lost worker: this snapshot gives no pair
                 if not stop["now"]:
                     print(f"Its founder's score failed ({type(e).__name__}).")
@@ -1789,8 +1819,20 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             # The best of several children re-checked on the previous
             # snapshot: it must not be worse there (see RECHECK above).
             t_re = time.perf_counter()
-            p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
-            c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
+            prev_meta = workers.meta_for(world_prev) if workers not in (None, False) else None
+            p2 = c2 = None
+            if prev_meta is not None:  # in workers, on the snapshot before (kept shared for this)
+                try:
+                    f_p = workers.submit(genome, price_quota, body_now, _fps(), memory_eval, host_rate, meta=prev_meta)
+                    f_c = workers.submit(candidate, price_quota, body_now, _fps(), memory_eval, host_rate, meta=prev_meta)
+                    p2, c2 = f_p.result(timeout=600)[0], f_c.result(timeout=600)[0]
+                except Exception as e:  # a lost worker: re-checked here instead
+                    if not stop["now"]:
+                        print(f"Worker failed re-checking ({type(e).__name__}); re-checking here.")
+                    p2 = c2 = None
+            if p2 is None or c2 is None:
+                p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
+                c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
             phase["recheck"] = time.perf_counter() - t_re
             if not (math.isfinite(c2) and math.isfinite(p2) and c2 >= p2 - NEUTRAL_EPSILON):
                 accepted, rechecked_out = False, True
@@ -2241,20 +2283,69 @@ MARGIN_START = 0.05  # a new lineage's acceptance margin (it shrinks as it runs)
 _AMNESIA = {"now": False, "founder": False, "died": None}
 
 
-def _developed(dev) -> bool:
-    """Its paired lead over its founder beyond 1.96 standard errors, over 3 pairs at least."""
-    n, mean, m2 = dev
-    if n < 3:
+def _t_sf(t: float, df: float) -> float:
+    """Student's t upper tail, P(T > t): the regularized incomplete beta by its
+    continued fraction (Press et al., Numerical Recipes, betacf) -- no scipy."""
+    if df <= 0:
+        return 0.5
+    x = df / (df + t * t)
+    a, b = df / 2.0, 0.5
+
+    def cf(a, b, x):
+        qab, qap, qam = a + b, a + 1.0, a - 1.0
+        c, d = 1.0, 1.0 - qab * x / qap
+        d = 1.0 / (d if abs(d) > 1e-300 else 1e-300)
+        h = d
+        for m in range(1, 300):
+            m2 = 2 * m
+            aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+            d = 1.0 + aa * d; d = 1.0 / (d if abs(d) > 1e-300 else 1e-300)
+            c = 1.0 + aa / c if abs(c) > 1e-300 else 1e-300
+            h *= d * c
+            aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+            d = 1.0 + aa * d; d = 1.0 / (d if abs(d) > 1e-300 else 1e-300)
+            c = 1.0 + aa / c if abs(c) > 1e-300 else 1e-300
+            de = d * c
+            h *= de
+            if abs(de - 1.0) < 1e-12:
+                break
+        return h
+
+    lbeta = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log(1.0 - x) if 0 < x < 1 else None
+    if lbeta is None:
+        ib = 0.0 if x <= 0 else 1.0
+    elif x < (a + 1.0) / (a + b + 2.0):
+        ib = math.exp(lbeta) * cf(a, b, x) / a
+    else:
+        ib = 1.0 - math.exp(lbeta) * cf(b, a, 1.0 - x) / b
+    tail = 0.5 * ib  # P(|T| > |t|) / 2
+    return tail if t >= 0 else 1.0 - tail
+
+
+def _developed(leads) -> bool:
+    """Its lead over its founder, paired snapshot by snapshot: a one-sided
+    paired t-test at the standard 5% (is it better?), its effective pairs
+    corrected for successive snapshots overlapping (AR(1): n (1 - r) / (1 + r),
+    as its prequential scores are), from 2 pairs (the fewest with a spread)."""
+    x = np.asarray(leads or [], dtype=float)
+    x = x[np.isfinite(x)]
+    n = len(x)
+    if n < 2:
         return False
-    se = math.sqrt(max(0.0, m2 / (n - 1)) / n)
-    return mean > 1.96 * se
+    mean, sd = float(x.mean()), float(x.std(ddof=1))
+    if sd <= 0.0:
+        return mean > 0.0
+    r = float(np.corrcoef(x[:-1], x[1:])[0, 1]) if n > 2 and np.std(x[:-1]) > 0 and np.std(x[1:]) > 0 else 0.0
+    r = min(0.99, max(-0.99, r))
+    n_eff = min(float(n), max(2.0, n * (1.0 - r) / (1.0 + r)))
+    t = mean / (sd / math.sqrt(n_eff))
+    return _t_sf(t, n_eff - 1.0) < 0.05
 
 
-def _development_card(dev) -> dict:
-    n, mean, m2 = dev or [0, 0.0, 0.0]
-    se = math.sqrt(max(0.0, m2 / (n - 1)) / n) if n > 1 else None
-    return {"pairs": n, "lead_over_founder": round(mean, 4) if n else None, "se": None if se is None else round(se, 4),
-            "developed": _developed([n, mean, m2])}
+def _development_card(leads) -> dict:
+    x = [v for v in (leads or []) if math.isfinite(v)]
+    return {"pairs": len(x), "lead_over_founder": round(float(np.mean(x)), 4) if x else None,
+            "sd": round(float(np.std(x, ddof=1)), 4) if len(x) > 1 else None, "developed": _developed(x)}
 
 
 def _life_card(life) -> dict:
