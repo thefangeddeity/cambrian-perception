@@ -663,6 +663,27 @@ and starve for hours, and a starving body never died.
   already exists; real mosquitoes need a blood meal to make eggs), and egg
   resorption when starving (oosorption).
 
+## How big a brain, how big an eye (2026-09-30)
+
+No handwritten caps (a panel; Sterling & Laughlin, Nilsson, Gregg, Changeux,
+Dennett). The reference brain (16 units) costs 5% of its resting burn (the CNS
+takes 2-8% across vertebrates: Mink et al. 1981), and no brain may cost more of
+it than the most any brain is measured to: ~60%, the elephantnose fish (Nilsson
+1996). So a brain's arithmetic is at most 12x the reference's -- stacked layers
+(counted as if open: a gate can open) and channels included; that replaced the
+caps of 256 units and 16 layers. A founder draws its hidden units
+log-uniformly from 1 (the smallest brain) to 102 (the bound, one layer):
+overproduction, then prices prune. Its host's CPU is only a backstop (hundreds
+of times looser; a brain slower than a look misses looks). The largest eye is
+the frame's height in receptors (64); the old 38 came from the retired zoom
+eye's collapse, and its receptors' price is what limits it now.
+
+The constants audit now tells derived numbers (D) from handwritten ones (H,
+until today filed as "physics"), and gives each H a fate: cite, measure,
+evolve or bound, most influential first. `PROTEIN_CAP` is calibrated: with a
+newborn's stores, a starved newborn dies in ~48 h, as starved *Aedes aegypti*
+females must feed about every other day in the field.
+
 ## Consolidation and pyramidal units (2026-09-29)
 
 - **Sleep distillation** (inherited plasticity, born 0; complementary learning

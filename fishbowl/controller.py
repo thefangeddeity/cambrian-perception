@@ -104,10 +104,23 @@ VELOCITY_INPUTS = (44, 45)  # the followed host's velocity (prey sense level 3)
 RECALL_INPUTS = (40, 41, 42)  # what the memory its view recalls held, and where it happened (pattern completion)
 MISMATCH_INPUTS = (37, 38, 39)  # how much of its field differs from its slow model of the room, and where (orienting)
 INPUTS = BASE_INPUTS  # kept for older callers: the base inputs
-HIDDEN = 16         # a newborn brain's hidden layer
+HIDDEN = 16         # the reference brain's hidden layer: the brain its thinking price is set for (BRAIN_SHARE)
 TREE_HIDDEN = 16    # how many hidden units the perception tree reads (its inputs keep fixed positions)
-MIN_HIDDEN, MAX_HIDDEN = 4, 256  # MAX is a safety bound only; the price is what limits growth
-MAX_LAYERS = 16  # stacked layers: a safety bound only, like MAX_HIDDEN
+MIN_HIDDEN = 1  # the smallest thing that is still a brain
+# How big a brain can be (a 2026-09-29 panel -- Sterling & Laughlin, Nilsson,
+# Gregg, Changeux, Dennett): no handwritten cap. The reference brain (HIDDEN
+# units) costs BRAIN_SHARE of its resting burn -- the CNS takes 2-8% of body
+# metabolism across vertebrates (Mink, Blumenschine & Adams 1981) -- and no
+# brain may cost more of it than the most any animal's brain has been measured
+# to: ~60%, the elephantnose fish (Nilsson 1996, J Exp Biol 199:603). So its
+# arithmetic is at most MAX_THINK_FACTOR x the reference brain's, stacked layers
+# and channels included (a silent layer counted as if open: its gate can open).
+# A founder draws its hidden units log-uniformly from 1 to the most that bound
+# allows (overproduction, then prices prune: Changeux). Its host's CPU is only a
+# backstop (a brain slower than a look misses looks: organism.py prices that).
+BRAIN_SHARE = 0.05
+MAX_BRAIN_SHARE = 0.60
+MAX_THINK_FACTOR = MAX_BRAIN_SHARE / BRAIN_SHARE
 BASE_OUTPUTS = 6  # [pan, tilt, zoom, alarm, tempo, sleep]
 OUTPUTS = BASE_OUTPUTS
 MAX_CHANNELS = 4
@@ -148,6 +161,14 @@ def _macs(n_hidden: int, n_in: int, n_out: int) -> int:
 REFERENCE_MACS = _macs(HIDDEN, BASE_INPUTS, BASE_OUTPUTS)  # the original brain: thinking costs its THINK_COST
 
 
+def founder_units_max() -> int:
+    """The most hidden units a founder's single layer can have within MAX_THINK_FACTOR."""
+    h = MIN_HIDDEN
+    while _macs(h + 1, BASE_INPUTS, BASE_OUTPUTS) <= MAX_THINK_FACTOR * REFERENCE_MACS:
+        h += 1
+    return h
+
+
 class MosquitoBrain:
     def __init__(self, weights_ih, weights_hh, weights_ho, bias_h, bias_o, channels: list[dict] | None = None,
                  layers: list[dict] | None = None, apical: float = 0.0):
@@ -177,15 +198,19 @@ class MosquitoBrain:
         self.reset_hidden()
 
     @classmethod
-    def random(cls, rng: random.Random) -> MosquitoBrain:
+    def random(cls, rng: random.Random, hidden: int | None = None) -> MosquitoBrain:
+        """A founder's brain: its hidden units drawn log-uniformly from 1 to
+        founder_units_max() (or `hidden`), every weight at random."""
         def matrix(rows: int, cols: int, scale: float = 0.4) -> list[list[float]]:
             return [[rng.uniform(-scale, scale) for _ in range(cols)] for _ in range(rows)]
 
+        top = founder_units_max()
+        h = hidden if hidden is not None else min(top, max(MIN_HIDDEN, int(round(math.exp(rng.uniform(0.0, math.log(top)))))))
         return cls(
-            weights_ih=matrix(HIDDEN, BASE_INPUTS, scale=0.4),
-            weights_hh=matrix(HIDDEN, HIDDEN, scale=0.3),
-            weights_ho=matrix(BASE_OUTPUTS, HIDDEN, scale=0.4),
-            bias_h=[rng.uniform(-0.05, 0.05) for _ in range(HIDDEN)],
+            weights_ih=matrix(h, BASE_INPUTS, scale=0.4),
+            weights_hh=matrix(h, h, scale=0.3),
+            weights_ho=matrix(BASE_OUTPUTS, h, scale=0.4),
+            bias_h=[rng.uniform(-0.05, 0.05) for _ in range(h)],
             bias_o=[rng.uniform(-0.05, 0.05) for _ in range(BASE_OUTPUTS)],
         )
 
@@ -333,6 +358,15 @@ class MosquitoBrain:
         return Motor(*(float(v) for v in outputs[:BASE_OUTPUTS]))
 
     # ---- what it costs to think -------------------------------------------------
+    def cost_if(self, hidden: int | None = None, extra_layers: int = 0, extra_io: int = 0) -> float:
+        """Its think factor with every stacked layer counted open (a gate can
+        open), if it had `hidden` units, `extra_layers` more layers and
+        `extra_io` more channels -- what MAX_THINK_FACTOR is checked against."""
+        h = self.n_hidden if hidden is None else hidden
+        stacked = (len(self.layers) + extra_layers) * (2 * h * h + h)
+        apical = 2 * h if self.apical else 0
+        return (_macs(h, self.weights_ih.shape[1] + extra_io, self.weights_ho.shape[0] + extra_io) + stacked + apical) / REFERENCE_MACS
+
     def think_factor(self) -> float:
         """This brain's arithmetic per step relative to the original 16-unit
         brain (a stacked layer counts only while its gate is open; units lost
@@ -366,7 +400,7 @@ class MosquitoBrain:
     def grow_unit(self, rng: random.Random) -> bool:
         """A duplicated hidden unit, born unconnected (nothing reads it yet)."""
         h = self.n_hidden
-        if h >= MAX_HIDDEN:
+        if self.cost_if(hidden=h + 1) > MAX_THINK_FACTOR:  # past the most any brain has been measured to cost
             return False
         src = rng.randrange(h)
         self.weights_ih = np.vstack([self.weights_ih, self.weights_ih[src]])
@@ -404,7 +438,7 @@ class MosquitoBrain:
         its W and U copy that layer's recurrence, its bias that layer's. A
         silent copy doesn't mutate (only its gate does), so while one waits a
         second would be the identical copy again: refused."""
-        if len(self.layers) >= MAX_LAYERS or any(float(l["gate"][0]) == 0.0 for l in self.layers):
+        if self.cost_if(extra_layers=1) > MAX_THINK_FACTOR or any(float(l["gate"][0]) == 0.0 for l in self.layers):
             return False
         src = self.layers[-1] if self.layers else {"U": self.weights_hh, "b": self.bias_h}
         self.layers.append({"W": src["U"].copy(), "U": src["U"].copy(), "b": src["b"].copy(), "gate": np.zeros(1)})
@@ -423,7 +457,7 @@ class MosquitoBrain:
         """A new channel: a latch duplicated from an existing output, or a
         blank predictor of one of its inputs. Zero weights on the way back
         in, so nothing changes until evolution wires it up."""
-        if len(self.channels) >= MAX_CHANNELS:
+        if len(self.channels) >= MAX_CHANNELS or self.cost_if(extra_io=1) > MAX_THINK_FACTOR:
             return False
         if kind == "predict":
             row, bias = np.zeros(self.n_hidden), 0.0

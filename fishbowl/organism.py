@@ -60,7 +60,8 @@ from . import reflexes
 REFERENCE_QUOTA_PCT = 150.0
 REFERENCE_GAZES_PER_S = 15.0
 RESTING_BURN = WAKE_FLOOR + TEMPO_SHARE  # B/s, awake and calm at the reference pace
-EYE_SHARE, BRAIN_SHARE = 0.08, 0.05
+EYE_SHARE = 0.08
+from .controller import BRAIN_SHARE  # noqa: E402  (the reference brain's share: controller.py, where its bound lives)
 _PER_GAZE = RESTING_BURN / REFERENCE_GAZES_PER_S / LEGACY_UNIT  # 100% of resting burn, per gaze, in legacy units
 RECEPTOR_COST = EYE_SHARE * _PER_GAZE / fovea.DEFAULT_RECEPTORS ** 2  # per receptor, per gaze, x scarcity
 

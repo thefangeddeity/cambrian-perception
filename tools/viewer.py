@@ -2308,7 +2308,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     { id: 'c-fit', title: 'fitness', cap: 'current / peak ever', series: [['fitness', '#ffe2d6', r => r.best_fitness], ['peak ever', '#9a6f67', r => r.peak_fitness_seen]] },
     { id: 'c-body', title: 'body over its runs', cap: 'per run', fixed: [0, 1], series: [['energy', '#ffe2d6', r => r.mean_energy], ['prey', '#ff5fa2', r => r.mean_prey], ['surprise', '#c8f', r => r.mean_food]] },
     { id: 'c-drive', title: 'homeostatic drive', cap: 'lower is healthier', series: [['drive', '#f6a', r => r.mean_drive]] },
-    { id: 'c-look', title: 'gaze size', cap: 'fraction of the frame', fixed: [0, 0.65], series: [['at birth', '#ffb4a6', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
+    { id: 'c-look', title: 'gaze size', cap: 'fraction of the frame', fixed: [0, 1], series: [['at birth', '#ffb4a6', r => r.fovea_fraction], ['mean in run', '#c8f', r => r.mean_aperture]] },
     { id: 'c-pace', title: 'resting pace', cap: 'every Nth frame', series: [['every Nth frame', '#ffb4a6', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: '%', series: [['quota %', '#fd4', r => r.quota_pct]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#ffb4a6', r => r.tree_depth]] },

@@ -51,8 +51,11 @@ from .retina import frame_to_vector, opponent_planes
 RECEPTOR_PITCH = 1.0 / 64
 DEFAULT_RECEPTORS = 22   # a newborn's eye: 22 x 22 (0.34 of the frame's height; the old default gaze was 0.35)
 MIN_RECEPTORS = 4        # the smallest eye with a centre and a ring around it
-MAX_RECEPTORS = 38       # 0.59 of the frame: past ~0.6 the gaze stops being a gaze and becomes the field
-# (measured under the zoom eye: at 0.9 it snapped wide open, could barely move and fitness collapsed)
+# The largest eye is the frame's own height in receptors (a 2026-09-29 panel:
+# the old 38 = 0.59 of the frame came from the retired zoom eye's collapse past
+# ~0.6, when a stretched eye cost nothing more to widen; now every receptor is
+# priced, so its price limits the eye and the frame is the only true bound).
+MAX_RECEPTORS = int(round(1.0 / RECEPTOR_PITCH))
 
 
 def max_mag(frame_h: int) -> float:

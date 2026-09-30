@@ -4,8 +4,15 @@ Every number the organism, its world and its evolution run on, sorted by
 where it comes from (after a design panel; Dennett's rule). A constant
 should be one of:
 
-- **P, physics:** a property of its simulated world chosen on purpose and
-  documented, the way a game needs gravity.
+- **D, derived:** follows from geometry, from other constants, or reuses one
+  (it is as good as what it derives from).
+- **H, handwritten:** chosen on purpose and documented. Until 2026-09-29 these
+  were filed as "P, physics", which hid how much is chosen; a panel's guidance
+  gives each one a fate -- cite an external measurement, measure it from the
+  organism or its host, make it a gene where evolution can see its cost and
+  benefit, or bound it honestly -- most influential first (what decides life
+  and death: `PROTEIN_CAP`, a newborn's stores, gut and blood-sugar sizes,
+  digestion, food per look, waking and sleeping burn).
 - **S, standard:** an external standard, such as a published measurement,
   a model's shipped defaults or a protocol's convention.
 - **M, measured:** measured from the organism's own data or its host.
@@ -34,8 +41,8 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| `REFERENCE_QUOTA_PCT` | 150 | P | the anchor quota (the original service cap) |
-| `REFERENCE_GAZES_PER_S` | 15 | P | the reference pace the shares are stated at |
+| `REFERENCE_QUOTA_PCT` | 150 | H | the anchor quota (the original service cap) |
+| `REFERENCE_GAZES_PER_S` | 15 | H | the reference pace the shares are stated at |
 | `EYE_SHARE`, `BRAIN_SHARE` | 0.08, 0.05 | S | see above |
 | `CHANNEL_COST`, `PREY_SENSE_COST` | = `THINK_COST` per unit weight | **G** | relative to thinking; a per-synapse yardstick is still missing |
 | `STABILIZER_COST` | 0.5 x `THINK_COST` | **G** | same |
@@ -45,7 +52,7 @@ yardsticks are found.
 | `PERIPH_MOTION_GAIN`, `EXPANSION_GAIN` | 300, 10 | M (dated) | calibrated on a real camera and synthetic looming; recalibrate per host (same candidate) |
 | `MEM_H`, `MEM_W` | 24, 32 | B | surprise-memory resolution |
 | `UNSEEN_NOVELTY`, `FOOD_GAIN` | 0.25, 400 | **G** | tuned on synthetic scenes |
-| `SURPRISE_SIGMAS` | 4 | P | a 4-sigma surprise threshold |
+| `SURPRISE_SIGMAS` | 4 | H | a 4-sigma surprise threshold |
 | `NOISE_FLOOR` | 0.02 | **G** | should be measured: the camera's own temporal noise per receptor |
 | `MEAN_RATE`, `VAR_RATE` | 0.1, 0.05 | **G** | habituation speeds |
 | `SHIFT_WIDTH`, `SHIFT_MIN_RESPONSE`, `SHIFT_MAX` | 160, 0.2, 0.08 | B / **G** | phase-correlation settings for the stabilizer |
@@ -54,46 +61,47 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| `G_CAP`, `GUT_CAP` | 10 min, 20 min of burn | P | blood sugar and gut. `R_CAP` (6 h) retired 2026-09-28: the old reserve became fat (docs/physiology.md) |
+| `G_CAP`, `GUT_CAP` | 10 min, 20 min of burn | H | blood sugar and gut. `R_CAP` (6 h) retired 2026-09-28: the old reserve became fat (docs/physiology.md) |
 | `GLYCOGEN_CAP`, `GLYCOGEN_FILL_S`, `GLYCOGEN_EFFICIENCY` | 6 h, 4 h, 0.97 | S | human liver glycogen ~1/4 of a day's basal; refills within hours (Jentjens & Jeukendrup 2003); synthesis ~1 of ~32 ATP |
 | `FAT_CAP`, `FAT_MAX_SHARE` | 72 h, 0.5 of the aerobic ceiling | S (range) | mouse: 1/3 of its fat in a 14 h fast; Aedes aegypti on water: median 3-4 days (Briegel); Fatmax (Achten & Jeukendrup 2003) |
 | `KETONE_TAU_S`, `KETONE_MAX_SHARE` | 12 h, 2/3 | S | mice reach ketosis in 12-24 h; ketones cover ~2/3 of a fasting brain (Owen et al. 1967) |
-| `PROTEIN_CAP`, `WASTING_REBUILD_S` | 24 h, 72 h | **G** | how much tissue is there to burn, and how fast it regrows: assumptions |
+| `PROTEIN_CAP` | 24 h of waking basal | S (calibration) | with a newborn's stores, a starved newborn dies in ~48 h: starved *Aedes aegypti* females must feed about every other day to escape starvation in the field (J Med Entomol 36:272, 1999); Briegel's reserves: carbohydrate goes first, fat next, protein last (69-86% left at death) |
+| `WASTING_REBUILD_S` | 72 h | **G** | how fast lost tissue regrows once fed |
 | `PHOSPHAGEN_S`, `PHOSPHAGEN_HALF_S` | 10 s, 30 s | S | phosphocreatine: ~10 s of maximal effort; resynthesis half-time ~30 s (Harris et al. 1976) |
 | `ANAEROBIC_FUEL_RATIO`, `LACTATE_RETURN` | 16, 0.93 | S | 2 vs ~32 ATP per glucose; lactate ~half oxidized, ~half rebuilt (Cori, ~87% kept) in recovery (Brooks): net ~2x aerobic |
-| `DIGEST_TAU_S` | 240 s | P | |
-| `STORE_ABOVE`, `STORE_RATE`, `MOBILIZE_BELOW` | 0.8, 1.0, 0.5 | P | the hormonal switches: fed (insulin) above 0.5 fills glycogen, above 0.8 makes fat; fasted (glucagon) below 0.5 releases glycogen and burns fat. `MOBILIZE_RATE` (fat -> sugar) retired: fat can't become glucose |
+| `DIGEST_TAU_S` | 240 s | H | |
+| `STORE_ABOVE`, `STORE_RATE`, `MOBILIZE_BELOW` | 0.8, 1.0, 0.5 | H | the hormonal switches: fed (insulin) above 0.5 fills glycogen, above 0.8 makes fat; fasted (glucagon) below 0.5 releases glycogen and burns fat. `MOBILIZE_RATE` (fat -> sugar) retired: fat can't become glucose |
 | `STORE_EFFICIENCY` | 0.75 | S | making fat from sugar (de novo lipogenesis ~75-80%) |
-| `SLEEP_METABOLISM`, `WAKE_FLOOR`, `TEMPO_SHARE` | 0.3, 0.6, 0.4 B/s | P | the endotherm end; resting and sleeping burn scale with the inherited metabolic strategy (2026-09-27) |
+| `SLEEP_METABOLISM`, `WAKE_FLOOR`, `TEMPO_SHARE` | 0.3, 0.6, 0.4 B/s | H | the endotherm end; resting and sleeping burn scale with the inherited metabolic strategy (2026-09-27) Sleep costs 0.3 of calm waking's 1.0 B/s: a 70% saving, unverified -- flies' metabolism does fall in sleep (Stahl et al. 2017, Sleep 40), by how much is to be sourced first. |
 | `MIN_METABOLISM` | 0.1 | S | an ectotherm rests at ~1/10 of an endotherm (Bennett & Ruben 1979: 5-10x, the upper end) |
 | `AEROBIC_SCOPE` | 10 x resting | S | vertebrate factorial aerobic scope (Bennett & Ruben); insects' is far higher -- not modelled |
 | `BURST_S`, `DEBT_TAU_S` | 120 s, 2 h | S / **G** | glycolytic capacity (Gastin 2001: crossover ~75 s; lizards exhaust within minutes, Bennett 1978); recovery over hours (crocodiles) -- 2 h assumed |
 | `SDA_FRACTION` | 0.2 | S / **G** | digestion's cost (specific dynamic action; within Secor's range for ectotherms, the exact value chosen) |
 | activity's per-unit cost | same for every strategy | **G** | assumption: equal cost of moving; only what is sustainable differs |
-| `LIGHT_FAST_S`, `LIGHT_SLOW_S` | 60 s, 1200 s | P | its day/night sense |
+| `LIGHT_FAST_S`, `LIGHT_SLOW_S` | 60 s, 1200 s | H | its day/night sense |
 | `TIRED_EFFICIENCY` | 0.5 | **G** | the invented cost of skipping sleep; the proposed sleep redefinition would retire it (awaiting a go) |
 | `ACCLIMATIZE_HALF_LIFE_S` | 80 s | **G** | |
-| `EFFORT_COST`, `FOOD_PER_LOOK`, `PREY_FOOD_PER_LOOK` | 1e-4, 2e-4, 1.2e-3 | P | prices and food values of its world. A meal is now one bite times the chance the catch is real (the detector's confidence), whatever the eye's size or the prey's distance (2026-09-27; it used to be the share of the gaze centre prey covered, which made the eye a mouth). Blood meals are no longer per look (2026-09-28): see `PUMP_REF`. `PREY_FOOD_PER_LOOK` now only sets where the pump is born |
+| `EFFORT_COST`, `FOOD_PER_LOOK`, `PREY_FOOD_PER_LOOK` | 1e-4, 2e-4, 1.2e-3 | H | prices and food values of its world. A meal is now one bite times the chance the catch is real (the detector's confidence), whatever the eye's size or the prey's distance (2026-09-27; it used to be the share of the gaze centre prey covered, which made the eye a mouth). Blood meals are no longer per look (2026-09-28): see `PUMP_REF`. `PREY_FOOD_PER_LOOK` now only sets where the pump is born |
 | `PUMP_REF` | 21.6 B/s | S / **I** | a bite is a flow while a host is at its mouth (Holling's handling time; panel 8-1). The reference is the old per-look meal at a look every frame (15 fps). Each lineage is born at `PUMP_REF / pace`, what it ate at its own resting tempo, so none jumps. The rate is inherited (`genome.pump`), mutates at `TRAIT_SIGMA` (log-normal). No biological bounds: upkeep and intake set its limits, and log-normal steps approach a nip without reaching zero; `PUMP_GUARD` (1e-6-1e6x) only keeps the float sane |
-| swat rule | `WAKE_LOOM`, box growth > 0 | P / **S** | a swat = the host at its mouth came nearer (same host, box grew) while the whole field looms past `WAKE_LOOM`, the line that already counts as a big change (reused, not a new constant). World physics: the host side of host defense (panel 2026-09-28) |
-| swat cost | this bite's blood | P | a swat takes back the blood taken in the bite going on (Roitberg et al. 2003: engorged mosquitoes are slower and hit more; Lima & Dill 1990). No tissue damage: nothing measures its size (panel 9-2) |
-| `PLANT_CLASS`, `NECTAR_CROP` | 58, one gut-full | S / **P** | COCO's "potted plant" as nectar; a full plant holds about one gut-full, a flower's standing crop being about one mosquito sugar meal |
+| swat rule | `WAKE_LOOM`, box growth > 0 | D / **S** | a swat = the host at its mouth came nearer (same host, box grew) while the whole field looms past `WAKE_LOOM`, the line that already counts as a big change (reused, not a new constant). World physics: the host side of host defense (panel 2026-09-28) |
+| swat cost | this bite's blood | D | a swat takes back the blood taken in the bite going on (Roitberg et al. 2003: engorged mosquitoes are slower and hit more; Lima & Dill 1990). No tissue damage: nothing measures its size (panel 9-2) |
+| `PLANT_CLASS`, `NECTAR_CROP` | 58, one gut-full | S / **H** | COCO's "potted plant" as nectar; a full plant holds about one gut-full, a flower's standing crop being about one mosquito sugar meal |
 | `NECTAR_REFILL_S` | 3 h | **G** | a drunk plant refills its nectar with this time constant; nectar secretion refills in hours, the exact value a guess |
 | `plant_sense` | born 0; 0/1/2 | I | none / scent / + coarse direction to plants; priced per synapse like the prey sense |
-| warning cost | alarm² per frame, x `EFFORT_COST` | P | the alarm output, while positive, costs what the eye's muscle costs for the same output (a 2026-09-28 panel: signals cost their sender); reuses the muscle price, no new constant |
+| warning cost | alarm² per frame, x `EFFORT_COST` | D | the alarm output, while positive, costs what the eye's muscle costs for the same output (a 2026-09-28 panel: signals cost their sender); reuses the muscle price, no new constant |
 | `imagery`, `PROTO_SIDE` | born 0; 16 | I / B | imagery (Kenyon-cell prototypes, and seeing its dreams) is inherited, born off; the prototypes' 16x16 grid relative to its eye is a storage and display bound |
 | `mobilize`, `store` | born 0.5, 0.8 | I | the fasted and storage lines (glucagon, insulin), inherited since 2026-09-28 (panel 8-2); one operator steps both by TRAIT_SIGMA; kept 0 < mobilize < store < 1 (their meaning) |
 | `METABOLISM_GUARD` | 1e3 | B | metabolic strategy has no upper limit but this numerical guard (panel 8-2): above 1 is hotter than a newborn, paying more rest for more stamina |
 | `receptor_slowness` | born 0; steps TRAIT_SIGMA x (1 + slowness) | I / **S** | extra photoreceptor integration time, in reference frames (1/15 s); the gaze sees the frames low-passed with that time constant. Receptor cost x 1 / (1 + slowness): pumping cost follows the membrane conductance G, and speed is G / C (Laughlin & Weckstrom 1993; Niven, Anderson & Laughlin 2007). Never faster than the camera (world physics). Step scaling with size: chosen so it can leave 0 and still move once slow (flagged) |
 | `aversive_rate` | born 0; first draw log-uniform 1e-3-1 | I | the aversive compartment's learning rate, drawn and stepped as the reward learning rate is |
 | `PUMP_UPKEEP_SHARE` | 0.05 | **G** | a pump at `PUMP_REF` costs 5% of the resting burn, scaled by pump size and metabolic strategy. Borrowed from the brain's share (Mink 1981), not measured for a feeding pump: flagged |
-| `MOUTH_SIDE` (fishbowl/prey.py) | 0.172 of frame height | P | a square mouth at the gaze centre, fixed: a given (mouths barely evolve; not modelled). Exactly a newborn eye's old eating zone, so default eyes eat as before; square like the eye's mosaic (panel 7-2: a round one of the same width would cut the catch zone to pi/4) |
+| `MOUTH_SIDE` (fishbowl/prey.py) | 0.172 of frame height | H | a square mouth at the gaze centre, fixed: a given (mouths barely evolve; not modelled). Exactly a newborn eye's old eating zone, so default eyes eat as before; square like the eye's mosaic (panel 7-2: a round one of the same width would cut the catch zone to pi/4) |
 | `S_RISE_S`, `S_FALL_S` | 18.2 h, 4.2 h | S | Daan, Beersma & Borbely 1984 |
 | `SLEEP_SETTLE_S`, `SLEEP_INERTIA_S` | 10 s, 7 s | **G** | |
 | `COLLAPSE_S`, `COLLAPSE_RELEASE_S` | 0.95, 0.8 | **G** | safety net |
-| `HUNGER_WAKE_R`, `EMPTY_G` | 0.05, 0.1 | P | an empty body (degraded). `HUNGER_WAKE_G` retired 2026-09-27 with the starvation-forces-awake rule (it made sleep flap as the gut crossed its line) |
+| `HUNGER_WAKE_R`, `EMPTY_G` | 0.05, 0.1 | H | an empty body (degraded). `HUNGER_WAKE_G` retired 2026-09-27 with the starvation-forces-awake rule (it made sleep flap as the gut crossed its line) |
 | `WAKE_LOOM`, `WAKE_MOTION` | 0.18, 0.6 | **G** | what wakes it from sleep, now divided by the inherited vigilance (born 1: unchanged) |
-| `MISMATCH_TAU_S` | = `LIGHT_SLOW_S` (1200 s) | P | the field mismatch's model of the room adapts over its day/night sense's slow timescale (reused, not new); a cell mismatches beyond `SURPRISE_SIGMAS` x its own learned variation, floored at `NOISE_FLOOR` (the snack memory's rule), the area is read with `EXPANSION_GAIN` and wakes at `WAKE_LOOM` (the same kind of reading: an area differing from a background) |
+| `MISMATCH_TAU_S` | = `LIGHT_SLOW_S` (1200 s) | D | the field mismatch's model of the room adapts over its day/night sense's slow timescale (reused, not new); a cell mismatches beyond `SURPRISE_SIGMAS` x its own learned variation, floored at `NOISE_FLOOR` (the snack memory's rule), the area is read with `EXPANSION_GAIN` and wakes at `WAKE_LOOM` (the same kind of reading: an area differing from a background) |
 | `NECTAR_OIV7` | Open Images' "Plant" node, 12 classes | S | the detector's own published class hierarchy (bbox_labels_600_hierarchy.json, /m/05s2s), not a pick |
 | `FLOWER_EVERY_S` | 30 s | B | plants don't move; the flower detector's CPU budget (under ~1% of a core on Tanzania; 2026-09-28 infrastructure review) |
 | scene match | r > 1.96 / sqrt(N_eff), N_eff = N (1 - ra rb) / (1 + ra rb) | S | the 5% test with Bretherton et al. (1999)'s effective sample size for autocorrelated fields |
@@ -101,15 +109,15 @@ yardsticks are found.
 | `MAX_SLEEP_SET` | 1024 | B | a safety bound on its sleep test set; the edits tested on it are what it pays |
 | `MAX_HEADS` | 4 | B | archetype heads have fixed input slots |
 | camera moves | a whole-frame shift of >= 1 pixel of the shift frame | B | the measurement's own resolution; below it is noise |
-| parallax scale | residual / (change + `NOISE_FLOOR`) | P | a ratio: no gain; reuses the sensor-noise floor |
-| test-set weights | disagreement + running mean disagreement | P | self-scaling (Efraimidis & Spirakis 2006 keys) |
-| uncertainty rate | its own learning rate | P | reused |
+| parallax scale | residual / (change + `NOISE_FLOOR`) | D | a ratio: no gain; reuses the sensor-noise floor |
+| test-set weights | disagreement + running mean disagreement | D | self-scaling (Efraimidis & Spirakis 2006 keys) |
+| uncertainty rate | its own learning rate | D | reused |
 | `EVENTS_MAX_BYTES` | 5 MB, one rotation | B | disk wear |
 | `KEEP_BACKUPS` (fleet.py) | 3 per host | B | fleet-made backups only |
 | `ENGORGE_S` | 90 s | S | a mosquito engorges in ~1.5 min (Clements 1992; Chadee & Beier 1995: 1-2.5 min): the tube's flow at bore 1 |
-| bore upkeep | bore^2 x `PUMP_UPKEEP_SHARE` | P | tissue to keep scales with the tube's cross-section; reuses the pump's upkeep share |
+| bore upkeep | bore^2 x `PUMP_UPKEEP_SHARE` | D | tissue to keep scales with the tube's cross-section; reuses the pump's upkeep share |
 | `GONOTROPHIC_S` | 3 days | S | blood meal to eggs (Clements 1992: 2-4 days) |
-| protein in the drive | 0.3 | P | weighted like the fat stores (reused) |
+| protein in the drive | 0.3 | D | weighted like the fat stores (reused) |
 | episode capacity | one per Kenyon cell | B | a sparse associative memory holds at least as many patterns as cells |
 | `MIN_METABOLISM` | 1e-3 (was 0.1) | B | a numerical guard; a slow brain misses looks instead |
 | sleep set steps | 0 <-> 16, then doubling / halving | B | a mutation's step size (a set of 16 looks is the smallest worth testing on); the size itself evolves |
@@ -119,28 +127,31 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| `RECEPTOR_PITCH` | 1/64 of frame height | P | documented in fovea.py |
-| `DEFAULT_RECEPTORS`, `MIN_RECEPTORS`, `MAX_RECEPTORS` | 22, 4, 38 | P / B / M (dated) | MAX from the zoom eye's measured collapse past 0.6 |
-| `FIELD_RECEPTORS` | 144 | P | the old whole-field count, now square |
-| `DAMPING`, `FORCE_GAIN`, `SPRING` | 0.5, 0.2, 0.08 | P | overdamped oculomotor plant (Robinson); saccade speed and hold cost documented |
+| `RECEPTOR_PITCH` | 1/64 of frame height | H | documented in fovea.py |
+| `DEFAULT_RECEPTORS`, `MIN_RECEPTORS`, `MAX_RECEPTORS` | 22, 4, 64 | H / B / D | MAX = the frame's height in receptors (was 38, from the retired zoom eye's collapse); its price limits the eye |
+| `FIELD_RECEPTORS` | 144 | H | the old whole-field count, now square |
+| `DAMPING`, `FORCE_GAIN`, `SPRING` | 0.5, 0.2, 0.08 | H | overdamped oculomotor plant (Robinson); saccade speed and hold cost documented |
 | `max_mag` (zoom lens limit) | `RECEPTOR_PITCH` x frame height (2.81 at 180 rows) | M | measured from each frame: one receptor per pixel, so it never upsamples (no pixel inflation); zoom in only (added 2026-09-27) |
 
 ### fishbowl/controller.py, genome.py, blocks.py (brain and search)
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| `HIDDEN`, `TREE_HIDDEN` | 16, 16 | P | a newborn's size; the tree's view |
-| `MIN_HIDDEN`, `MAX_HIDDEN`, `MAX_LAYERS` | 4, 256, 16 | B | price limits growth |
+| `HIDDEN`, `TREE_HIDDEN` | 16, 16 | H | the reference brain its thinking price is set for (founders now draw their own size); the tree's view |
+| `BRAIN_SHARE` | 0.05 of resting burn for the reference brain | S | the CNS takes 2-8% of body metabolism across vertebrates (Mink, Blumenschine & Adams 1981) |
+| `MAX_BRAIN_SHARE` | 0.60 | S | the most any brain is measured to cost: the elephantnose fish (Nilsson 1996); a brain's arithmetic is at most 12x the reference's, stacked layers and channels included |
+| `MIN_HIDDEN` | 1 | D | the smallest thing that is still a brain |
+| a founder's hidden units | log-uniform, 1 to the energy bound (102) | D | overproduction, then prices prune (Changeux); replaced a fixed 16 and caps of 256 units, 16 layers |
 | `MAX_CHANNELS` | 4 | **G** | a hand cap on loops; could become a bound only, as for units |
 | `HEAVY_TAIL_P`, `HEAVY_TAIL_SCALE`, `HEAVY_TAIL_MAX` | 0.1, 0.1, 2.0 | **G** | heavy-tailed mutations are grounded (the distribution of fitness effects is leptokurtic, Eyre-Walker & Keightley 2007); the mix is not |
 | `STABILIZER_SIGMA` | 0.1 | **G** | |
 | `ZOOM_SIGMA` | = `STABILIZER_SIGMA` | **G** | a 0..1 reflex gain, mutated at the same scale; the zoom gain is born 0 (off) |
 | `TRAIT_SIGMA` | = `STABILIZER_SIGMA` | **G** | the 2026-09-27 traits (metabolism, host preference, REM share, vigilance) mutate at the stabilizer's scale |
 | `MAX_REPLAYS`, `MIN_VIGILANCE`, `MAX_VIGILANCE` | 16, 0.25, 4 | B | bounds only: replay is limited by its price and the look's deadline |
-| replay rules | prioritized by surprise (Mattar & Daw); REM = two experiences' halves at mean reward (Hoel) | P | Crick & Mitchison's REM unlearning not modelled; the place map's NREM downscaling reuses `CONSOLIDATE_RATE` |
-| place map learning rate | = `genome.learning_rate` | P | the mushroom body's own rate (one lifetime learner) |
-| intruder memory | over `LIGHT_SLOW_S` (~20 min), per light phase | P | its day/night sense's slow average reused as "lately" |
-| host preference | mean 1, people >= 1 | P | tuning redistributes attention; people always tracked (the clade's rule) |
+| replay rules | prioritized by surprise (Mattar & Daw); REM = two experiences' halves at mean reward (Hoel) | S | Crick & Mitchison's REM unlearning not modelled; the place map's NREM downscaling reuses `CONSOLIDATE_RATE` |
+| place map learning rate | = `genome.learning_rate` | D | the mushroom body's own rate (one lifetime learner) |
+| intruder memory | over `LIGHT_SLOW_S` (~20 min), per light phase | D | its day/night sense's slow average reused as "lately" |
+| host preference | mean 1, people >= 1 | H | tuning redistributes attention; people always tracked (the clade's rule) |
 | `MIN_PACE`, `MAX_PACE` | 1, 6 | **G** | |
 | `BRAIN_FLOOR` | 0.3 | **G** | an audit fix against operator starvation |
 | `OP_SUCCESS_EMA_ALPHA` | 0.05 | **G** | |
@@ -154,9 +165,9 @@ yardsticks are found.
 | `KC_INPUTS` | 7 | S | inputs per Kenyon cell (Caron et al. 2013) |
 | `KC_ACTIVE` | 5% | S | share of Kenyon cells responding (Turner et al. 2008; Honegger et al. 2011) |
 | `MAX_KC` | 16384 | B | the price limits it; raised from 4096 when a lineage pressed it (Tina at 3,904, 2026-09-28; panel 8-2) |
-| `KC_STEP` (genome) | 64 | P | cells added or removed per mutation |
-| `LEARNING_MIN`, `LEARNING_MAX`, `LEARNING_SIGMA` (genome) | 0.001, 1, 0.5 | P / M | the maximum is principled: above 1, one update overshoots its own prediction error |
-| reward scale | 1 = a full look at prey | P | the energy it ate, in meals |
+| `KC_STEP` (genome) | 64 | H | cells added or removed per mutation |
+| `LEARNING_MIN`, `LEARNING_MAX`, `LEARNING_SIGMA` (genome) | 0.001, 1, 0.5 | H / M | the maximum is principled: above 1, one update overshoots its own prediction error |
+| reward scale | 1 = a full look at prey | D | the energy it ate, in meals |
 
 ### fishbowl/prey.py, bouts.py, video_source.py
 
@@ -253,7 +264,7 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| `CIRC_PERIOD_S` | 24 h | P | Earth's day |
+| `CIRC_PERIOD_S` | 24 h | S | Earth's day |
 | `CIRC_SHIFT_RATE` | 1 h of phase a day at most | S | human phase-response curves (Czeisler) |
 | the gate's thresholds | today's SLEEP_ONSET/END at the clock's day | -- | reused |
 
@@ -269,7 +280,7 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| extrapolation's physics | 1 = velocity x its measured lag | P | exact compensation; the gene tunes around it |
+| extrapolation's physics | 1 = velocity x its measured lag | D | exact compensation; the gene tunes around it |
 | `EXTRAPOLATION_MAX` | 3 | B | safety only |
 | tau's corners | 40 in its gaze window, >= 8 tracked | B / S | a similarity fit's 4 unknowns need more points than that |
 | tau counted | > 2 SE and replicated by the look before | S | as its ego-motion |
@@ -278,7 +289,7 @@ yardsticks are found.
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| ground's typical depth | 2 / (1 - horizon) eye-heights | P | half-way from the horizon to the frame's bottom, focal ~ frame height |
+| ground's typical depth | 2 / (1 - horizon) eye-heights | D | half-way from the horizon to the frame's bottom, focal ~ frame height |
 | grid spacings | 1 eye-height x sqrt(2)^m, 4 modules | S / P | Stensola et al. 2012's ratio; its own unit |
 | grid cells per module | 16 | B | |
 | place cells | 128, 7 inputs each, 5% firing | S | as its Kenyon cells (7 inputs, ~5%) |
@@ -291,17 +302,17 @@ yardsticks are found.
 | votes only when most flowed | the ego-motion fit's majority moved | S | vection needs wide-field flow (Brandt, Dichgans & Koenig 1973) |
 | forgetting | `MISMATCH_TAU_S`, in seconds moving only | S | its slow model of the room's rate; still, it forgets nothing |
 | local frame | still votes beat half at the 5% test (z > 1.96) | S | a binomial share against 1/2 |
-| one map a life | not per scene | P | its body is the same in every place (Jeffery) |
+| one map a life | not per scene | H | its body is the same in every place (Jeffery) |
 
 ### Flow-taught terrain (fishbowl/organism.py; 2026-09-29)
 
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
-| ground depth | (1 - e) / (y - horizon) eye-heights | P | pinhole, focal ~ frame height, as its speed cells |
+| ground depth | (1 - e) / (y - horizon) eye-heights | D | pinhole, focal ~ frame height, as its speed cells |
 | its speed | median of the frame's corners' readings through its map, >= 8 | S | robust; 8 = ego-motion's own minimum |
 | straight ahead | shift < 1 px, no significant roll, significant expansion | S | camera_moves' own thresholds |
 | a lesson counts | predicted outflow >= 1 px; weight flow_teacher x (1 - 1 px / moved) | S | RANSAC's pixel |
-| `LK_HALF_WINDOW` | 10 px | P | half of OpenCV's default 21 px Lucas-Kanade window |
+| `LK_HALF_WINDOW` | 10 px | S | half of OpenCV's default 21 px Lucas-Kanade window |
 | `flow_teacher` seed | 0.5 + 3 mutation steps | S | equal weights: the ignorance prior |
 
 ### Its V4 (fishbowl/v4.py; 2026-09-29)
@@ -310,9 +321,9 @@ yardsticks are found.
 |---|---|---|---|
 | `COLOUR_ADAPT_SEED_S` | 20 s | S | Fairchild & Reniff 1995: ~95% adapted in 60 s; the gene is the adaptation time |
 | `COLOUR_ADAPT_MAX_S` | 3600 s | B | safety only |
-| colour constancy's price | a second pass over its cones | P | one gain per cone per channel |
+| colour constancy's price | a second pass over its cones | D | one gain per cone per channel |
 | fineness | spectrum's second moment, arcsin-corrected | S | Rice 1944; the central difference's transfer function |
-| texture inputs | contrast x 2; fineness / (h / 4); anisotropy | P | the most each can be |
+| texture inputs | contrast x 2; fineness / (h / 4); anisotropy | D | the most each can be |
 | texture teacher | per-row median, >= 8 cells | S | depth and resolution constant along a row |
 | texture lesson weight | texture_teacher x (1 - noise floor / contrast) | S | `NOISE_FLOOR` |
 
@@ -329,11 +340,11 @@ yardsticks are found.
 | Constant | Value | Kind | Notes |
 |---|---|---|---|
 | kappa seed | 0.9 | S | Add-my-Pet median across ~3000 species (Marques et al. 2018) |
-| kappa at laying | one log-odds step, sd `LEARNING_SIGMA` | P | a bounded share steps on its log-odds |
-| `EGG_COST` | newborn's stores / `STORE_EFFICIENCY` = 14,624 B | P | derived from the body's own defaults |
+| kappa at laying | one log-odds step, sd `LEARNING_SIGMA` | D | a bounded share steps on its log-odds |
+| `EGG_COST` | newborn's stores / `STORE_EFFICIENCY` = 14,624 B | D | derived from the body's own defaults |
 | `DAMAGE_FRACTION` | 0.0015 | S | electrons leaking to superoxide (St-Pierre et al. 2002) |
-| death by age | damage = `PROTEIN_CAP` | P | the same tissue wasting breaks down |
-| death by starvation | wasting = 1 | P | its own ceiling |
+| death by age | damage = `PROTEIN_CAP` | D | the same tissue wasting breaks down |
+| death by starvation | wasting = 1 | D | its own ceiling |
 | `MARGIN_START` | 0.05 | B | a new lineage's acceptance margin (as before; now named) |
 
 ### Viewer only (tools/viewer.py)

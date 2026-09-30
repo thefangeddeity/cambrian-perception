@@ -30,7 +30,7 @@ from fishbowl import controller, genome as G, sandbox  # noqa: E402
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--units", type=int, default=controller.HIDDEN // 4, help="how many hidden units the stroke hits")
+    parser.add_argument("--units", type=int, default=None, help="how many hidden units the stroke hits (default: a quarter of its brain's)")
     args = parser.parse_args()
     ck = sandbox.load_checkpoint()
     if ck is None:
@@ -38,15 +38,16 @@ def main() -> int:
         return 1
     g = G.Genome.from_dict(ck["genome"])
     b, rng = g.brain, random.Random()
-    n = max(1, min(controller.HIDDEN, args.units))
-    start = rng.randrange(controller.HIDDEN - n + 1)
+    H = b.n_hidden  # its own brain's size (brains differ: founders draw theirs)
+    n = max(1, min(H, args.units if args.units is not None else H // 4))
+    start = rng.randrange(H - n + 1)
     region = list(range(start, start + n))
 
     # Every weight touching the region: into it (inputs, recurrent from
     # anywhere), out of it (recurrent to everywhere, motor readout), its biases.
     slots = [(b.weights_ih, h, j) for h in region for j in range(len(b.weights_ih[h]))]
-    slots += [(b.weights_hh, h, j) for h in region for j in range(controller.HIDDEN)]
-    slots += [(b.weights_hh, i, h) for i in range(controller.HIDDEN) if i not in region for h in region]
+    slots += [(b.weights_hh, h, j) for h in region for j in range(H)]
+    slots += [(b.weights_hh, i, h) for i in range(H) if i not in region for h in region]
     slots += [(b.weights_ho, o, h) for o in range(len(b.weights_ho)) for h in region]
     values = [m[r][c] for m, r, c in slots]
     rng.shuffle(values)
