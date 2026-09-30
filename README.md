@@ -15,7 +15,7 @@ for everything it does.
 - Packages and installers: [docs/packaging.md](docs/packaging.md)
 - The camera suite (organism and livecam never run together): [docs/suite.md](docs/suite.md)
 - A developing organism, and fitness that knows its stage (proposed): [docs/design-ontogeny.md](docs/design-ontogeny.md)
-- A second organism per host (parked, documented for later): [docs/second-organism.md](docs/second-organism.md)
+- A second organism per ecohost (parked, documented for later): [docs/second-organism.md](docs/second-organism.md)
 - Next designs (not built): when its ground stops being its ground, essence from motion, binocular vision: [docs/next-designs.md](docs/next-designs.md)
 - Its self-test, which every installer runs first: `python tools/selftest.py`
 
@@ -39,11 +39,20 @@ Read the words as names for mechanisms, not as claims about experience.
 **A cambrioid, not a mosquito.** It began as a mosquito-bat chimera, and many
 of its numbers still come from mosquitoes and vampire bats, as measured
 sources (a bite's size, a gonotrophic cycle, a lifespan's shape). Its own
-terms: **essence** is its food, found in its **hosts** -- anything the
-detector names that people treat as animate (people, animals, a teddy bear,
-vehicles); a catch is a **bite**; **nectar** is plants' sugar; **snacks** are
-the little any look at something new gives. In the code, some names keep the
-older words (`PREY_CLASSES`, `bite_blood`): they mean the same things.
+terms, after the Three Treasures (三寶) of Daoist thought -- borrowed as
+names for mechanisms, not as claims about them:
+
+| It eats | From | Counted in | The mechanism |
+|---|---|---|---|
+| **jīng** 精 (essence) | **hosts**: what people treat as animate -- people, animals, a teddy bear, vehicles | **kǒu** 口, mouthfuls | a bite: a host held under its mouth |
+| **qì** 氣 (breath) | plants: alive, but still | **xī** 息, breaths | a sip: nectar, flowing in |
+| **shén** 神 (spirit) | anything new in its gaze | **niàn** 念, thought-moments | a snack: what a look at something new gives; speed pays more (ram feeding) |
+
+The computer it lives on is its **ecohost**: its CPU is its energy economy,
+its camera its world, the resource handler its climate; the hive is a network
+of ecohosts. In the code some names keep older words (`PREY_CLASSES`,
+`bite_blood`, `host_pref`, `snacks`, `nectar`; "host" in the installers means
+the machine): they mean the same things.
 
 **Its boundary.** What evolves can only compose the fixed operations in
 `fishbowl/blocks.py`: nothing it makes can read or write files, open sockets,
@@ -51,14 +60,14 @@ start processes or run for unbounded time. Raw camera frames are never
 written to disk. Resource use is capped by the operating system (systemd,
 Job Objects), not by anything the organism reports.
 
-**The hive (opt-in, off for a new install).** Hosts that join it may, after an
+**The hive (opt-in, off for a new install).** Ecohosts that join it may, after an
 extinction, take a genome from a peer. It is **pull-only** (nothing is pushed
-to a host), **data-only** (a genome is numbers; it is vetted against this
-host's own limits before use -- `tools/fleet.py vet_genome`) and **removable**
+to an ecohost), **data-only** (a genome is numbers; it is vetted against this
+ecohost's own limits before use -- `tools/fleet.py vet_genome`) and **removable**
 at any time (`--no-hive`). See docs/packaging.md.
 
 **How it is run.** It learns only over long undisturbed stretches. Changes go
-in batches, each gated by the self-test on every host before it runs, and then
+in batches, each gated by the self-test on every ecohost before it runs, and then
 it is left alone: a deploy restarts every organism, and each restart is time
 it doesn't spend living.
 
@@ -67,7 +76,7 @@ written durably, each with its previous copy kept. A cut loses at most the
 last few minutes; a damaged file is set aside (never silently replaced) and
 it resumes from the previous copy, or at worst from its own founder -- it
 never crash-loops and never starts a stranger over its lineage. Downtime
-isn't charged: it doesn't starve or age while its host is off. After a boot
+isn't charged: it doesn't starve or age while its ecohost is off. After a boot
 it waits for the network, and a stream that can't open because the machine
 has no network yet is not held against the stream (your choice of video is
 kept).
@@ -81,7 +90,7 @@ and the detector models, downloaded from this repo's
 [models-v1 release](https://github.com/thefangeddeity/cambrian-perception/releases/tag/models-v1)
 and checked against their SHA-256 (`tools/fetch_models.py`; the release notes
 say how to make them yourself). Without the models it still runs, with
-snacks only.
+shén alone (no hosts to bite).
 
 **Linux** (systemd; Debian/Ubuntu, Arch and others):
 
@@ -94,7 +103,7 @@ It makes a system account `cambrian` (in the video group, no login) and its
 home, a checkout in `/srv/cambrian/cambrian-perception`, then the venv, the
 models, the services under `cambrian.target`, a polkit rule (its viewer may
 restart it when you pick a video) and the `cambrian` command. It watches
-`/dev/video0`; for another camera see Host settings below. Or install a
+`/dev/video0`; for another camera see Ecohost settings below. Or install a
 package instead (the same layout): `sh deploy/debian/build-deb.sh`, then
 `sudo apt install ./dist/cambrian-perception_*.deb`; on Arch,
 `cd deploy/arch && makepkg -si`. Don't put a package over a checkout install.
@@ -124,34 +133,34 @@ and opens port 8090 on private networks.
 macOS and Windows install from these scripts; native packages (a `.pkg`, an
 MSI) are still to come. Every installer runs the self-test on the incoming
 code first; if it fails, nothing changes and the running organism keeps
-running. A new install is solo; an update keeps the host's choice (re-run the
+running. A new install is solo; an update keeps the ecohost's choice (re-run the
 same command to update). Installing is starting: the organism takes the
 camera (docs/suite.md). Then open `http://<this machine>:8090/`.
 
-## Host settings
+## Ecohost settings
 
-Everything you can set on a host, with its default. None of these change the
+Everything you can set on an ecohost (the computer it lives on), with its default. None of these change the
 organism's code; a restart (`cambrian --restart`) picks them up.
 
 | Where | Setting | Default | Notes |
 |---|---|---|---|
 | `cambrian.json` (next to the code) | `"hive"` | `false` (solo) | the installers' `--hive` / `-Hive` set it |
-| `cambrian.json` | `"diet"` | living beings, the teddy bear and vehicles are food (essence); plants are nectar | see "What it eats" below |
+| `cambrian.json` | `"diet"` | living beings, the teddy bear and vehicles give jīng; plants give qì | see "What it eats" below |
 | `cambrian.json` (macOS, Windows) | `"source"`, `"viewer_port"` | `"0"` (the camera), `8090` | the installers' `--source` / `-Source` |
 | its viewer | the video it watches | its camera | a stream you pick there (`state/selected_source.json`), with an optional end time |
 | systemd drop-in (Linux) | which camera, its priority | `/dev/video0` | `sudo systemctl edit cambrian-perception`: `[Service]` / `ExecStart=` / `ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/v4l/by-id/<your camera>` (a by-id path survives reboots), and e.g. `Nice=10` |
-| `state/host_limits.json` | `{"max_quota_pct": N}` | the host's cores less one | a ceiling on the CPU the resource handler may grant (e.g. a laptop you use) |
+| `state/host_limits.json` | `{"max_quota_pct": N}` | the ecohost's cores less one | a ceiling on the CPU the resource handler may grant (e.g. a laptop you use) |
 | the unit (Linux) | `CPUQuota`, `MemoryMax` | 150%, 1.5 GB | only until the resource handler's first run (every 15 min): it grants CPU as cores go idle and sizes memory from what the host can spare |
-| `state/experiments.json` | per-host trials | none | a trial's name: `true` (e.g. ram feeding was one, before it became how every organism feeds) |
+| `state/experiments.json` | per-ecohost trials | none | a trial's name: `true` (e.g. ram feeding was one, before it became how every organism feeds) |
 | environment | `CAMBRIAN_PREY_MODEL` | `models/yolov8n.onnx` next to the code | another detector model |
 | environment | `CAMBRIAN_WORKERS` | from the CPU granted: a worker per core, less one | a fixed number of evolution workers (`1`: serial) |
 | environment | `CAMBRIAN_RUNTIME_DIR` | `/dev/shm/cambrian-perception` | where its live status and frames live (RAM) |
 | environment | `CAMBRIAN_CAMERA_PREVIEW` | `1` | `0`: no recent frames kept for the viewer's replay |
-| environment | `CAMBRIAN_INSTANCE` | unset | parked: a second organism per host (docs/second-organism.md) |
+| environment | `CAMBRIAN_INSTANCE` | unset | parked: a second organism per ecohost (docs/second-organism.md) |
 
 On the machines this was developed on: all in the hive; Tina and Tanzania
 each watch their USB camera through a by-id drop-in (Tina's at `Nice=10`);
-streams are chosen per host in the viewer.
+streams are chosen per ecohost in the viewer.
 
 ## Running it
 
@@ -171,22 +180,22 @@ this in the console user's login profile (`.bash_profile`/`.profile` for bash,
 [ "$(tty)" = /dev/tty1 ] && exec cambrian --tui
 ```
 
-**What it eats (a host setting).** By default its food (bites) is people and
-every animal the detector names, and its nectar (sips) is plants. A host can
-change that in `cambrian.json` next to the code -- e.g. to feed it a teddy
-bear while testing:
+**What it eats (an ecohost setting).** By default its jīng (bites) comes from
+people, every animal the detector names, the teddy bear and every vehicle, and
+its qì (sips) from plants. An ecohost can change that in `cambrian.json` next
+to the code -- e.g. only a teddy bear and a few animals while testing:
 
 ```json
 "diet": {"food":   ["person", "cat", "dog", "bird", "teddy bear"],
          "nectar": ["potted plant", "Flower", "Tree"]}
 ```
 
-`food` names are COCO classes (the list is `COCO_NAMES` in `fishbowl/prey.py`);
-`nectar` also takes the flower model's Open Images names. A list you give
-replaces that default; people are always food. It takes effect at the next
-restart, and the life history records it: a lineage fed on teddy bears learns
-teddy bears. ("Snacks" aren't a class: they're the small bit of food any look
-at something new gives.)
+`food` (its jīng) names are COCO classes (the list is `COCO_NAMES` in
+`fishbowl/prey.py`); `nectar` (its qì) also takes the flower model's Open
+Images names. A list you give replaces that default; people always give jīng.
+It takes effect at the next restart, and the life history records it: a
+lineage fed on teddy bears learns teddy bears. (Shén isn't a class: it is what
+any look at something new gives.)
 
 **What happens to a lineage over time:**
 - it lives on the feed, evolves in the background, and lays eggs when it has
@@ -198,7 +207,7 @@ at something new gives.)
   t-test) and is losing energy encysts instead of dying, and revives when food
   or a new stream appears;
 - if a lineage dies out, a new founder starts -- or, in the hive, whichever of
-  its peers' genomes and a new founder does best on this host's own frames
+  its peers' genomes and a new founder does best on this ecohost's own frames
   arrives as an egg.
 
 Its life history (`state/life_history.json`) records each of these.
@@ -273,12 +282,13 @@ video each have a full-screen button (clicking them works too). Both keep a
 backup in its state folder.
 
 **Mushroom body.** Its HUD is its life's tally, each per hour lived (its last
-60 minutes) and since its birth. Good: meals (separate bites), sips (nectar),
-snacks (looks that fed on something new), eggs laid. Bad: swats, missed looks
-(still thinking when it had to act), minutes starving, and deaths on this host
+60 minutes) and since its birth. Good: jīng 精 (separate bites of a host, in kǒu, mouthfuls), qì 氣 (sips from
+plants, in xī, breaths), shén 神 (looks that fed on something new, in niàn,
+thought-moments), eggs laid. Bad: swats, missed looks
+(still thinking when it had to act), minutes starving, and deaths on this ecohost
 (a body dies of starvation or of age; its newest egg hatches, or its lineage
 ends). Bottom right: HIVE on or SOLO (and, for a lineage that arrived by
-migration, which host it came from), its age, and the lifespan its own damage
+migration, which ecohost it came from), its age, and the lifespan its own damage
 rate so far gives. Neither: approaches (something
 began coming at its gaze; the navigation card's ring tightens as it comes). Torpor: minutes it
 hibernated because its eyes got no world (a dead camera: black, blank or frozen
@@ -329,10 +339,10 @@ pace. "How it moves" is measured, never rewarded (Land 1969).
 peak ever), its body per run, its homeostatic drive (lower is healthier), gaze
 size, resting pace (every Nth frame), the CPU quota the resource handler
 grants (grows with real improvement, shrinks under strain), perception tree
-size, essence and nectar per hour, and which kinds of change evolution accepted.
+size, jīng and qì per hour, and which kinds of change evolution accepted.
 
-**Genome and host** (the last card). Its fitness and peak ever, what it is
+**Genome and ecohost** (the last card). Its fitness and peak ever, what it is
 watching, its inherited traits (gaze size, resting pace, colour, stabilizer,
 zoom lens, metabolism, feeding pump, vigilance, replay, prey sense), the CPU
-quota its host grants, and whether the livecam is off while it runs.
+quota its ecohost grants, and whether the livecam is off while it runs.
 

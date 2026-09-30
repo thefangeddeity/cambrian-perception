@@ -1491,7 +1491,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     eats = prey_lib.diet()
     for problem in prey_lib.DIET_PROBLEMS:
         print(problem)
-    print(f"Food (bites): {', '.join(eats['food'])}. Nectar (sips): {', '.join(eats['nectar'])}.")
+    print(f"Jīng (bites) from: {', '.join(eats['food'])}. Qì (sips) from: {', '.join(eats['nectar'])}.")
     if next((r["diet"] for r in reversed(sandbox.life_history()) if "diet" in r), None) != eats:
         sandbox.record_life({"event": "diet", "diet": eats})
 

@@ -22,6 +22,15 @@ mosquitoes and vampire bats and stay cited as such, as sources, not as what
 it is. Next (a design note): essence read from self-propelled motion instead
 of a list of classes.
 
+**Its three foods, named after the Three Treasures** (三寶, borrowed as names,
+not claims): **jīng** 精 -- essence, from a host, by the bite, counted in
+**kǒu** 口 (mouthfuls); **qì** 氣 -- from plants, by the sip, in **xī** 息
+(breaths); **shén** 神 -- the snack any look at something new gives, in
+**niàn** 念 (thought-moments), which ram feeding multiplies with speed. Below,
+"blood" and "bites" are jīng, "nectar" and "sips" are qì, "snacks" are shén.
+The computer it lives on is its **ecohost** (in this document, "host" is
+always a being it bites).
+
 **It began as a chimera, openly.** It has a mosquito's niche: hosts with blood, bites,
 YOLO as its CO₂ that switches the hunt on. Its metabolism has a vertebrate's
 framing (endotherm to ectotherm, crocodile bursts). Its fuel store makes

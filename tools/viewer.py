@@ -413,7 +413,7 @@ LOCK_HUD_JS = r"""
     ['SCAN', 'ПОШУК'], ['TRACK', 'СТЕЖУ'], ['LOCK', 'ЗАХОПЛЕНО'], ['SLEEP', 'СПЛЮ'], ['TARGET', 'ЦІЛЬ'], ['WARN', 'УВАГА'],
     ['contact', 'зіткнення за'], ['looks', 'погляди']];
   const TW_WORDS = [['catching up:', '追趕中：'], ['its latest run, looped', '最近一輪，循環播放'], ['delayed', '延遲'],
-    ['own guess', '自己的猜測'], ['teacher', '老師'], ['calibrating', '校準中'], ['snacks', '點心'], ['locks', '鎖定次數'],
+    ['own guess', '自己的猜測'], ['teacher', '老師'], ['calibrating', '校準中'], ['snacks', '神'], ['locks', '鎖定次數'],
     ['SCAN', '搜尋'], ['TRACK', '追蹤'], ['LOCK', '鎖定'], ['SLEEP', '睡眠'], ['TARGET', '目標'], ['WARN', '警告'],
     ['contact', '接觸'], ['looks', '次注視']];
   const TW_FONT = '"Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
@@ -1037,10 +1037,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const eat = (d.eating && d.eating[Math.min(cur, d.eating.length - 1)]) || 0;
     if (eat > 0.01) {
       ctx.fillStyle = 'rgba(255, 95, 162, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top';
-      ctx.fillText(`BITING ${(eat * 100).toFixed(0)}%`, 10, 10);
+      ctx.fillText(`BITING \u00b7 JĪNG ${(eat * 100).toFixed(0)}%`, 10, 10);
     } else {
       const sip = (d.snacks && d.snacks[Math.min(cur, d.snacks.length - 1)]) || 0;  // nectar: a surprise snack
-      if (sip > 0.01) { ctx.fillStyle = 'rgba(200, 136, 255, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top'; ctx.fillText('SIPPING', 10, 10); }
+      if (sip > 0.01) { ctx.fillStyle = 'rgba(200, 136, 255, 0.9)'; ctx.font = 'bold 14px monospace'; ctx.textBaseline = 'top'; ctx.fillText('SIPPING \u00b7 QÌ', 10, 10); }
     }
     // its trail over the last 3 s, in its own cells: each cell it passed, lit, fading with age
     let k0 = i; while (k0 > 0 && (traj[k0 - 1][3] ?? (k0 - 1)) >= cur - 3 * fps) k0--;
@@ -1436,15 +1436,16 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   })();
   document.addEventListener('click', e => { const a = e.target.closest('#mb-mode a'); if (a) { e.preventDefault(); e.stopPropagation(); setMBView(a.dataset.mb === '2d'); } }, true);
   // Its life's tally (livelife.Tally): each event per hour lived (its last 60
-  // minutes) and since its birth. Good: meals (separate bites), sips (nectar),
-  // snacks (looks that fed on something new). Bad: swats, missed looks (still
+  // minutes) and since its birth. Good, after the Three Treasures (README):
+  // jīng (separate bites of a host, in kǒu), qì (sips of nectar, in xī), shén
+  // (looks that fed on something new, in niàn). Bad: swats, missed looks (still
   // thinking when it had to act), minutes starving. Neither: approaches
   // (something began coming at its gaze).
   function drawMBHud(d) {
     const el = $('mb-hud'), t = d && d.tally; if (!el) return;
     if (!t) { el.innerHTML = ''; return; }
     const ph = t.per_hour, sb = t.since_birth, f = v => (v = v || 0) >= 100 ? String(Math.round(v)) : v >= 10 ? v.toFixed(0) : v.toFixed(1);  // always a string (padStart)
-    const row = (cls, name, k) => `<div class="${cls}">${name.padEnd(9, '\u00a0')} ${f(ph[k]).padStart(5, '\u00a0')}/h \u00b7 ${f(sb[k])}</div>`;
+    const row = (cls, name, k, unit) => `<div class="${cls}">${name.padEnd(9, '\u00a0')} ${f(ph[k]).padStart(5, '\u00a0')}${unit ? ` <span style="text-transform:none">${unit}</span>` : ''}/h \u00b7 ${f(sb[k])}</div>`;  // a unit stays lowercase, as units are
     const dur = s => s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} d`;
     const L = d.life || {}, age = dur(t.hours_lived * 3600);
     const span = L.expected_lifespan_s ? ` of ~${dur(L.expected_lifespan_s)}` : '';  // its lifespan, as its own damage rate so far says
@@ -1453,8 +1454,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const bad = k => ((ph[k] || 0) > 0 ? 'w' : 'b'), now = k => ((ph[k] || 0) > 0 ? 'b' : 'n');
     // in 2D its lobes' bars fill the canvas's foot: the bottom rows sit above them
     const cv = $('mb'), lift = MB3.flat && cv && cv.height ? Math.round(Math.max(28, Math.round(cv.height * 0.16)) * (cv.clientHeight / cv.height || 1)) + 12 : 8;
-    el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD · /h · since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}${row('g', 'EGGS', 'eggs')}</div>`
-      + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD · /h · since birth</div>${row(bad('swats'), 'SWATS', 'swats')}${row(bad('missed'), 'MISSED', 'missed')}${row(bad('starving_min'), 'STARVING', 'starving_min').replace('/h', ' min/h')}<div class="${(L.deaths || 0) > 0 ? 'w' : 'b'}">DEATHS${' '.repeat(4)} ${L.deaths || 0} on this host</div></div>`
+    el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD · /h · since birth</div>${row('g', 'JĪNG 精', 'meals', 'kǒu')}${row('g', 'QÌ 氣', 'sips', 'xī')}${row('g', 'SHÉN 神', 'snacks', 'niàn')}${row('g', 'EGGS', 'eggs')}</div>`
+      + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD · /h · since birth</div>${row(bad('swats'), 'SWATS', 'swats')}${row(bad('missed'), 'MISSED', 'missed')}${row(bad('starving_min'), 'STARVING', 'starving_min').replace('/h', ' min/h')}<div class="${(L.deaths || 0) > 0 ? 'w' : 'b'}">DEATHS${' '.repeat(4)} ${L.deaths || 0} on this ecohost</div></div>`
       + `<div class="q" style="left:10px;bottom:${lift}px">${row('n', 'APPROACH', 'approaches')}${row(now('torpor_min'), 'TORPOR', 'torpor_min').replace('/h', ' min/h')}${row(now('cyst_min'), 'CYST', 'cyst_min').replace('/h', ' min/h')}${L.developed ? '<div class="g">DEVELOPED: beats its founder</div>' : ''}</div>`
       + `<div class="q n" style="right:10px;bottom:${lift}px;text-align:right">${L.hive ? 'HIVE on' : 'SOLO · hive off'}${L.migrant_from ? ` · lineage from ${String(L.migrant_from).replace(/[^\w.-]/g, '')}` : ''}<br>age ${age}${span}</div>`;
   }
@@ -1849,10 +1850,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       ctx.fillStyle = `rgba(255, 95, 162, ${(0.12 + 0.28 * eat) * (0.6 + 0.4 * pulse)})`; ctx.fillRect(mx, my, ms, ms);
       ctx.strokeStyle = `rgba(255, 95, 162, ${0.6 + 0.4 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(mx, my, ms, ms);
       ctx.fillStyle = 'rgba(255, 95, 162, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-      ctx.fillText(`BITING ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(`BITING \u00b7 JĪNG ${(eat * 100).toFixed(0)}%`, W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     } else if (cells && !shut && (R.snack || 0) > 0.01) {  // nectar: a surprise snack, sipped
       ctx.fillStyle = 'rgba(200, 136, 255, 0.95)'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-      ctx.fillText('SIPPING', W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText('SIPPING \u00b7 QÌ', W - 8, 6); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     }
     const biteAge = now - (LOOK.biteT ?? -1e9);
     if (biteAge < 400) {
@@ -2348,7 +2349,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     { id: 'c-pace', title: 'resting pace', cap: 'every Nth frame', series: [['every Nth frame', '#ffb4a6', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: '%', series: [['quota %', '#fd4', r => r.quota_pct]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#ffb4a6', r => r.tree_depth]] },
-    { id: 'c-diet', title: 'essence and nectar', cap: 'per hour, each on its own scale', hourly: true, dual: true, series: [['bites', '#ff5fa2', r => r.bites], ['nectar sips', '#9ccf7a', r => r.nectar_sips]] },
+    { id: 'c-diet', title: 'jīng and qì', cap: 'per hour, each on its own scale', hourly: true, dual: true, series: [['jīng (bites)', '#ff5fa2', r => r.bites], ['qì (sips)', '#9ccf7a', r => r.nectar_sips]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
   const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_sleep_set', 'mutate_pool', 'mutate_setpoints', 'mutate_bore', 'mutate_archetypes', 'mutate_apical', 'mutate_plasticity', 'mutate_maturation', 'mutate_colliculus', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];
