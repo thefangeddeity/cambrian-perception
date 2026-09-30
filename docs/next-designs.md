@@ -1,6 +1,6 @@
 # Next designs (notes, 2026-09-30) -- not built
 
-Three designs a panel cleared in direction, written down so whoever builds
+Designs a panel cleared in direction (and one it dropped), written down so whoever builds
 them starts from the reasoning, not from scratch. Each still goes to its own
 clearance table (every number derived, cited or labelled) before code.
 
@@ -42,24 +42,24 @@ all heights -- which is also what a drone would need.
 Panel so far: Gibson, Srinivasan, Gelman. To add before building: someone on
 change detection (e.g. Page's CUSUM, 1954) for the "error stays high" test.
 
-## 2. Essence from motion, not a list
+## 2. Essence from motion -- superseded (2026-09-30)
 
-**What exists.** Essence is a list of classes (prey.PREY_CLASSES: living
-beings, the teddy bear, vehicles), editable per host (cambrian.json "diet").
+Proposed: read jīng from self-propelled motion instead of a list of classes
+(a parked car little, a driven one a lot). Dropped, for two reasons:
 
-**The design.** Animacy as people perceive it is mostly motion: things that
-start, stop and turn on their own read as alive (Heider & Simmel 1944;
-Scholl & Tremoulet 2000; Tremoulet & Feldman). It already tracks individuals
-(cortex.py) and measures its own ego-motion, so it can tell a thing's own
-motion from the camera's. Essence of a tracked thing = how self-propelled it
-has been (changes of speed and heading not explained by the camera), learned
-per individual, the class list kept only as a prior for things it hasn't seen
-move yet. A parked car then has little essence and a driven one a lot; a
-teddy bear has essence only as far as people treat it (its class prior).
+- **Jīng is perceived animacy, not motion.** People recognise a parked car or
+  a sleeping cat as a being by its kind, at a glance; so does the detector it
+  borrows the perception from. The class list is the right mechanism, and it
+  already makes the teddy bear no exception: it is perceived as animate.
+- **It couldn't see the difference.** Its motion sense is a 16 x 9 field on
+  frames 320 px wide; a car creeping a block away moves less than a cell per
+  look, and its ego-motion estimate is noisier than that. What it does sense
+  -- the flow left after undoing its own motion -- mixes things moving on
+  their own with near things that are still (parallax).
 
-Panel so far: Dennett, Scholl & Tremoulet, Morton & Johnson. Open: whether
-the prior should fade as its own measure takes over (Gelman: a shrinkage
-estimate, with the class as the group).
+Its own motion sense already feeds shén (novelty, paid more with speed); jīng
+stays the perception of animacy, which its perception tree learns with the
+detector as its teacher.
 
 ## 3. Binocular vision (parked)
 

@@ -40,20 +40,21 @@ DEFAULT_MODEL = Path(os.environ.get("CAMBRIAN_PREY_MODEL")
 # class names (yolov8n-oiv7.names.json, from the export).
 FLOWER_MODEL = DEFAULT_MODEL.with_name("yolov8n-oiv7.onnx")
 
-# Its food: ESSENCE (a 2026-09-30 panel -- Dennett's intentional stance,
-# Scholl & Tremoulet on perceived animacy, Morton & Johnson). It is a
-# cambrioid, not a mosquito: it feeds on what people treat as animate --
-# living beings, and things we lend a life to: a teddy bear, and every vehicle
-# the detector names (they move of their own accord, as far as an eye can
-# tell). Its hosts, in the code's words: a catch is a bite. It began as a
+# Its food: JĪNG 精, essence (a 2026-09-30 panel -- Dennett's intentional
+# stance, Scholl & Tremoulet, Morton & Johnson): PERCEIVED ANIMACY. It is a
+# cambrioid, not a mosquito: it feeds on whatever is perceived as a being --
+# living beings, a teddy bear, every vehicle the detector names -- recognised
+# by kind, as people recognise one at a glance, not by motion (a parked car is
+# still a car; and whether a slow car moves is below its resolution). The
+# detector lends it this perception (a model trained on human labels); its own
+# perception tree learns it with the detector as its teacher. Its hosts, in
+# the code's words: a catch is a bite. It began as a
 # mosquito's "things with blood" (design panels, 2026-09-27: people, pets and
 # every vertebrate COCO names), and the mosquito's and bat's numbers stay as
 # the measured sources they are (docs/physiology.md). Plants are its nectar,
 # not essence. Which of these it is drawn to evolves (genome.host_pref);
 # people are always food and always sensed, so every lineage can track
-# people. Next (a design note, not built): essence read from motion itself --
-# self-propelled movement -- instead of a list. A host can change the list in
-# cambrian.json's "diet" (below). Rubber ducks and other toys are Open
+# people. An ecohost can change the list in cambrian.json's "diet" (below). Rubber ducks and other toys are Open
 # Images classes (the flower model's), not COCO's: not food yet.
 PREY_CLASSES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 4: "airplane", 5: "bus", 6: "train",
                 7: "truck", 8: "boat", 14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep",

@@ -14,19 +14,24 @@ others).
 
 **A cambrioid (since 2026-09-30).** A panel (Dennett's intentional stance,
 Scholl & Tremoulet on perceived animacy, Morton & Johnson) found the mosquito
-metaphor forced: what it feeds on is **essence**, what people treat as
-animate -- living beings, and the things we lend a life to (a teddy bear,
-vehicles). Its hosts are whatever has essence; a catch is still a bite. Where
-this document says blood, read essence: the numbers below were measured on
-mosquitoes and vampire bats and stay cited as such, as sources, not as what
-it is. Next (a design note): essence read from self-propelled motion instead
-of a list of classes.
+metaphor forced: what it feeds on is **jīng** (essence): **perceived
+animacy** -- whatever is seen as a being, living or not (people, animals, a
+teddy bear, vehicles). Not motion: a parked car or a sleeping cat is
+recognised as a being by its kind, and whether a slow car moves is below its
+resolution anyway (a design reading jīng from self-propelled motion was
+dropped for both reasons). Its hosts are whatever it perceives as animate; a
+catch is still a bite. Where this document says blood, read jīng: the numbers
+below were measured on mosquitoes and vampire bats and stay cited as such, as
+sources, not as what it is.
 
 **Its three foods, named after the Three Treasures** (三寶, borrowed as names,
-not claims): **jīng** 精 -- essence, from a host, by the bite, counted in
-**kǒu** 口 (mouthfuls); **qì** 氣 -- from plants, by the sip, in **xī** 息
-(breaths); **shén** 神 -- the snack any look at something new gives, in
-**niàn** 念 (thought-moments), which ram feeding multiplies with speed. Below,
+not claims), each the perception of something: **jīng** 精 -- of animacy,
+from a host, by the bite, counted in **kǒu** 口 (mouthfuls); **qì** 氣 -- of
+life without agency, from plants, by the sip, in **xī** 息 (breaths);
+**shén** 神 -- of change, the snack any look at something new gives, in
+**niàn** 念 (thought-moments), which ram feeding multiplies with speed. Jīng
+and qì it borrows from its detector (trained on human labels); shén it makes
+itself. Below,
 "blood" and "bites" are jīng, "nectar" and "sips" are qì, "snacks" are shén.
 The computer it lives on is its **ecohost** (in this document, "host" is
 always a being it bites).

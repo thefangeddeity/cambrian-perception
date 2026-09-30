@@ -1,9 +1,9 @@
 # cambrian-perception
 
 A **cambrioid**: an artificial animal that lives in a camera feed and feeds on
-**essence** -- what people treat as animate: living beings, and the things we
-lend a life to (a teddy bear, cars, boats, every vehicle its detector names).
-It has a movable eye, a
+**jīng** 精 (essence): perceived animacy -- whatever is seen as a being, living
+or not (people, animals, a teddy bear, cars, boats, every vehicle its detector
+names). It has a movable eye, a
 whole-field sentinel eye, a recurrent brain, a mushroom body that learns in its
 lifetime, a body with metabolism, stores, sleep and a clock, and memories it
 replays and dreams. It evolves continuously on real hardware, and it is priced
@@ -16,7 +16,7 @@ for everything it does.
 - The camera suite (organism and livecam never run together): [docs/suite.md](docs/suite.md)
 - A developing organism, and fitness that knows its stage (proposed): [docs/design-ontogeny.md](docs/design-ontogeny.md)
 - A second organism per ecohost (parked, documented for later): [docs/second-organism.md](docs/second-organism.md)
-- Next designs (not built): when its ground stops being its ground, essence from motion, binocular vision: [docs/next-designs.md](docs/next-designs.md)
+- Next designs (not built): when its ground stops being its ground, binocular vision: [docs/next-designs.md](docs/next-designs.md)
 - Its self-test, which every installer runs first: `python tools/selftest.py`
 
 Licence: GPL-3.0-only.
@@ -42,11 +42,20 @@ sources (a bite's size, a gonotrophic cycle, a lifespan's shape). Its own
 terms, after the Three Treasures (三寶) of Daoist thought -- borrowed as
 names for mechanisms, not as claims about them:
 
-| It eats | From | Counted in | The mechanism |
-|---|---|---|---|
-| **jīng** 精 (essence) | **hosts**: what people treat as animate -- people, animals, a teddy bear, vehicles | **kǒu** 口, mouthfuls | a bite: a host held under its mouth |
-| **qì** 氣 (breath) | plants: alive, but still | **xī** 息, breaths | a sip: nectar, flowing in |
-| **shén** 神 (spirit) | anything new in its gaze | **niàn** 念, thought-moments | a snack: what a look at something new gives; speed pays more (ram feeding) |
+| It eats | The perception of | From | Counted in | The mechanism |
+|---|---|---|---|---|
+| **jīng** 精 (essence) | **animacy**: this is a being, or is taken for one | **hosts** -- people, animals, a teddy bear, vehicles: the detector's classes | **kǒu** 口, mouthfuls | a bite: a host held under its mouth |
+| **qì** 氣 (breath) | **life without agency**: growing, still | plants: the detector's plant classes | **xī** 息, breaths | a sip: nectar, flowing in |
+| **shén** 神 (spirit) | **change**: this is new | anything in its gaze: its own receptors | **niàn** 念, thought-moments | a snack: what a look at something new gives; speed pays more (ram feeding) |
+
+Jīng is perceived animacy (Scholl & Tremoulet's term), not motion: a parked
+car or a sleeping cat is recognised as a being by its kind, at a glance, as
+people recognise one -- and whether a slow car is moving is below what the
+cambrioid can resolve anyway. The teddy bear is jīng because it is perceived
+as animate. Jīng and qì are perceptions it borrows from its detector (a model
+trained on human labels); shén is the one it makes itself. The long-term aim
+in the code is for its own perception to learn animacy, with the detector as
+its teacher.
 
 The computer it lives on is its **ecohost**: its CPU is its energy economy,
 its camera its world, the resource handler its climate; the hive is a network
@@ -322,7 +331,7 @@ moment; people make about 3-4 fixations a second). Gut, sugar and stores:
 - the gut digests into sugar over minutes;
 - glycogen lasts ~6 h and is released fast;
 - fat lasts ~3 days, made from a real surplus and burned only aerobically;
-- protein, for eggs, comes only from essence and is spent over ~3 days;
+- protein, for eggs, comes only from jīng and is spent over ~3 days;
 - phosphagen covers the first ~10 s of a burst;
 - once glycogen is gone, fat feeds up to 2/3 of the brain as ketones;
 - wasting burns tissue for a brain with no sugar (Kenyon cells, hidden units,
