@@ -74,7 +74,7 @@ a data block; ODD is how strange the look is to its model, and LEARNING HELD
 means it failed its model's test, so it isn't learning from that look.
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
-orange inhibits. Randomize (two clicks) draws its brain afresh as a founder's at its
+orange inhibits. New random brain (two clicks) draws its brain afresh as a founder's at its
 next generation, keeping everything else; New random founder (two clicks) replaces it with a new
 random founder, as a fresh install has: eye, body, memories and traits included. Reset to founder
 (two clicks) returns to its founder exactly as it was at birth -- the same

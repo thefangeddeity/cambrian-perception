@@ -788,7 +788,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">Randomize</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
