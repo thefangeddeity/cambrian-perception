@@ -1301,14 +1301,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     # rate, not 80 s of body-time per 1 s generation.
     body_now = (checkpoint or {}).get("body")
     body_clock = time.time()
-    # Audit: downtime used to be free for the body. Charge the time since
-    # the checkpoint was saved as idle, foodless time.
+    # Cryptobiosis (a 2026-09-30 panel; tardigrades, dried out): while its
+    # process isn't running -- the machine off, its feed down -- it isn't
+    # living, so no time passes for it: no burn, no ageing, no clock. (An
+    # earlier audit charged downtime as idle, foodless time; once it could die
+    # of starvation, an outage it never lived through could kill its lineage.)
     if body_now and checkpoint and checkpoint.get("saved_at"):
         away = max(0.0, time.time() - float(checkpoint["saved_at"]))
-        b = MosquitoState.from_dict(body_now)
-        b.idle(away)
-        body_now = b.to_dict()
-        print(f"Body: {away / 60:.1f} min since last save charged as idle time (energy now {body_now['energy']:.3f}).")
+        print(f"Body: {away / 60:.1f} min since last save, in cryptobiosis (nothing charged; energy {body_now.get('energy', 0.0):.3f}).")
     # Its feeding record (gaps between feeding acts, over its life), from
     # which what counts as one meal / one snack is measured (fishbowl/bouts.py).
     feeding = {kind: FeedingRecord((checkpoint or {}).get("feeding_record", {}).get(kind)) for kind in ("meal", "snack")}
@@ -1460,6 +1460,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     if feed is not None:
         life = LiveLife(feed, genome, body_now, memory_now, price_quota, host_rate, feed_epoch,
                         sandbox.LIVE_STATUS_PATH.with_name("live_actor.json"), metrics, _fps())
+        life.torpor_after_s = STREAM_STALL_MIN_S  # torpor: no world for longer than its feed's own stall line
 
     phase: dict = {}
     phase_worst: dict = {}
@@ -1468,6 +1469,12 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             print("Stop requested -- saving and exiting.")
             sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
             break
+        if life is not None and life.torpid:
+            # torpid (its eyes get no world): evolution waits -- nothing is
+            # scored on blank frames, so nothing drifts on them
+            watchdog.tick()
+            time.sleep(1.0)
+            continue
         if sandbox.RESET_FOUNDER_REQUEST_PATH.exists():
             # The owner's Reset to founder: saved as at any stop, then (main)
             # its state moves aside and its founder, as it was at birth, returns.

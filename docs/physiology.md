@@ -663,6 +663,24 @@ and starve for hours, and a starving body never died.
   already exists; real mosquitoes need a blood meal to make eggs), and egg
   resorption when starving (oosorption).
 
+## When its eyes get no world (2026-09-30)
+
+A panel (Heller, Geiser, Nesse, Gelman, Sterling & Laughlin) separated the
+world having no food -- real scarcity, which may kill -- from its losing its
+senses, which must never cost it its life or its evolution (a blind animal
+doesn't revert to a sea squirt).
+- **Cryptobiosis**: while its process isn't running (the machine off, its
+  feed down) it isn't living, so no time passes: no burn, no ageing, no clock.
+  An earlier audit charged downtime as idle, foodless time; once it could
+  starve to death, an outage it never lived through could have killed it.
+- **Torpor**: when frames arrive but carry no world -- a real sensor always
+  has noise, so a frame with less spread than `NOISE_FLOOR` (black, blank) or
+  identical to the one before (frozen) has none -- for longer than its feed's
+  stall line, it hibernates: no looks, no learning, 5% of its burn (Geiser
+  2004), ageing as slowly, and no wasting, so torpor can't starve it.
+  Evolution waits (nothing is scored on blank frames); the first frame with a
+  world wakes it. A dark night is still a world (its sensor noise is there).
+
 ## How big a brain, how big an eye (2026-09-30)
 
 No handwritten caps (a panel; Sterling & Laughlin, Nilsson, Gregg, Changeux,

@@ -193,6 +193,13 @@ NIGHT_LIGHT, DAY_LIGHT = 0.15, 0.5  # field light (~20 min average) that counts 
 #   same tissue wasting breaks down) -- a faster metabolism ages it faster
 # - it dies of starvation when wasting reaches its ceiling (1: all that tissue)
 DAMAGE_FRACTION = 0.0015
+# Torpor (a 2026-09-30 panel -- Heller, Geiser, Nesse, Gelman, Sterling &
+# Laughlin): when its eyes get no world at all (a dead camera: black, blank or
+# frozen frames), it hibernates -- burning TORPOR_SHARE of what it would
+# (hibernators cut metabolism to below 5% of basal: Geiser 2004), ageing as
+# slowly (its damage is a share of what it burns), and never wasting: torpor
+# can't starve it to death. A real, food-poor world still can.
+TORPOR_SHARE = 0.05
 CIRC_PERIOD_S = 24 * 3600.0
 CIRC_SHIFT_RATE = (2 * math.pi / 24.0) / (24 * 3600.0)  # rad/s of phase at most: one hour a day
 
@@ -238,6 +245,7 @@ class MosquitoState:
     repro: float = 0.0         # its reproduction buffer, B (the kappa rule's 1 - kappa of what it assimilates)
     damage: float = 0.0        # the damage its burning has done, B (DAMAGE_FRACTION of all it burned); age = damage / PROTEIN_CAP
     kappa: float = 1.0         # its share of assimilation kept for its body (genome.kappa; set by the organism, not saved)
+    torpid: bool = False       # hibernating: its eyes get no world (set by its live body, not saved)
 
     # ---- its life history ----------------------------------------------
     @property
@@ -445,6 +453,8 @@ class MosquitoState:
             f = 0.5 + 0.5 * self.energy / EMPTY_G
             aerobic_need, brain, glyco_fuel = aerobic_need * f, brain * f, glyco_fuel * f
 
+        if self.torpid:  # hibernating: a sliver of its burn
+            aerobic_need, brain, glyco_fuel = aerobic_need * TORPOR_SHARE, brain * TORPOR_SHARE, glyco_fuel * TORPOR_SHARE
         # the damage of burning (its ageing): a share of everything it burns this step
         self.damage += DAMAGE_FRACTION * (aerobic_need + brain + glyco_fuel)
         # --- digestion: gut -> blood sugar (costs part of the meal: SDA) ---
@@ -477,7 +487,8 @@ class MosquitoState:
             g_bs += release
         # what sugar still can't pay is paid by the body's own tissue
         if g_bs < 0.0:
-            self.wasting = _clamp(self.wasting - g_bs / PROTEIN_CAP)
+            if not self.torpid:  # torpor never breaks down its tissue: what its stores can't pay, it goes without
+                self.wasting = _clamp(self.wasting - g_bs / PROTEIN_CAP)
             g_bs = 0.0
         elif g_bs > self.mobilize * G_CAP:
             self.wasting *= math.exp(-seconds / WASTING_REBUILD_S)  # fed: tissue regrows

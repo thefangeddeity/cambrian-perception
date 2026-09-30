@@ -90,7 +90,11 @@ snacks (looks that fed on something new), eggs laid. Bad: swats, missed looks
 (a body dies of starvation or of age; its newest egg hatches, or its lineage
 ends). Bottom right: its age, and the lifespan its own damage rate so far
 gives. Neither: approaches (something
-began coming at its gaze; the navigation card's ring tightens as it comes).
+began coming at its gaze; the navigation card's ring tightens as it comes). Torpor: minutes it
+hibernated because its eyes got no world (a dead camera: black, blank or frozen
+frames); torpid, it burns 5% of its usual, can't starve, and evolution waits.
+While its process isn't running at all (the machine off, its feed down) no time
+passes for it (cryptobiosis).
 Its Kenyon cells, each coloured by what it has learned:
 green food, red danger, amber food it learned to avoid, grey lost to wasting.
 Firing cells glow phosphor green, brighter the more they have learned. In 3D

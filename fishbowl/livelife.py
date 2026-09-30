@@ -77,11 +77,12 @@ class Tally:
               eggs: eggs it laid (state.py's kappa rule)
       bad  -- swats: a host swatted it; missed: looks it was still thinking
               when it had to act; starving: minutes its body was empty
-      neither -- approaches: something began coming at its gaze (tau)
+      neither -- approaches: something began coming at its gaze (tau);
+              torpor: minutes it hibernated because its eyes got no world
 
     Rates are per hour lived: what the last 60 minutes of its life held."""
 
-    KINDS = ("meals", "sips", "snacks", "eggs", "approaches", "swats", "missed", "starving_min")
+    KINDS = ("meals", "sips", "snacks", "eggs", "approaches", "torpor_min", "swats", "missed", "starving_min")
 
     def __init__(self, saved: dict | None = None):
         saved = saved or {}
@@ -312,6 +313,12 @@ class LiveLife:
         self.died = None             # what it died of (state.MosquitoState.death); run_vision buries it
         self.eggs_laid = 0           # in this process's stretch of its life (its tally keeps the lifetime's)
         self._damage0 = None         # (lived s, damage) when this process began watching its ageing
+        # torpor: its eyes getting no world (black, blank or frozen frames) for
+        # longer than its feed's own stall line (run_vision.STREAM_STALL_MIN_S)
+        self.torpor_after_s = 30.0
+        self.torpid = False
+        self._noworld_since = None
+        self._prev_grey = None
         self._rng = random.Random(time.time_ns())
         self._eat_prev = self._contact_prev = 0.0
         self._stop = False
@@ -524,6 +531,10 @@ class LiveLife:
             tried0, kept0 = org.edits_tried, org.edits_kept
             img0 = list(org.imagery_sums)
             for j, (index, grey, boxes, colour, arrived) in enumerate(items):
+                if self._torpor(org, grey, arrived):  # hibernating: no look, no learning -- a sliver of its burn
+                    self.last, self.last_time = index, arrived
+                    self.lived_at = time.time()
+                    continue
                 prev_v = self.field.last_vector
                 t_a = time.perf_counter()
                 sig, shift = self.field.step(grey)
@@ -639,6 +650,35 @@ class LiveLife:
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)
 
+    def _torpor(self, org, grey, arrived: float) -> bool:
+        """Whether it is hibernating on this frame. A real sensor always has
+        noise, so a frame with less spread than the sensor-noise floor
+        (NOISE_FLOOR: black or blank) or identical to the one before (frozen)
+        carries no world; for longer than its feed's stall line, it goes torpid
+        (state.TORPOR_SHARE), and the first frame with a world wakes it."""
+        g = np.asarray(grey)
+        blank = float(g.std()) / (255.0 if g.max() > 1.5 else 1.0) < NOISE_FLOOR
+        frozen = self._prev_grey is not None and self._prev_grey.shape == g.shape and np.array_equal(self._prev_grey, g)
+        self._prev_grey = g
+        if not (blank or frozen):
+            self._noworld_since = None
+            if self.torpid:
+                self.torpid = org.body.torpid = False
+                self._event("woke from torpor", lived_s=round(self.tally.lived_s, 1))
+            return False
+        if self._noworld_since is None:
+            self._noworld_since = arrived
+        if not self.torpid and arrived - self._noworld_since >= self.torpor_after_s:
+            self.torpid = org.body.torpid = True
+            self._event("torpid: no world in its eyes", blank=bool(blank), frozen=bool(frozen))
+        if not self.torpid:
+            return False
+        dt = 1.0 / max(1.0, org.fps)
+        org.body.update(0.0, 0.0, 0.0, 0.0, dt=1, pace=1, dt_seconds=dt, field_light=float(g.mean()) / 255.0)
+        self.tally.lived_s += dt
+        self.tally.add("torpor_min", dt / 60.0, org.lived_s)
+        return True
+
     def _lay(self, org) -> None:
         """One egg: its buffer pays for it, and the genome it carries (its own,
         kappa stepped once: genome.laid_egg) waits in state/eggs/."""
@@ -674,7 +714,8 @@ class LiveLife:
             self._damage0 = (lived, b.damage)
         dl, dd = lived - self._damage0[0], b.damage - self._damage0[1]
         span = lived + (PROTEIN_CAP - b.damage) * dl / dd if dd > 1e-9 and dl > 0 else None
-        return {"egg_progress": round(b.repro / EGG_COST, 4), "egg_cost": round(EGG_COST, 1), "kappa": round(self.org.g.kappa, 4),
+        return {"torpid": self.torpid,
+                "egg_progress": round(b.repro / EGG_COST, 4), "egg_cost": round(EGG_COST, 1), "kappa": round(self.org.g.kappa, 4),
                 "age": round(b.age, 5), "lived_s": round(lived, 1),
                 "expected_lifespan_s": round(span, 0) if span else None,
                 "deaths": len(deaths), "deaths_by": {c: sum(1 for r in deaths if r.get("cause") == c) for c in ("starvation", "age")}}

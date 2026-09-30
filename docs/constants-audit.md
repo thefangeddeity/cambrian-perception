@@ -347,6 +347,15 @@ yardsticks are found.
 | death by starvation | wasting = 1 | D | its own ceiling |
 | `MARGIN_START` | 0.05 | B | a new lineage's acceptance margin (as before; now named) |
 
+### Torpor and cryptobiosis (fishbowl/state.py, livelife.py, run_vision.py; 2026-09-30)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| `TORPOR_SHARE` | 0.05 of its burn | S | hibernators cut metabolism below 5% of basal (Geiser 2004); ageing slows with it |
+| no world in its eyes | frame spread < `NOISE_FLOOR`, or identical to the last | D | a real sensor always has noise |
+| torpor after | its feed's stall line (`STREAM_STALL_MIN_S`) | D | reused |
+| downtime | nothing charged (cryptobiosis) | D | not living, no time passes; replaced charging it as idle, foodless time |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px
