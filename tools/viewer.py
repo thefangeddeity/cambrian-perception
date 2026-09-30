@@ -723,10 +723,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   canvas.px { image-rendering: pixelated; }
   canvas.steer { cursor: pointer; } canvas.steer.steering { outline: 1px solid #9a6f67; outline-offset: -1px; cursor: grab; }
   /* its life's tally over the mushroom body (a 2026-09-29 UX panel): good in its phosphor green, bad in the HUD's red */
-  #mb-hud { position: absolute; inset: 0; pointer-events: none; font: 11px monospace; padding: 8px 10px; }
-  #mb-hud .q { position: absolute; line-height: 15px; }
-  #mb-hud .g { color: rgba(124, 255, 160, 0.9); } #mb-hud .b { color: rgba(255, 90, 70, 0.95); } #mb-hud .n { color: rgba(255, 226, 214, 0.75); }
-  #mb-hud .h { color: rgba(184, 138, 128, 0.9); }
+  /* Its tally HUD, after MIL-STD-1787 / MIL-STD-1472 practice (as the video's
+     HUD): uppercase monospace, colour by meaning -- green normal, amber
+     caution, red warning, white data -- and a dark outline on every character
+     instead of a backing, so it reads over any cell it crosses. */
+  #mb-hud { position: absolute; inset: 0; pointer-events: none; font: bold 12px monospace; padding: 8px 10px; text-transform: uppercase; }
+  #mb-hud .q { position: absolute; line-height: 15px; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px #000; }
+  #mb-hud .g { color: #7cffa0; } #mb-hud .b { color: #ffb000; } #mb-hud .w { color: #ff4040; } #mb-hud .n { color: #e8e8e8; }
+  #mb-hud .h { color: #c8c8c8; }
+  @media (max-width: 600px) { #mb-hud { font-size: 11px; } #mb-hud .q { line-height: 14px; } }
   #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder { color: #b88a80; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
@@ -838,7 +843,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   </div>
   <div class="panel" id="body-panel">
     <h2>body</h2>
-    <div class="cap">Gut &rarr; blood sugar &rarr; stores.</div>
+    <div class="cap">Gut &rarr; sugar &rarr; stores.</div>
     <div id="gauges"></div>
     <canvas id="energy-trace" height="60"></canvas>
     <div class="section"><h2>eating</h2>
@@ -864,8 +869,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <tr><td><span class="tag body">body</span></td><td>trait + motor</td><td>tempo</td><td>How often it looks: an inherited pace its brain speeds or slows.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>colour, prey sense, host preference</td><td>What it can see and smell of hosts, and which it favours; all priced.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>eye</td><td>Size, cone patch, zoom lens, stabilizer, photoreceptor speed.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>trait</td><td>metabolism, feeding pump</td><td>Rest cost against stamina; how fast blood flows in at a bite.</td></tr>
-    <tr><td><span class="tag body">body</span></td><td>world</td><td>host defense</td><td>A host that comes at it takes back the bite's blood.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>trait</td><td>metabolism, feeding pump</td><td>Rest cost against stamina; how fast essence flows in at a bite.</td></tr>
+    <tr><td><span class="tag body">body</span></td><td>world</td><td>host defense</td><td>A host that comes at it takes back the bite's essence.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>physics</td><td>digestion</td><td>A fifth of every meal.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>trait</td><td>memory, replay, dreams</td><td>Where food was; replayed and dreamt paths while asleep.</td></tr>
     <tr><td><span class="tag body">body</span></td><td>motor</td><td>sleep, vigilance</td><td>Its own choice within sleep pressure; a big enough change wakes it.</td></tr>
@@ -899,7 +904,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy', 'protein', 'host vx', 'host vy', 'own pace', 'missed', 'uncertainty', 'ground near', 'horizon', 'parallax', 'camera moving', 'archetype 1', 'archetype 2', 'archetype 3', 'archetype 4', 'collicular dx', 'collicular dy', 'collicular strength',
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy', 'protein', 'host vx', 'host vy', 'own pace', 'missed', 'uncertainty', 'ground near', 'horizon', 'parallax', 'camera moving', 'archetype 1', 'archetype 2', 'archetype 3', 'archetype 4', 'collicular dx', 'collicular dy', 'collicular strength',
     'terrain', 'nearness', 'felt nearness', 'contact', 'turning', 'tilting', 'heading sin', 'heading cos', 'speed', 'acceleration', 'map value', 'riding',
     'texture contrast', 'texture fineness', 'texture grain', 'strangeness'];  // controller.py's inputs, in order (76)
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
@@ -1385,11 +1390,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       ctx.fillStyle = '#10161c'; ctx.fillRect(pad, y, w, bh);
       const val = Math.max(-1, Math.min(1, v || 0));
       ctx.fillStyle = `rgb(${col})`; ctx.fillRect(Math.min(mid, mid + val * w / 2), y, Math.abs(val) * w / 2, bh);
-      ctx.fillStyle = '#b88a80'; ctx.font = `${Math.max(9, Math.min(12, bh - 2))}px monospace`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText(`${name} ${val.toFixed(2)}`, pad + 3, y + bh / 2);
+      // its label as the HUD's: uppercase, white, a dark outline (no backing)
+      const label = `${name} ${val.toFixed(2)}`.toUpperCase();
+      ctx.font = `bold ${Math.max(10, Math.min(12, bh - 2))}px monospace`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(label, pad + 3, y + bh / 2);
+      ctx.fillStyle = '#e8e8e8'; ctx.fillText(label, pad + 3, y + bh / 2);
     };
-    bar(0, 'food value (medial lobe)', d.food_value, '120,230,120');
-    bar(1, 'danger (vertical lobe)', d.danger_value, '255,90,70');
+    bar(0, 'food value (medial lobe)', d.food_value, '124,255,160');
+    bar(1, 'danger (vertical lobe)', d.danger_value, '255,64,64');
   }
   function setMBView(flat) {
     MB3.flat = flat; try { localStorage.setItem(MB_VIEW_KEY, flat ? '2d' : '3d'); } catch (e) {}
@@ -1440,10 +1448,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const dur = s => s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} d`;
     const L = d.life || {}, age = dur(t.hours_lived * 3600);
     const span = L.expected_lifespan_s ? ` of ~${dur(L.expected_lifespan_s)}` : '';  // its lifespan, as its own damage rate so far says
-    el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD \u00b7 /h \u00b7 since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}${row('g', 'EGGS', 'eggs')}</div>`
-      + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD \u00b7 /h \u00b7 since birth</div>${row('b', 'SWATS', 'swats')}${row('b', 'MISSED', 'missed')}${row('b', 'STARVING', 'starving_min').replace('/h', ' min/h')}<div class="b">DEATHS${'\u00a0'.repeat(4)} ${L.deaths || 0} on this host</div></div>`
-      + `<div class="q" style="left:10px;bottom:8px">${row('n', 'APPROACH', 'approaches')}${row('n', 'TORPOR', 'torpor_min').replace('/h', ' min/h')}${row('n', 'CYST', 'cyst_min').replace('/h', ' min/h')}${L.developed ? '<div class="n">DEVELOPED: beats its founder</div>' : ''}</div>`
-      + `<div class="q h" style="right:10px;bottom:8px;text-align:right">${L.hive ? 'HIVE on' : 'SOLO · hive off'}${L.migrant_from ? ` · lineage from ${String(L.migrant_from).replace(/[^\w.-]/g, '')}` : ''}<br>age ${age}${span}</div>`;
+    // colour by meaning (MIL-STD practice): a bad thing this hour is a warning
+    // (red), one only in its past a caution (amber); torpor or a cyst now, amber
+    const bad = k => ((ph[k] || 0) > 0 ? 'w' : 'b'), now = k => ((ph[k] || 0) > 0 ? 'b' : 'n');
+    // in 2D its lobes' bars fill the canvas's foot: the bottom rows sit above them
+    const cv = $('mb'), lift = MB3.flat && cv && cv.height ? Math.round(Math.max(28, Math.round(cv.height * 0.16)) * (cv.clientHeight / cv.height || 1)) + 12 : 8;
+    el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD · /h · since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}${row('g', 'EGGS', 'eggs')}</div>`
+      + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD · /h · since birth</div>${row(bad('swats'), 'SWATS', 'swats')}${row(bad('missed'), 'MISSED', 'missed')}${row(bad('starving_min'), 'STARVING', 'starving_min').replace('/h', ' min/h')}<div class="${(L.deaths || 0) > 0 ? 'w' : 'b'}">DEATHS${' '.repeat(4)} ${L.deaths || 0} on this host</div></div>`
+      + `<div class="q" style="left:10px;bottom:${lift}px">${row('n', 'APPROACH', 'approaches')}${row(now('torpor_min'), 'TORPOR', 'torpor_min').replace('/h', ' min/h')}${row(now('cyst_min'), 'CYST', 'cyst_min').replace('/h', ' min/h')}${L.developed ? '<div class="g">DEVELOPED: beats its founder</div>' : ''}</div>`
+      + `<div class="q n" style="right:10px;bottom:${lift}px;text-align:right">${L.hive ? 'HIVE on' : 'SOLO · hive off'}${L.migrant_from ? ` · lineage from ${String(L.migrant_from).replace(/[^\w.-]/g, '')}` : ''}<br>age ${age}${span}</div>`;
   }
   function drawMB(d) {
     const c = $('mb'), cap = $('mb-cap'); if (!c) return;
@@ -1488,6 +1501,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function hudNav(ctx, W, H, hz, sn, d) {
     const k = Math.max(0.6, Math.min(1, W / 560)), px = n => Math.max(8, Math.round(n * k)), G = a => `rgba(124, 255, 160, ${a})`;
     ctx.save(); ctx.lineWidth = 1; ctx.font = `${px(11)}px monospace`;
+    // a dark outline around its symbology (as the video's HUD and the tally's):
+    // legible over bright ground or video, with no backing behind it
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)'; ctx.shadowBlur = 3;
     const hy = hz * H;
     // horizon line, broken at the middle for the flight-path marker
     ctx.strokeStyle = G(0.55); ctx.beginPath(); ctx.moveTo(W * 0.14, hy); ctx.lineTo(W * 0.44, hy); ctx.moveTo(W * 0.56, hy); ctx.lineTo(W * 0.86, hy); ctx.stroke();
@@ -1881,18 +1897,18 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       `<div class="cap" style="margin:0 0 4px">${d.life && d.life.encysted ? '<b style="color:#e8c170">IN ITS CYST</b> (starving in a world with no food; a developed body waits, unchanged, until a host comes within reach)' : d.life && d.life.torpid ? '<b style="color:#9cf">TORPID</b> (no world in its eyes: hibernating at 5% of its burn)' : (b.asleep || 0) >= 0.5 ? '<b style="color:#c8f">ASLEEP</b>' : '<b style="color:var(--green)">awake</b>'}`
       // its sense of time (a 2026-09-29 panel): a look is its moment -- how many it takes a second, beside ours (Rayner 1998: ~200-300 ms fixations)
       + (d.senses && d.senses.pace_s ? ` &middot; its time: a look every ${d.senses.pace_s.toFixed(2)} s (${(1 / d.senses.pace_s).toFixed(1)} a second; people fixate ~3&ndash;4)` : '') + `</div>` +
-      gauge('blood sugar', b.energy, '#ffe2d6', 'pays for everything; ~10 min of waking burn') +
-      gauge('gut', b.gut, '#e8c170', 'what it ate, digesting into blood sugar over minutes; full = cannot eat more') +
+      gauge('sugar', b.energy, '#ffe2d6', 'pays for everything; ~10 min of waking burn') +
+      gauge('gut', b.gut, '#e8c170', 'what it ate, digesting into sugar over minutes; full = cannot eat more') +
       gauge('glycogen', b.glycogen, '#6d9', '~6 h; fills first when fed, released fast for waking and bursts') +
       gauge('fat', b.reserve, '#2c9', '~3 days; made from a real surplus, burned slowly and only aerobically -- never for a burst or the brain') +
-      gauge('protein', b.protein ?? 1, '#e0909c', 'for eggs: only blood fills it; spent over ~3 days (a gonotrophic cycle)') +
+      gauge('protein', b.protein ?? 1, '#e0909c', 'for eggs: only essence fills it; spent over ~3 days (a gonotrophic cycle)') +
       gauge('phosphagen', b.phosphagen, '#fd6', 'the first ~10 s of a burst; refills in ~30 s') +
       gauge('ketosis', b.ketone, '#c9f', 'once glycogen is gone, fat feeds up to 2/3 of the brain as ketones') +
       gauge('wasting', b.wasting, '#f55', 'tissue burned for a brain with no sugar: Kenyon cells, hidden units and the outer rings of its eye go with it; at full, it dies') +
       (d.life ? gauge('toward an egg', d.life.egg_progress, '#9cf', `its reproduction buffer: ${Math.round(100 * (1 - d.life.kappa))}% of what it digests (kappa ${d.life.kappa.toFixed(2)}); an egg costs what a newborn is made of`) +
                 gauge('age', d.life.age, '#b9a', 'the damage its own burning has done to its tissue; at full, it dies of age') : '') +
       gauge('sleep pressure', b.sleep_pressure, '#c8f', 'builds while awake, clears asleep; tiredness costs it half of what it catches at full pressure') +
-      gauge('hunger', b.hunger, '#f6a', 'blood sugar and gut together') +
+      gauge('hunger', b.hunger, '#f6a', 'sugar and gut together') +
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +
       gauge('arousal', b.arousal, '#ffb4a6', 'from motion anywhere in the field') + gauge('threat', b.threat, '#f44', 'from something dark approaching') +
       gauge('fatigue', b.fatigue, '#f90', 'from forceful eye movement') +
@@ -1900,7 +1916,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       `<div class="cap" style="margin-top:4px">tempo <b style="color:var(--cyan)">${d.pace ? ((d.frames_per_second || 15) / d.pace).toFixed(1) : '--'}</b> gazes/s (resting ${d.pace_accepted ? ((d.frames_per_second || 15) / d.pace_accepted).toFixed(1) : '--'})</div>` +
       gauge('metabolism', b.metabolic_rate ?? 1, '#fd4', 'acclimatizes to its tempo over ~2 min (1 = gazing every frame)') +
       (d.flinch ? `<div class="cap" style="margin-top:4px">flinch: <b style="color:var(--cyan)">${d.flinch.events}</b> approaches in its latest run, reacted to <b style="color:var(--cyan)">${d.flinch.reacted}</b>` + (d.flinch.mean_latency_frames !== null ? `, on average ${(d.flinch.mean_latency_frames / (d.frames_per_second || 15) * 1000).toFixed(0)} ms after onset` : '') + '</div>' : '');
-    spark('energy-trace', d.energy_series, '#ffe2d6', 'blood sugar (purple band: asleep)', d.sleep_series);
+    spark('energy-trace', d.energy_series, '#ffe2d6', 'sugar (purple band: asleep)', d.sleep_series);
     const boutNote = kind => { const bt = d.bouts && d.bouts[kind]; if (!bt) return ''; return bt.fit ? `=1 ${kind} = looks < ${bt.fit.criterion_s.toFixed(1)} s apart` : `=${kind} size: calibrating`; };
     $('prey-gauge').innerHTML = gauge('prey (meals)', d.mean_prey, '#ff5fa2', boutNote('meal'));
     spark('prey-trace', d.prey_series, '#ff5fa2', 'prey eaten');
@@ -2332,7 +2348,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     { id: 'c-pace', title: 'resting pace', cap: 'every Nth frame', series: [['every Nth frame', '#ffb4a6', r => r.pace]] },
     { id: 'c-quota', title: 'CPU quota granted', cap: '%', series: [['quota %', '#fd4', r => r.quota_pct]] },
     { id: 'c-tree', title: 'perception tree size', cap: 'response tree nodes / depth', series: [['nodes', '#f90', r => r.tree_nodes], ['depth', '#ffb4a6', r => r.tree_depth]] },
-    { id: 'c-diet', title: 'blood and nectar', cap: 'per hour, each on its own scale', hourly: true, dual: true, series: [['bites', '#ff5fa2', r => r.bites], ['nectar sips', '#9ccf7a', r => r.nectar_sips]] },
+    { id: 'c-diet', title: 'essence and nectar', cap: 'per hour, each on its own scale', hourly: true, dual: true, series: [['bites', '#ff5fa2', r => r.bites], ['nectar sips', '#9ccf7a', r => r.nectar_sips]] },
     { id: 'c-mut', title: 'accepted changes by kind', cap: 'which mutation won, over time', mutations: true },
   ];
   const MUT = ['grow_kc', 'shrink_kc', 'mutate_learning', 'mutate_cones', 'duplicate_layer', 'remove_layer', 'grow_unit', 'shrink_unit', 'mutate_brain', 'mutate_pace', 'mutate_colour', 'mutate_stabilizer', 'mutate_zoom', 'mutate_metabolism', 'mutate_host', 'mutate_replay', 'mutate_vigilance', 'mutate_pump', 'mutate_aversive', 'mutate_receptor_speed', 'mutate_plant_sense', 'mutate_imagery', 'mutate_recall', 'mutate_scenes', 'mutate_sleep_set', 'mutate_pool', 'mutate_setpoints', 'mutate_bore', 'mutate_archetypes', 'mutate_apical', 'mutate_plasticity', 'mutate_maturation', 'mutate_colliculus', 'mutate_prey_sense', 'grow_channel', 'add_prediction', 'shrink_channel', 'mutate_fovea', 'mutate_const', 'mutate_op', 'grow', 'shrink', 'reroll_subtree'];

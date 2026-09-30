@@ -12,7 +12,17 @@ others).
 
 ## What kind of creature it is
 
-**A chimera, openly.** It has a mosquito's niche: hosts with blood, bites,
+**A cambrioid (since 2026-09-30).** A panel (Dennett's intentional stance,
+Scholl & Tremoulet on perceived animacy, Morton & Johnson) found the mosquito
+metaphor forced: what it feeds on is **essence**, what people treat as
+animate -- living beings, and the things we lend a life to (a teddy bear,
+vehicles). Its hosts are whatever has essence; a catch is still a bite. Where
+this document says blood, read essence: the numbers below were measured on
+mosquitoes and vampire bats and stay cited as such, as sources, not as what
+it is. Next (a design note): essence read from self-propelled motion instead
+of a list of classes.
+
+**It began as a chimera, openly.** It has a mosquito's niche: hosts with blood, bites,
 YOLO as its CO₂ that switches the hunt on. Its metabolism has a vertebrate's
 framing (endotherm to ectotherm, crocodile bursts). Its fuel store makes
 ketones like a vertebrate liver, and a shark leans on them too. Real insects
@@ -20,11 +30,13 @@ have a **fat body** instead of a liver, and it makes no ketones. We call the
 organ "fat body / liver": the organ that stores fuel and makes the brain's
 backup fuel.
 
-## Food: things with blood
+## Food: essence (it began as "things with blood")
 
-- **What counts as food.** Its hosts are anything with blood that the detector
-  names: people and pets, and every vertebrate COCO has a word for. Plants and
-  food items are not food. People are always food and always sensed, so every
+- **What counts as food.** Its hosts are anything with essence that the
+  detector names: people, every animal COCO has a word for, the teddy bear,
+  and every vehicle (bicycle, car, motorcycle, airplane, bus, train, truck,
+  boat) -- `prey.PREY_CLASSES`; a host can change the list (cambrian.json's
+  "diet", README). Plants and food items are not food. People are always food and always sensed, so every
   lineage can track people. Which hosts draw it most evolves (host
   preference, a trait).
 - **A catch is a bite.** A host under its **mouth** is a bite: a fixed square

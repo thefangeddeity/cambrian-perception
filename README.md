@@ -1,6 +1,9 @@
 # cambrian-perception
 
-An artificial animal that lives in a camera feed. It has a movable eye, a
+A **cambrioid**: an artificial animal that lives in a camera feed and feeds on
+**essence** -- what people treat as animate: living beings, and the things we
+lend a life to (a teddy bear, cars, boats, every vehicle its detector names).
+It has a movable eye, a
 whole-field sentinel eye, a recurrent brain, a mushroom body that learns in its
 lifetime, a body with metabolism, stores, sleep and a clock, and memories it
 replays and dreams. It evolves continuously on real hardware, and it is priced
@@ -13,6 +16,7 @@ for everything it does.
 - The camera suite (organism and livecam never run together): [docs/suite.md](docs/suite.md)
 - A developing organism, and fitness that knows its stage (proposed): [docs/design-ontogeny.md](docs/design-ontogeny.md)
 - A second organism per host (parked, documented for later): [docs/second-organism.md](docs/second-organism.md)
+- Next designs (not built): when its ground stops being its ground, essence from motion, binocular vision: [docs/next-designs.md](docs/next-designs.md)
 - Its self-test, which every installer runs first: `python tools/selftest.py`
 
 Licence: GPL-3.0-only.
@@ -24,13 +28,22 @@ fixed arithmetic operations, a recurrent network's weights) selected against
 live video under an energy budget, plus the bookkeeping that budget needs. It
 is not alive, and nothing here suggests it feels anything.
 
-The biological words throughout -- gut, blood sugar, sleep, eggs, death,
+The biological words throughout -- gut, sugar, sleep, eggs, death,
 torpor, a cyst, migration, a hive -- are **design vocabulary**: each names a
 piece of bookkeeping after the biological mechanism it was modelled on, so the
 model can borrow that mechanism's measured numbers and its known trade-offs
 (docs/physiology.md cites each). "It died of starvation" means an energy
 counter reached its floor and the lineage record moved to the next genome.
 Read the words as names for mechanisms, not as claims about experience.
+
+**A cambrioid, not a mosquito.** It began as a mosquito-bat chimera, and many
+of its numbers still come from mosquitoes and vampire bats, as measured
+sources (a bite's size, a gonotrophic cycle, a lifespan's shape). Its own
+terms: **essence** is its food, found in its **hosts** -- anything the
+detector names that people treat as animate (people, animals, a teddy bear,
+vehicles); a catch is a **bite**; **nectar** is plants' sugar; **snacks** are
+the little any look at something new gives. In the code, some names keep the
+older words (`PREY_CLASSES`, `bite_blood`): they mean the same things.
 
 **Its boundary.** What evolves can only compose the fixed operations in
 `fishbowl/blocks.py`: nothing it makes can read or write files, open sockets,
@@ -123,7 +136,7 @@ organism's code; a restart (`cambrian --restart`) picks them up.
 | Where | Setting | Default | Notes |
 |---|---|---|---|
 | `cambrian.json` (next to the code) | `"hive"` | `false` (solo) | the installers' `--hive` / `-Hive` set it |
-| `cambrian.json` | `"diet"` | people and animals are food, plants nectar | see "What it eats" below |
+| `cambrian.json` | `"diet"` | living beings, the teddy bear and vehicles are food (essence); plants are nectar | see "What it eats" below |
 | `cambrian.json` (macOS, Windows) | `"source"`, `"viewer_port"` | `"0"` (the camera), `8090` | the installers' `--source` / `-Source` |
 | its viewer | the video it watches | its camera | a stream you pick there (`state/selected_source.json`), with an optional end time |
 | systemd drop-in (Linux) | which camera, its priority | `/dev/video0` | `sudo systemctl edit cambrian-perception`: `[Service]` / `ExecStart=` / `ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/v4l/by-id/<your camera>` (a by-id path survives reboots), and e.g. `Nice=10` |
@@ -294,12 +307,12 @@ grey awake replay, gold dreamt.
 digests, set by its gene kappa); "age" is the damage its own burning has done
 (full: it dies). The first line says whether it is awake and gives its sense of time:
 how long one of its looks takes and how many it takes a second (a look is its
-moment; people make about 3-4 fixations a second). Gut, blood sugar and stores:
-- blood sugar pays for everything (~10 min of waking burn);
-- the gut digests into blood sugar over minutes;
+moment; people make about 3-4 fixations a second). Gut, sugar and stores:
+- sugar pays for everything (~10 min of waking burn);
+- the gut digests into sugar over minutes;
 - glycogen lasts ~6 h and is released fast;
 - fat lasts ~3 days, made from a real surplus and burned only aerobically;
-- protein, for eggs, comes only from blood and is spent over ~3 days;
+- protein, for eggs, comes only from essence and is spent over ~3 days;
 - phosphagen covers the first ~10 s of a burst;
 - once glycogen is gone, fat feeds up to 2/3 of the brain as ketones;
 - wasting burns tissue for a brain with no sugar (Kenyon cells, hidden units,
@@ -316,7 +329,7 @@ pace. "How it moves" is measured, never rewarded (Land 1969).
 peak ever), its body per run, its homeostatic drive (lower is healthier), gaze
 size, resting pace (every Nth frame), the CPU quota the resource handler
 grants (grows with real improvement, shrinks under strain), perception tree
-size, blood and nectar per hour, and which kinds of change evolution accepted.
+size, essence and nectar per hour, and which kinds of change evolution accepted.
 
 **Genome and host** (the last card). Its fitness and peak ever, what it is
 watching, its inherited traits (gaze size, resting pace, colour, stabilizer,

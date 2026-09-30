@@ -32,8 +32,11 @@ from .field import FieldSignals
 from .organism import Organism
 from .video_source import DEFAULT_MAX_DIM, SLOW_SOURCE_FPS
 
-# Living things by the labels detectors use (COCO names, and "human").
-LIVING = {"person", "human", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe"}
+# What has essence, by the labels detectors use: this host's food classes
+# (prey.PREY_CLASSES: living beings and the things we lend a life to), by
+# each label's first word as they are matched below, and "human".
+from . import prey as _prey
+LIVING = {n.split()[0] for n in _prey.PREY_CLASSES.values()} | {"human"}
 
 
 def _unb64(d):

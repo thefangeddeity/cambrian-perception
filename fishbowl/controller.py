@@ -132,7 +132,7 @@ MAX_CHANNELS = 4
 HEAVY_TAIL_P = 0.1
 HEAVY_TAIL_SCALE = 0.1
 HEAVY_TAIL_MAX = 2.0
-INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "eye size", "blood sugar",
+INPUT_NAMES = ("light", "motion", "flow x", "flow y", "loom", "gaze x", "gaze y", "eye size", "sugar",
                "arousal", "threat", "search", "motion dx", "motion dy", "eye vx", "eye vy", "hunger",
                "curiosity", "tree", "gut", "reserve", "sleep pressure", "asleep", "field light", "light trend",
                "prey scent", "prey dir x", "prey dir y", "food value", "place dx", "place dy", "place value",

@@ -363,6 +363,10 @@ class LiveLife:
             self.field = FieldSignals()
             self.field_motion = None
             self._last_boxes = None
+            # its ground and the terrain on it were the old stream's world: afresh
+            self.org.ground = np.zeros_like(self.org.ground)
+            if self.org.terrain is not None:
+                self.org.terrain = np.zeros_like(self.org.terrain)
 
     def set_prices(self, quota_pct: float, sec_per_mac: float) -> None:
         with self.lock:

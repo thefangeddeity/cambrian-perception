@@ -1372,6 +1372,15 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
 
     # Surprise memory persists too (NaN = never seen, stored as null).
     memory_now = memory_from_checkpoint(checkpoint)
+    # A different world than the one it was saved in (tram -> its room, one
+    # stream -> another across a restart): its ground and the terrain on it
+    # were that world's -- they start afresh (a 2026-09-30 panel: Gibson,
+    # Gelman). Everything else it knows it keeps; its scene library still
+    # recognises places it has been.
+    was = checkpoint.get("world_source") if checkpoint else None
+    if memory_now is not None and was is not None and was != clip_path and len(memory_now) > 13:
+        memory_now = tuple(None if k in (11, 13) else m for k, m in enumerate(memory_now))
+        print(f"A new world ({str(clip_path)[:60]}): its ground and terrain start afresh.")
     best_fitness, _, _ = evaluate_genome(genome, *world.at_pace(1), price_quota, body_now, _fps(), world.prey, memory_now, world.colour, host_rate)
     peak_fitness_seen = checkpoint.get("peak_fitness_seen", best_fitness) if checkpoint is not None else best_fitness
     peak_fitness_seen = max(peak_fitness_seen, best_fitness) if math.isfinite(best_fitness) else peak_fitness_seen
@@ -1429,6 +1438,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             "margin": margin,
             "n_vars": n_vars,
             "clip_index": (clip_index + 1) % len(clips),
+            "world_source": clip_path,  # the world its ground was learned in (a different one at start: afresh)
             "total_generation": box.generation,
             # Experiments on the lineage (tools/reset_mind.py, tools/stroke.py), kept across saves.
             **lineage_notes,
