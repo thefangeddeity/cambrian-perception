@@ -1425,7 +1425,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function drawMBHud(d) {
     const el = $('mb-hud'), t = d && d.tally; if (!el) return;
     if (!t) { el.innerHTML = ''; return; }
-    const ph = t.per_hour, sb = t.since_birth, f = v => (v = v || 0) >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(0) : v.toFixed(1);
+    const ph = t.per_hour, sb = t.since_birth, f = v => (v = v || 0) >= 100 ? String(Math.round(v)) : v >= 10 ? v.toFixed(0) : v.toFixed(1);  // always a string (padStart)
     const row = (cls, name, k) => `<div class="${cls}">${name.padEnd(9, '\u00a0')} ${f(ph[k]).padStart(5, '\u00a0')}/h \u00b7 ${f(sb[k])}</div>`;
     const dur = s => s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} d`;
     const L = d.life || {}, age = dur(t.hours_lived * 3600);
