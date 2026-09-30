@@ -20,7 +20,8 @@ from pathlib import Path
 
 KEEP = {".gitkeep", "selected_source.json", "host_limits.json", "handler_state.json", "yielded.json",
         "service.log", "run.log", "viewer.log", "launchd.log", "service.stop",
-        "life_history.json"}  # the host's record of its lives, across lineages
+        "life_history.json",  # the host's record of its lives, across lineages
+        "experiments.json"}   # the host's trials
 
 
 def reset(state: Path, suffix: str = "before-reset") -> tuple[Path, list]:

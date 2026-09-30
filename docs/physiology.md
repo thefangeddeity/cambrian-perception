@@ -663,6 +663,19 @@ and starve for hours, and a starving body never died.
   already exists; real mosquitoes need a blood meal to make eggs), and egg
   resorption when starving (oosorption).
 
+## Ram feeding, a trial (2026-09-30)
+
+On a tram it starved: its snack -- the new structure in its gaze -- was paid
+once a look, however fast the world poured past. A ram filter feeder (whale
+sharks, mantas; barnacles in a current) takes in density x speed x mouth. So,
+on hosts running the trial (`state/experiments.json`), a snack pays surprise x
+(1 + how far the scene flowed past its mouth during the look, from its own
+ego-motion, over `MOUTH_SIDE`): still, the same; moving, a mouthful more per
+mouth-length. No new number: the snack's own dilution (a sixth of blood's),
+its gut bounding it. Tested on a synthetic ride: still 4.8 either way; fast,
+15.0 -> 17.4 (+16%). Its live body and its evaluations read the same switch,
+so evolution scores what its body lives.
+
 ## When its eyes get no world (2026-09-30)
 
 A panel (Heller, Geiser, Nesse, Gelman, Sterling & Laughlin) separated the

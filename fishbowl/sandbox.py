@@ -70,7 +70,8 @@ EPISODES_PATH = STATE_DIR / "episodes.npz"
 CORTEX_PATH = STATE_DIR / "cortex.json"
 EGGS_DIR = STATE_DIR / "eggs"  # the eggs its live body laid (livelife.LiveLife._lay): one genome each
 LIFE_HISTORY_PATH = STATE_DIR / "life_history.json"  # this host's lives: founded, died (of what, how old, how many eggs), hatched, extinct
-TALLY_PATH = STATE_DIR / "tally.json"  # its life's good and bad events since its birth (livelife.Tally)
+TALLY_PATH = STATE_DIR / "tally.json"
+EXPERIMENTS_PATH = STATE_DIR / "experiments.json"  # this host's trials, e.g. {"ram_feeding": true} (the host's, kept across lineages)  # its life's good and bad events since its birth (livelife.Tally)
 
 
 def load_cortex() -> dict | None:
@@ -110,6 +111,15 @@ def save_episodes(arrays: dict) -> None:
 
 EVENTS_PATH = STATE_DIR / "events.jsonl"
 EVENTS_MAX_BYTES = 5_000_000  # then it rotates to events.1.jsonl (one old file kept): a disk-wear bound
+
+
+def experiment(name: str) -> bool:
+    """Whether this host runs a trial (state/experiments.json), for its live
+    body and its evaluations alike, so evolution scores what its body lives."""
+    try:
+        return bool((_read_json(EXPERIMENTS_PATH, {}) or {}).get(name, False)) if EXPERIMENTS_PATH.exists() else False
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def life_history() -> list:

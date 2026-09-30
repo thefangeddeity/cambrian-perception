@@ -538,7 +538,7 @@ class MosquitoState:
     def feed_visual_sustenance(self, tracking_quality: float) -> None:
         """A small snack: genuinely new structure in the gaze center."""
         if self.can_eat:
-            self._swallow(FOOD_PER_LOOK * _clamp(tracking_quality) * self.efficiency)
+            self._swallow(FOOD_PER_LOOK * max(0.0, tracking_quality) * self.efficiency)  # its gut bounds it (ram feeding can pass one look's worth)
         # Curiosity rises with real time, falls with what it took in.
         self.curiosity = _clamp(self.curiosity + 0.01 * getattr(self, "_dt", 1) - 0.25 * _clamp(tracking_quality))
 

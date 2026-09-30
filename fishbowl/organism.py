@@ -34,6 +34,16 @@ from .controller import (ARCHETYPE_INPUTS, DANGER_INPUT, GROUND_INPUTS, INTRUDER
                          NEARNESS_INPUT, FELT_NEARNESS_INPUT, CONTACT_INPUT, TURN_INPUT, TILT_INPUT, HEADING_INPUTS,
                          EGO_SPEED_INPUT, ACCELERATION_INPUT, PLACE_VALUE_INPUT, RIDING_INPUT, TEXTURE_INPUTS, STRANGENESS_INPUT)
 from .entorhinal import Entorhinal
+from . import sandbox as _sandbox
+# Ram feeding (a 2026-09-30 panel -- Sterling & Laughlin, Gelman, Vosshall,
+# Nesse; whale sharks, mantas, barnacles in a current): a trial, per host
+# (state/experiments.json {"ram_feeding": true}). Its snack -- the new
+# structure in its gaze -- is paid per mouthful of world that flowed through
+# its mouth during the look (how far the scene moved past its gaze, from its own
+# ego-motion, over MOUTH_SIDE) on top of what its gaze shows: still, the same
+# snack as before; the faster it rides, the more passes. No new number: still at the snack's own dilution, bounded by its gut;
+# blood stays its rich food.
+RAM_FEEDING = _sandbox.experiment("ram_feeding")
 from . import v4
 from .retina import field_shape
 from .genome import RETINA_PLANES
@@ -704,6 +714,7 @@ class Organism:
         self.just_missed = False
         self.cam_shift = (0.0, 0.0)
         self.cam_scale = 0.0
+        self._ram_flow = 0.0          # how far the world flowed past its mouth since its last look (ram feeding)
         self.compass = int(getattr(g, "compass", 0))
         self.ec = Entorhinal(int(getattr(g, "kc_seed", 0)) ^ 0x5EC) if int(getattr(g, "entorhinal", 0)) else None
         self._hz_cache = None
@@ -884,6 +895,12 @@ class Organism:
         if self.ec is not None:  # its speed cells and path integrator, frame by frame
             self.ec.step(self.cam_scale, self.fps, self._hz_cache, self.heading)
         self.cam_moving = camera_moves(self.cam_shift + (self.cam_scale, roll), shift_size(frame.shape)[::-1])
+        if RAM_FEEDING and self.cam_moving:
+            # how far the scene flows past its mouth this frame (frame heights): the shift, plus the
+            # outflow at its gaze's distance from the focus (the horizon's middle)
+            hz = self._hz_cache if self._hz_cache is not None else 0.5
+            r = math.hypot((self.state.cx - 0.5) * self.aspect, self.state.cy - hz)
+            self._ram_flow += math.hypot(self.cam_shift[0] * self.aspect, self.cam_shift[1]) + abs(self.cam_scale) * r
         if self.k == 0:
             if len(self.scenes) > self.max_scenes:  # a smaller library now: keep the most recent
                 keep = sorted(range(len(self.scenes)), key=lambda i: self.scenes[i].get("last", 0.0))[-self.max_scenes:]
@@ -1153,6 +1170,7 @@ class Organism:
             # Asleep: no eating, no gazing, slow coarse sampling of the field.
             pan = tilt = 0.0
             prey_now = snack = 0.0
+            self._ram_flow = 0.0  # asleep, its mouth is shut
             interval = MAX_INTERVAL
             self.prev_mouth_box = None
             body.bite_over()
@@ -1177,6 +1195,9 @@ class Organism:
             if len(kc_active) and self.aversive_rate > 0.0:
                 self.mb.learn_danger(kc_active, punishment, self.aversive_rate)
             snack = feed_on_novelty(self.memory, v, state, self.variance, self.aspect)
+            if RAM_FEEDING:  # still, what its gaze shows; moving, a mouthful more per mouth-length the scene flowed past it
+                snack *= 1.0 + self._ram_flow / prey_lib.MOUTH_SIDE
+            self._ram_flow = 0.0  # a new look: what flows past it next is its next mouthful
             # Nectar: a plant under its mouth, when no host is (blood first). It
             # flows as blood does -- at its pump's rate -- times how full the
             # plant still is; the plant's crop is drawn down by what it takes.

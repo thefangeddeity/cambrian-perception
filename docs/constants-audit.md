@@ -356,6 +356,14 @@ yardsticks are found.
 | torpor after | its feed's stall line (`STREAM_STALL_MIN_S`) | D | reused |
 | downtime | nothing charged (cryptobiosis) | D | not living, no time passes; replaced charging it as idle, foodless time |
 
+### Ram feeding (a trial; fishbowl/organism.py; 2026-09-30)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| a snack, ram feeding | surprise x (1 + flow past its mouth / `MOUTH_SIDE`) | D | a ram feeder's intake: density x speed x mouth; still, the snack as before |
+| its dilution | `FOOD_PER_LOOK` (1/6 of a blood look) | H | the snack's own, unchanged; blood stays its rich food |
+| on which host | `state/experiments.json` {"ram_feeding": true} | -- | Tanzania from 2026-09-30, Tina the control |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px
