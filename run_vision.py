@@ -1305,6 +1305,9 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     else:
         genome = G.random_genome(rng, n_vars=n_vars, receptors=fovea.DEFAULT_RECEPTORS)
         _default_brain(genome)
+        hist = sandbox.life_history()
+        if hist and hist[-1].get("event") == "extinct":  # its lineage died out: a migrant may come instead
+            genome = _migrate(world, genome, n_vars)
         founded = True
 
 
@@ -1525,12 +1528,6 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             print("Stop requested -- saving and exiting.")
             sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
             break
-        if life is not None and (life.torpid or life.encysted):
-            # torpid (its eyes get no world) or encysted: evolution waits --
-            # nothing is scored on blank frames, and a cyst doesn't change
-            watchdog.tick()
-            time.sleep(1.0)
-            continue
         if sandbox.RESET_FOUNDER_REQUEST_PATH.exists():
             # The owner's Reset to founder: saved as at any stop, then (main)
             # its state moves aside and its founder, as it was at birth, returns.
@@ -1670,6 +1667,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         # plateau). The world, body and memory drift between
         # generations; scoring parent and candidate from the SAME
         # snapshot, body and memory keeps every decision honest.
+        if life is not None and (life.torpid or life.encysted):
+            # torpid (its eyes get no world) or encysted: evolution waits --
+            # nothing is scored on blank frames, and a cyst doesn't change. (Here,
+            # after the owner's requests and the stream's switching: a dormant
+            # organism can still be reset, and a new stream is what wakes a cyst.)
+            watchdog.tick()
+            time.sleep(1.0)
+            continue
         # Every WORLD_REFRESH_GENERATIONS generations (a few seconds):
         # rebuilding the world's signals costs ~0.65 s, which every
         # generation would nearly double generation time.
@@ -2359,6 +2364,51 @@ def _life_card(life) -> dict:
             "eggs_per_lifetime": [r.get("eggs", 0) for r in deaths],
             "hatched": sum(1 for r in hist if r.get("event") == "hatched"),
             "extinctions": sum(1 for r in hist if r.get("event") == "extinct")}
+
+
+def _migrate(world, founder, n_vars: int):
+    """After its lineage went extinct (a 2026-09-30 panel -- Wright's island
+    model, Gelman): every organism the fleet can reach (tools/fleet.py's
+    discovery; pulled, never pushed) and a new random founder, each scored as it
+    would arrive -- its genome in a newborn body, no memories -- on this host's
+    own first snapshot at the reference prices (the fleet's fair tournament).
+    The winner comes as an egg (kappa stepped, as at any laying); if the random
+    founder wins, or no peer is reachable, or anything fails, the founder stays."""
+    try:
+        from tools import fleet
+        from fishbowl import hostspeed
+        host_rate = hostspeed.sec_per_mac()
+        newborn = MosquitoState().to_dict()
+
+        def as_it_would_arrive(g) -> float:
+            return float(evaluate_genome(g, *world.at_pace(1), REFERENCE_QUOTA_PCT, newborn, world.fps, world.prey,
+                                         None, world.colour, host_rate)[0])
+
+        field = [("a new random founder", founder, as_it_would_arrive(founder))]
+        for h in fleet.discover(None):
+            if h.get("local"):
+                continue
+            fleet.fetch(h)
+            c = h.get("checkpoint")
+            if not c or not c.get("genome"):
+                continue
+            g = G.Genome.from_dict(c["genome"])
+            g.n_vars = n_vars
+            field.append((h["host"], g, as_it_would_arrive(g)))
+        who, winner, best = max(field, key=lambda f: f[2] if math.isfinite(f[2]) else -math.inf)
+        scores = {w: round(sc, 4) for w, _, sc in field}
+        print("Migration tournament (as each would arrive): " + ", ".join(f"{w} {sc:.4f}" for w, sc in scores.items()))
+        if winner is founder:
+            sandbox.record_life({"event": "founded after extinction", "scores": scores})
+            return founder
+        egg = winner.laid_egg(random.Random(time.time_ns()))
+        egg.n_vars = n_vars
+        sandbox.record_life({"event": "migrated", "from": who, "kappa": round(egg.kappa, 4), "scores": scores})
+        print(f"A migrant from {who} arrives as an egg (kappa {egg.kappa:.3f}).")
+        return egg
+    except Exception as e:  # never let a migration keep a lineage from starting
+        print(f"No migration ({type(e).__name__}: {e}); a new random founder.")
+        return founder
 
 
 def _bury_and_hatch(cause: str) -> int:

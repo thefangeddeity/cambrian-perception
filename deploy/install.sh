@@ -15,6 +15,7 @@ set -eu
 REPO=/srv/cambrian/cambrian-perception
 OWNER=$(stat -c %U "$REPO/.git")
 # 1. The code: pull as the checkout's owner (an update is a re-run of this).
+OLD=$(sudo -u "$OWNER" git -C "$REPO" rev-parse HEAD)
 sudo -u "$OWNER" git -C "$REPO" pull -q --ff-only
 # 2. Python 3.12+ and the organism's own venv with the pinned libraries --
 #    the same step the macOS and Windows installers take, so every host runs
@@ -27,6 +28,15 @@ done
 [ -n "$PY" ] || { echo "no Python 3.12+ -- install one (Debian/Ubuntu: apt install python3; Arch: pacman -S python) and re-run"; exit 1; }
 [ -x "$REPO/.venv/bin/python" ] || sudo -u "$OWNER" "$PY" -m venv "$REPO/.venv"
 sudo -u "$OWNER" "$REPO/.venv/bin/python" -m pip install -q --disable-pip-version-check -r "$REPO/requirements.lock"
+# 2b. Its self-test (tools/selftest.py) before it runs the new code: failing,
+#     the checkout goes back to the code that is running, which keeps running.
+if ! sudo -u "$OWNER" "$REPO/.venv/bin/python" "$REPO/tools/selftest.py" > /tmp/cambrian-selftest.log 2>&1; then
+    echo "self-test FAILED -- kept the running code ($OLD); see /tmp/cambrian-selftest.log"
+    tail -20 /tmp/cambrian-selftest.log
+    sudo -u "$OWNER" git -C "$REPO" reset -q --hard "$OLD"
+    exit 1
+fi
+echo "self-test passed"
 # 3. The services.
 cd "$REPO/deploy"
 install -m 644 cambrian.target cambrian-perception.service cambrian-viewer.service \

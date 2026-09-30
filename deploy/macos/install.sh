@@ -31,6 +31,16 @@ echo "cambrian-perception: installing from $REPO to $DIR"
 sudo true  # ask for the password once, up front (not -v: it prompts even under NOPASSWD)
 
 # 1. Stop a running copy (it saves first), then lay down the code.
+# 0. Its self-test on the incoming code (tools/selftest.py), with the Python
+#    already installed, before anything running is touched: failing, nothing changes.
+if [ "$REPO" != "$DIR" ] && [ -x "$DIR/.venv/bin/python" ]; then
+    if ! "$DIR/.venv/bin/python" "$REPO/tools/selftest.py" > /tmp/cambrian-selftest.log 2>&1; then
+        echo "self-test FAILED -- the running organism and its code are unchanged; see /tmp/cambrian-selftest.log"
+        tail -20 /tmp/cambrian-selftest.log
+        exit 1
+    fi
+    echo "  self-test passed"
+fi
 if pgrep -f "[c]ambrian_service.py" >/dev/null; then
     echo "  stopping the running organism (it saves first)..."
     touch "$DIR/state/service.stop"

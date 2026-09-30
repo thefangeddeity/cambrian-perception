@@ -27,6 +27,20 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 $Repo = (Resolve-Path "$PSScriptRoot\..\..").Path
 Write-Host "cambrian-perception: installing from $Repo to $InstallDir"
 
+# 0. Its self-test on the incoming code (tools\selftest.py), with the Python
+#    already installed, before anything running is touched: failing, nothing changes.
+if (($Repo -ne $InstallDir) -and (Test-Path "$InstallDir\.venv\Scripts\python.exe")) {
+    $log = Join-Path $env:TEMP "cambrian-selftest.log"
+    $keep = $ErrorActionPreference; $ErrorActionPreference = "Continue"  # its stderr is not a failure: its exit code is
+    & "$InstallDir\.venv\Scripts\python.exe" "$Repo\tools\selftest.py" *> $log
+    $code = $LASTEXITCODE; $ErrorActionPreference = $keep
+    if ($code -ne 0) {
+        Get-Content $log -Tail 20
+        throw "self-test FAILED -- the running organism and its code are unchanged; see $log"
+    }
+    Write-Host "  self-test passed"
+}
+
 # 1. Stop a running copy (it saves its checkpoint), then lay down the code.
 $running = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*cambrian_service.py*" -and $_.Name -like "python*" }
 if ($running) {

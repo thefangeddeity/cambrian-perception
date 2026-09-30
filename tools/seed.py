@@ -94,10 +94,12 @@ def seed_colliculus(g, rng: random.Random) -> list[str]:
         g.colliculus = [rng.gauss(0.0, 3 * G.TRAIT_SIGMA) for _ in range(6)]
         done.append("colliculus " + ", ".join(f"{w:+.2f}" for w in g.colliculus))
     w = g.brain.weights_ih
+    wired = 0
     for c in COLLICULUS_INPUTS:
         if c < w.shape[1] and not w[:, c].any():
             w[:, c] = [rng.gauss(0.0, 0.05) for _ in range(w.shape[0])]
-    return done + ["collicular inputs wired"]
+            wired += 1
+    return done + ([f"{wired} collicular inputs wired"] if wired else [])  # (it used to say so even when none were)
 
 
 def seed_terrain(g, rng: random.Random) -> list[str]:
