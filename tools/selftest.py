@@ -72,12 +72,17 @@ def founder(seed=3, **kw):
     return g
 
 
-_rng = np.random.default_rng(1)
-WORLD = cv2.GaussianBlur((_rng.random((900, 8000)) * 255).astype(np.uint8), (7, 7), 2)
-DASH = cv2.GaussianBlur((_rng.random((90, 640)) * 255).astype(np.uint8), (7, 7), 2)
+_SCENE: dict = {}
 
 
 def ride(n, start=0, speed=6):
+    # its world is made on first use, never on import: a worker process re-imports
+    # this file, and OpenCV run while importing broke forked workers (macOS)
+    if not _SCENE:
+        rng = np.random.default_rng(1)
+        _SCENE["world"] = cv2.GaussianBlur((rng.random((900, 8000)) * 255).astype(np.uint8), (7, 7), 2)
+        _SCENE["dash"] = cv2.GaussianBlur((rng.random((90, 640)) * 255).astype(np.uint8), (7, 7), 2)
+    WORLD, DASH = _SCENE["world"], _SCENE["dash"]
     out = []
     for t in range(start, start + n):
         f = WORLD[100:460, 40 + speed * t:680 + speed * t].copy()

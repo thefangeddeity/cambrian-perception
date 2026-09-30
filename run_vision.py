@@ -833,7 +833,15 @@ def _worker_below_the_body() -> None:
     way to lower a process's CPU, I/O and memory priority together, so under
     memory pressure its pages go before the body's (Russinovich); Linux: the
     idle cgroup (Poettering, _split_body_and_workers); macOS: the Darwin
-    background band (Oakley); and everywhere but Windows, 5 more niceness)."""
+    background band (Oakley); and everywhere but Windows, 5 more niceness).
+    And OpenCV runs single-threaded in it (one thread a worker, as its BLAS):
+    a worker forked from a process whose OpenCV had started its thread pool
+    inherits a broken pool and crashes in it (macOS, 2026-09-30: a segfault
+    in calcOpticalFlowPyrLK's parallel_for)."""
+    try:
+        cv2.setNumThreads(1)
+    except Exception:  # an OpenCV without the call: its default
+        pass
     try:
         if os.name == "nt":
             k32 = _kernel32()
