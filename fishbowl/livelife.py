@@ -645,7 +645,8 @@ class LiveLife:
             self.stage += 1
             self._stage_changed = now
             self.field.expansion = self.stage < SHED.index("expansion") + 1
-            self._event("hypoxic: shed " + SHED[self.stage - 1], load=round(load, 2), behind_s=round(self._latency, 1))
+            self._event("hypoxic: shed " + SHED[self.stage - 1], load=round(load, 2), behind_s=round(self._latency, 1),
+                        ms={k: round(v, 1) for k, v in self.timing.items()})  # where its frame's time went (field, organism, cortex, backlog)
         elif self.stage > 0 and len(self._shed_cost) == self.stage and load / (1.0 - self._shed_cost[-1]) < 1.0:
             self.stage -= 1
             self._shed_load.pop()

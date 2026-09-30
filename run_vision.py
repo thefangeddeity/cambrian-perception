@@ -1442,6 +1442,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         life = LiveLife(feed, genome, body_now, memory_now, price_quota, host_rate, feed_epoch,
                         sandbox.LIVE_STATUS_PATH.with_name("live_actor.json"), metrics, _fps())
 
+    phase: dict = {}
     while box.should_continue() and not stop["now"]:
         if sandbox.STOP_REQUEST_PATH.exists():  # a deliberate stop (docs/packaging.md)
             print("Stop requested -- saving and exiting.")
@@ -1583,11 +1584,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if feed is not None and (box.generation % WORLD_REFRESH_GENERATIONS == 0
                                  or time.time() - world_time > max(WORLD_REFRESH_MAX_S, 3.0 * gen_seconds)):
             world_time = time.time()
+            phase["world"] = -time.perf_counter()
             frames, vectors, total, prey_boxes, colour_frames = feed.snapshot()
             world_prev = world
             world = World(frames, vectors, feed.frames_per_second(), prey_boxes, colour_frames)
             world.t_newest = feed.newest_time
             world.first_index = feed.snapshot_first
+            phase["world"] += time.perf_counter()
             if total != seen_total:
                 last_new_frame = time.time()
             elif time.time() - last_new_frame > max(STALL_CADENCES * max(feed.longest_gap(), 1.0 / max(1.0, _fps())),
@@ -1623,6 +1626,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                     life.set_prices(price_quota, host_rate)
                 body_now, memory_now = life.snapshot()  # the children start from the living body and memory
         memory_eval = _for_evaluation(memory_now)  # the children are scored without the imagery prototypes
+        # Where the organism's own process spends each generation (a 2026-09-29
+        # check: 7elwe's body starved while this process built worlds): printed
+        # when its body is a second behind, and every 25 generations.
+        behind = life._latency if life is not None else 0.0
+        if phase and (behind > 1.0 or box.generation % 25 == 0):
+            print("phases (s): " + ", ".join(f"{k} {v:.2f}" for k, v in phase.items()) + f"; its body {behind:.1f} s behind")
+        phase = {}
         # Every genome -- the parent too -- is scored in a worker process, even
         # a pool of one (a host short of memory): the organism's own process
         # only lives and keeps the books, so evolution never takes its body's
@@ -1633,7 +1643,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             try:
                 if workers is None:
                     workers = _Workers(max(1, min((os.cpu_count() or 2) - 1, space)))
-                if workers.publish(world):
+                t_pub = time.perf_counter()
+                published = workers.publish(world)  # builds this world's signals (World.at_pace) here, once
+                phase["publish"] = time.perf_counter() - t_pub
+                if published:
                     parent_future = workers.submit(genome, price_quota, body_now, _fps(), memory_eval, host_rate)
                     futures = [workers.submit(c, price_quota, body_now, _fps(), memory_eval, host_rate) for c, _, _ in children]
             except Exception as e:  # no worker processes on this host: serial from here on
@@ -1683,8 +1696,10 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         if accepted and both_finite and candidate_fitness > parent_fitness + margin and world_prev is not None:
             # The best of several children re-checked on the previous
             # snapshot: it must not be worse there (see RECHECK above).
+            t_re = time.perf_counter()
             p2, _, _ = evaluate_genome(genome, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
             c2, _, _ = evaluate_genome(candidate, *world_prev.at_pace(1), price_quota, body_now, _fps(), world_prev.prey, memory_eval, world_prev.colour, host_rate)
+            phase["recheck"] = time.perf_counter() - t_re
             if not (math.isfinite(c2) and math.isfinite(p2) and c2 >= p2 - NEUTRAL_EPSILON):
                 accepted, rechecked_out = False, True
 
