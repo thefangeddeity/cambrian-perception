@@ -288,6 +288,71 @@ def _():
     assert s["hive"] is True and s["source"] == "rtsp://x" and s["viewer_port"] == 8090, s
 
 
+@check("a power cut: damaged checkpoints resume its founder, a damaged history its previous copy")
+def _():
+    from fishbowl import state as S_
+    ck = {"genome": founder().to_dict(), "generation": 7}
+    sandbox.save_checkpoint(ck)
+    sandbox.save_checkpoint({**ck, "generation": 8})  # now a .prev too
+    assert sandbox.load_checkpoint()["generation"] == 8
+    sandbox.CHECKPOINT_PATH.write_text('{"genome": {"tr')  # torn mid-write
+    assert sandbox.load_checkpoint()["generation"] == 7  # its previous copy
+    sandbox.FOUNDER_PATH.write_text(json.dumps({**ck, "generation": 0}))
+    sandbox.CHECKPOINT_PREV_PATH.write_text("")  # both damaged
+    got = sandbox.load_checkpoint()
+    assert got is not None and got["generation"] == 0, got  # its own founder, never a crash loop
+    assert not sandbox.CHECKPOINT_PATH.exists() and list(TMP.glob("damaged-*/checkpoint.json")), "damaged files kept aside"
+    assert sandbox.life_history()[-1]["event"] == "resumed after damage"
+    n = len(sandbox.life_history())
+    sandbox.record_life({"event": "test"})
+    sandbox.LIFE_HISTORY_PATH.write_text("[{")  # torn
+    assert len(sandbox.life_history()) == n, "its previous copy"
+    sandbox.FOUNDER_PATH.unlink()
+    # a stream failing while the machine has no network is not counted against it
+    assert sandbox.source_failed("https://stream.invalid/x") is False
+    del S_
+
+
+@check("the hive: a peer's genome is held to this host's own limits")
+def _():
+    from tools import fleet
+    good = founder().to_dict()
+    assert fleet.vet_genome(good) is None, fleet.vet_genome(good)
+    bad_op = json.loads(json.dumps(good))
+    name = next(iter(bad_op["trees"]))
+    bad_op["trees"][name] = {"kind": "op", "op": "__import__", "children": []}
+    assert fleet.vet_genome(bad_op)
+    big_const = json.loads(json.dumps(good))
+    big_const["trees"][name] = {"kind": "const", "value": 1e300}
+    assert fleet.vet_genome(big_const)
+    deep = {"kind": "const", "value": 1.0}
+    for _i in range(200):
+        deep = {"kind": "op", "op": "neg", "children": [deep]}
+    too_deep = json.loads(json.dumps(good))
+    too_deep["trees"][name] = deep
+    assert fleet.vet_genome(too_deep)
+    nan_brain = json.loads(json.dumps(good))
+    nan_brain["brain"]["bias_h"][0] = float("nan")
+    assert fleet.vet_genome(json.loads(json.dumps(nan_brain).replace("NaN", "NaN")))
+    assert fleet.vet_genome("not a genome")
+
+
+@check("a second organism (parked): its paths are its own, and the three derivations agree")
+def _():
+    code = ("import json; from fishbowl import sandbox as s; from tools import viewer as v, resource_handler as r; "
+            "print(json.dumps([s.STATE_DIR.name, v.STATE_DIR.name, r.STATE_DIR.name, str(s._RUNTIME_DIR), str(v._RUNTIME_DIR), "
+            "v.DEFAULT_PORT, v.ORGANISM_UNIT, r.SERVICE_NAME]))")
+    for inst, want in (("", ["state", 8090, "cambrian-perception.service"]), ("b", ["state-b", 8091, "cambrian-perception-b.service"])):
+        env = {**__import__("os").environ, "CAMBRIAN_INSTANCE": inst}
+        env.pop("CAMBRIAN_RUNTIME_DIR", None)
+        out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-800:]
+        s_dir, v_dir, r_dir, s_rt, v_rt, port, unit, svc = json.loads(out.stdout.strip().splitlines()[-1])
+        assert s_dir == v_dir == r_dir == want[0], (s_dir, v_dir, r_dir)
+        assert s_rt == v_rt, (s_rt, v_rt)
+        assert port == want[1] and unit == svc == want[2], (port, unit, svc)
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")

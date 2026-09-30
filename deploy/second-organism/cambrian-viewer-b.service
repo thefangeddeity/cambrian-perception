@@ -1,0 +1,21 @@
+# PARKED (2026-09-30) -- the second organism's viewer. Not installed anywhere;
+# see docs/second-organism.md. CAMBRIAN_INSTANCE=b makes tools/viewer.py read
+# state-b/ and /dev/shm/cambrian-perception-b/ and restart
+# cambrian-perception-b.service on a video switch (which needs
+# 50-cambrian-b.rules beside the first organism's polkit rule).
+[Unit]
+Description=cambrian-perception -- the second organism's (b) viewer (parked)
+After=network.target
+PartOf=cambrian.target
+
+[Service]
+Type=simple
+User=cambrian
+WorkingDirectory=/srv/cambrian/cambrian-perception
+Environment=CAMBRIAN_INSTANCE=b
+ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python tools/viewer.py --port 8091
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=cambrian.target

@@ -1,0 +1,14 @@
+# PARKED (2026-09-30) -- the second organism's resource handler, one-shot.
+# Not installed anywhere; see docs/second-organism.md, whose first open gap is
+# this handler's: like the first, it sizes memory from what the WHOLE host can
+# spare, so the two would hand out the same headroom twice.
+[Unit]
+Description=cambrian-perception -- the second organism's (b) resource handler, one-shot (parked)
+After=cambrian-perception-b.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/cambrian/cambrian-perception
+Environment=CAMBRIAN_INSTANCE=b
+ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python tools/resource_handler.py

@@ -20,7 +20,7 @@ from pathlib import Path
 
 KEEP = {".gitkeep", "selected_source.json", "host_limits.json", "handler_state.json", "yielded.json",
         "service.log", "run.log", "viewer.log", "launchd.log", "service.stop",
-        "life_history.json",  # the host's record of its lives, across lineages
+        "life_history.json", "life_history.prev.json",  # the host's record of its lives, across lineages (and its previous copy)
         "experiments.json"}   # the host's trials
 
 

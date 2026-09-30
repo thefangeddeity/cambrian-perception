@@ -1,0 +1,36 @@
+# PARKED (2026-09-30) -- a second organism on this host. NOT installed by
+# deploy/install.sh and not enabled anywhere; read docs/second-organism.md
+# before using it (it lists the gaps still open).
+#
+# The same program as cambrian-perception.service, told it is organism "b":
+# CAMBRIAN_INSTANCE=b gives it its own state-b/, its own
+# /dev/shm/cambrian-perception-b/ and its own viewer (8091, the -b viewer
+# unit); the code, venv and models are shared with the first organism.
+[Unit]
+Description=cambrian-perception -- a second organism (b) on this host (parked)
+Wants=network-online.target
+After=network-online.target cambrian-perception.service
+PartOf=cambrian.target
+
+[Service]
+Type=simple
+User=cambrian
+WorkingDirectory=/srv/cambrian/cambrian-perception
+Environment=CAMBRIAN_INSTANCE=b
+# "live", never /dev/video0: the first organism holds the camera, and a camera
+# opens for one process at a time. It watches the stream chosen in ITS viewer
+# (port 8091), else the built-in web streams in turn.
+ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py live
+# Its own caps, the first organism's defaults: the two together can use twice
+# this. The resource handler that tunes them is per organism too (see its
+# unit) -- and double-counts the host's spare memory: docs/second-organism.md.
+CPUQuota=150%
+Delegate=yes
+MemoryMax=1536M
+WatchdogSec=30
+NotifyAccess=main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=cambrian.target

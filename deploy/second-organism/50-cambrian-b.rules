@@ -1,0 +1,12 @@
+// PARKED (2026-09-30) -- lets the "cambrian" account restart the SECOND
+// organism's service (its viewer does, on a video switch), as
+// 50-cambrian.rules does for the first. Not installed anywhere; see
+// docs/second-organism.md.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "cambrian" &&
+        action.lookup("unit") == "cambrian-perception-b.service" &&
+        ["restart", "start", "stop"].indexOf(action.lookup("verb")) >= 0) {
+        return polkit.Result.YES;
+    }
+});

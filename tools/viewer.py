@@ -71,11 +71,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # to import: run_vision.py only runs main() under __main__.
 from run_vision import LIVE_SOURCES  # noqa: E402
 
-_INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()  # which organism on this host (fishbowl/sandbox.py)
+# Which organism on this host this viewer shows. PARKED feature (a second
+# organism per host, docs/second-organism.md): unset -- as on every host
+# today -- it is the one organism, exactly as before. Set to "b" (by the
+# parked units in deploy/second-organism/), every path below is that
+# organism's own; the derivations MUST match fishbowl/sandbox.py's.
+_INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()
 STATE_DIR = Path(__file__).resolve().parent.parent / ("state" if not _INSTANCE else f"state-{_INSTANCE}")
 ORGANISM_UNIT = "cambrian-perception.service" if not _INSTANCE else f"cambrian-perception-{_INSTANCE}.service"
-# Same place run_vision writes it: RAM (/dev/shm) where available.
-_RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception"))
+DEFAULT_PORT = 8090 if not _INSTANCE else 8091  # the second organism's viewer (only "b" is supported)
+# Same place run_vision writes it: RAM (/dev/shm) where available -- per
+# organism (without the suffix, a second viewer showed the FIRST organism's
+# live status: found and fixed while parking the feature, 2026-09-30).
+_RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception" + (f"-{_INSTANCE}" if _INSTANCE else "")))
 LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR) / "live_status.json"
 # Its recent frames, small JPEGs run_vision.py keeps next to it in RAM (a
 # short ring, see video_source.LiveFeed), for replaying its latest run.
@@ -2681,7 +2689,13 @@ class Handler(BaseHTTPRequestHandler):
             from fishbowl import sandbox
             in_hive = sandbox.hive()
             if self.path == "/organism/info":
-                body = json.dumps({"hostname": socket.gethostname(), "instance": _INSTANCE, "hive": in_hive, "platform": sys.platform, "machine": platform.machine(),
+                # "siblings": the first organism names any second one this host
+                # has (a state-<i>/ with a checkpoint; parked, so today always
+                # []), so the fleet asks port 8091 only where one exists.
+                root = STATE_DIR.parent
+                siblings = [] if _INSTANCE else sorted(p.name[len("state-"):] for p in root.glob("state-*") if (p / "checkpoint.json").exists())
+                body = json.dumps({"hostname": socket.gethostname(), "instance": _INSTANCE, "siblings": siblings, "hive": in_hive,
+                                   "platform": sys.platform, "machine": platform.machine(),
                                    "state_dir": str(STATE_DIR), "has_checkpoint": (STATE_DIR / "checkpoint.json").exists()}).encode("utf-8")
                 ctype = "application/json"
             elif not in_hive and self.client_address[0] not in ("127.0.0.1", "::1"):
@@ -2894,7 +2908,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8090)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
 

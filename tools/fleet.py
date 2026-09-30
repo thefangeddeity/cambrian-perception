@@ -49,12 +49,73 @@ PORT = 8090
 KEEP_BACKUPS = 3  # fleet-made backups kept per host (the newest); a lineage's own named backups are never touched
 
 
+# The most a peer may send for one file (H, 2026-09-30: 20x the largest
+# checkpoint measured in the fleet, 0.83 MB on 7elwe). A reply larger than
+# this is not an organism of this program, and is never parsed.
+MAX_PEER_BYTES = 16 * 1024 * 1024
+
+
 def _get(url: str, timeout: float = 4.0) -> bytes | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
-            return r.read()
+            body = r.read(MAX_PEER_BYTES + 1)
+            return body if len(body) <= MAX_PEER_BYTES else None
     except Exception:  # unreachable, no viewer, not an organism: not in the fleet
         return None
+
+
+def vet_genome(data) -> str | None:
+    """Why a genome from ANOTHER machine must not be used here, or None if it
+    may (a 2026-09-30 review of the hive: pull-only, data-only).
+
+    A genome is data -- trees of the fixed numeric ops in fishbowl/blocks.py
+    and a brain's weights; nothing in it is ever executed as code -- but a
+    peer could still send one this program would never make: an unknown op
+    (a crash), a constant outside MAX_CONST, NaN weights, a tree past the
+    sandbox's ceilings, or a brain past the energy bound (a CPU hog). Each
+    is checked here against the SAME limits this host's own evolution obeys;
+    a genome that fails is skipped as if the peer were offline."""
+    import math
+    import numpy as np
+    from fishbowl import blocks, controller, genome as G
+    from fishbowl.sandbox import Limits
+    lim = Limits()
+    kinds = {"var", "cell", "pool", "edge", "const", "op"}
+    if not isinstance(data, dict) or not isinstance(data.get("trees"), dict):
+        return "no trees"
+    for name, tree in data["trees"].items():
+        count, stack = 0, [(tree, 1)]
+        while stack:  # iterative: a hostile nesting can't exhaust Python's recursion
+            node, depth = stack.pop()
+            count += 1
+            if count > lim.max_tree_nodes or depth > lim.max_tree_depth:
+                return f"tree {name} past the ceilings ({lim.max_tree_nodes} nodes, depth {lim.max_tree_depth})"
+            if not isinstance(node, dict) or node.get("kind") not in kinds:
+                return f"tree {name}: an unknown node kind"
+            for k in ("index", "value", "kx", "ky", "angle", "bend"):
+                v = node.get(k, 0)
+                if not isinstance(v, (int, float)) or not math.isfinite(v):
+                    return f"tree {name}: a non-numeric or non-finite {k}"
+            kids = node.get("children") or []
+            if not isinstance(kids, list):
+                return f"tree {name}: malformed children"
+            if node["kind"] == "op":
+                if node.get("op") not in blocks.OPS or len(kids) != blocks.OPS[node["op"]][0]:
+                    return f"tree {name}: an unknown op or the wrong number of arguments"
+            if node["kind"] == "const" and abs(node.get("value", 0.0)) > blocks.MAX_CONST:
+                return f"tree {name}: a constant outside +/-{blocks.MAX_CONST}"
+            stack.extend((c, depth + 1) for c in kids)
+    try:
+        g = G.Genome.from_dict(data)
+    except Exception as e:
+        return f"unreadable ({type(e).__name__})"
+    b = g.brain
+    arrays = [b.weights_ih, b.weights_hh, b.weights_ho, b.bias_h, b.bias_o] + [a for l in b.layers for a in l.values()]
+    if not all(np.isfinite(a).all() for a in arrays):
+        return "non-finite brain weights"
+    if b.cost_if() > controller.MAX_THINK_FACTOR * (1 + 1e-9):
+        return f"a brain past the energy bound ({b.cost_if():.1f} > {controller.MAX_THINK_FACTOR:.0f}x)"
+    return None
 
 
 def discover(names: list[str] | None) -> list[dict]:
@@ -72,11 +133,24 @@ def discover(names: list[str] | None) -> list[dict]:
             pass
     found, seen = [], set()
     for name in names:
-        for port in (PORT, PORT + 1):  # a host's first organism, and its second where it has one
+        # A host's first organism on PORT; a second one (PARKED feature,
+        # docs/second-organism.md) on PORT + 1, asked only when the first names
+        # it in "siblings" -- probing 8091 everywhere cost a 3 s timeout on a
+        # host whose firewall drops it (7elwe), for an organism that isn't there.
+        ports = [PORT]
+        while ports:
+            port = ports.pop(0)
             raw = _get(f"http://{name}:{port}/organism/info", 3.0)
             if not raw:
                 continue
-            info = json.loads(raw)
+            try:
+                info = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(info, dict) or not isinstance(info.get("hostname"), str):
+                continue  # something answered, but not an organism's viewer
+            if port == PORT and "b" in (info.get("siblings") or []):
+                ports.append(PORT + 1)  # only "b" is supported (the viewer's DEFAULT_PORT)
             host = info["hostname"].split(".")[0].lower()
             inst = info.get("instance") or ""
             key = f"{host}:{inst}"
@@ -239,6 +313,11 @@ def main() -> int:
     for h in hosts:
         fetch(h)
     hosts = [h for h in hosts if h["checkpoint"]]
+    for h in list(hosts):  # held to the same limits as a migrant before anything is judged or cloned
+        why = vet_genome(h["checkpoint"].get("genome"))
+        if why:
+            print(f"{h['host']}: its genome is refused -- {why}.")
+            hosts.remove(h)
     url = args.source
     if not url:
         for h in hosts:

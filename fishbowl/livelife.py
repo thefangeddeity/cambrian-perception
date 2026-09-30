@@ -442,8 +442,8 @@ class LiveLife:
             print(f"Its memories: {len(org.episodes)} episodes and {len(org.test_set)} test looks back from disk.")
         except FileNotFoundError:
             pass
-        except (OSError, KeyError, ValueError) as e:
-            print(f"Its saved episodes couldn't be read ({e}); starting without them.")
+        except Exception as e:  # a damaged file (a power cut: a torn zip, EOF): its memories are lost, never its life
+            print(f"Its saved episodes couldn't be read ({type(e).__name__}: {e}); starting without them.")
 
     def _save_episodes(self) -> None:
         with self.lock:

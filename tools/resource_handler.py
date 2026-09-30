@@ -59,7 +59,13 @@ import sys
 import time
 from pathlib import Path
 
-_INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()  # which organism on this host (fishbowl/sandbox.py)
+# Which organism this handler looks after. PARKED feature (docs/second-organism.md):
+# unset on every host today = the one organism, as before. With "b", its own
+# state-b/ and cambrian-perception-b.service. KNOWN GAP, to close before any
+# host runs two: each handler sizes MemoryHigh/MemoryMax from what the WHOLE
+# host can spare, so two handlers would each hand out the same headroom
+# (double-counting). They need to split it (e.g. by each one's measured RSS).
+_INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()
 STATE_DIR = Path(__file__).resolve().parent.parent / ("state" if not _INSTANCE else f"state-{_INSTANCE}")
 EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
 REQUESTS_PATH = STATE_DIR / "requests.json"

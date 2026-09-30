@@ -1,0 +1,14 @@
+# PARKED (2026-09-30) -- runs the second organism's resource handler every 15
+# minutes, as the first's timer does. Not installed anywhere; see
+# docs/second-organism.md.
+[Unit]
+Description=Run the second organism's (b) resource handler every 15 minutes (parked)
+PartOf=cambrian.target
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=cambrian.target

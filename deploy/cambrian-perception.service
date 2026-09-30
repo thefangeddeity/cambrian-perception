@@ -1,6 +1,9 @@
 [Unit]
 Description=cambrian-perception -- evolutionary vision organism
-After=network.target
+# After a boot, wait for the network to be up (its chosen stream is on the
+# web; sandbox.source_failed also never counts a failure with no network).
+Wants=network-online.target
+After=network-online.target
 PartOf=cambrian.target
 
 [Service]

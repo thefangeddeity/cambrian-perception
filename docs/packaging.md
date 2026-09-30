@@ -55,7 +55,13 @@ them; `--no-hive` (`-NoHive`) leaves. Without either an update keeps what the ho
 The choice is `"hive"` in the host's `cambrian.json` (`tools/settings.py` writes it; a
 package, which writes none, is solo). The viewer's life HUD says **HIVE on** or **SOLO**,
 and the life history records each change ("joined the hive", "solo"), so hive and solo
-lineages can be compared.
+lineages can be compared. Everything a peer sends is held to this host's own limits
+first (`tools/fleet.py vet_genome`, also before any fleet tournament or clone): at most
+`MAX_PEER_BYTES`, only the fixed ops of `fishbowl/blocks.py` with the right number of
+arguments, constants within `MAX_CONST`, trees within the sandbox's ceilings, finite
+weights, and a brain within the energy bound. A genome that fails is refused (the life
+history says why) as if its host were offline. Only a peer's genome is ever taken: the
+migrant arrives in a newborn body with no memories.
 
 ## Living beside laptop-livecam (no clash, by construction)
 

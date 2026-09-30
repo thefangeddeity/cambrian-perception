@@ -12,9 +12,48 @@ for everything it does.
 - Packages and installers: [docs/packaging.md](docs/packaging.md)
 - The camera suite (organism and livecam never run together): [docs/suite.md](docs/suite.md)
 - A developing organism, and fitness that knows its stage (proposed): [docs/design-ontogeny.md](docs/design-ontogeny.md)
+- A second organism per host (parked, documented for later): [docs/second-organism.md](docs/second-organism.md)
 - Its self-test, which every installer runs first: `python tools/selftest.py`
 
 Licence: GPL-3.0-only.
+
+## What it is, and what it isn't
+
+It is a program: a population of small numeric programs (perception trees of
+fixed arithmetic operations, a recurrent network's weights) selected against
+live video under an energy budget, plus the bookkeeping that budget needs. It
+is not alive, and nothing here suggests it feels anything.
+
+The biological words throughout -- gut, blood sugar, sleep, eggs, death,
+torpor, a cyst, migration, a hive -- are **design vocabulary**: each names a
+piece of bookkeeping after the biological mechanism it was modelled on, so the
+model can borrow that mechanism's measured numbers and its known trade-offs
+(docs/physiology.md cites each). "It died of starvation" means an energy
+counter reached its floor and the lineage record moved to the next genome.
+Read the words as names for mechanisms, not as claims about experience.
+
+**Its boundary.** What evolves can only compose the fixed operations in
+`fishbowl/blocks.py`: nothing it makes can read or write files, open sockets,
+start processes or run for unbounded time. Raw camera frames are never
+written to disk. Resource use is capped by the operating system (systemd,
+Job Objects), not by anything the organism reports.
+
+**The hive (opt-in, off for a new install).** Hosts that join it may, after an
+extinction, take a genome from a peer. It is **pull-only** (nothing is pushed
+to a host), **data-only** (a genome is numbers; it is vetted against this
+host's own limits before use -- `tools/fleet.py vet_genome`) and **removable**
+at any time (`--no-hive`). See docs/packaging.md.
+
+**How it is run.** It learns only over long undisturbed stretches. Changes go
+in batches, each gated by the self-test on every host before it runs, and then
+it is left alone: a deploy restarts every organism, and each restart is time
+it doesn't spend living.
+
+**Surviving a power cut.** Its checkpoint, memories and life history are
+written durably, each with its previous copy kept. A cut loses at most the
+last few minutes; a damaged file is set aside (never silently replaced) and
+it resumes from the previous copy, or at worst from its own founder -- it
+never crash-loops and never starts a stranger over its lineage.
 
 ## Reading the viewer
 

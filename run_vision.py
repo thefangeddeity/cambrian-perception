@@ -2407,9 +2407,16 @@ def _migrate(world, founder, n_vars: int):
         for h in fleet.discover(None):
             if h.get("local"):
                 continue
+            if not h.get("hive", True):  # (discover already skips solo organisms; belt and braces)
+                continue
             fleet.fetch(h)
             c = h.get("checkpoint")
             if not c or not c.get("genome"):
+                continue
+            why = fleet.vet_genome(c["genome"])  # data from another machine: held to this host's own limits first
+            if why:
+                print(f"Migration: {h['host']}'s genome refused -- {why}.")
+                sandbox.record_life({"event": "migrant refused", "from": h["host"], "why": why})
                 continue
             g = G.Genome.from_dict(c["genome"])
             g.n_vars = n_vars

@@ -14,9 +14,22 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-# Which organism on this host (a 2026-09-30 panel: two organisms per host
-# where resources allow): "" is the first, "b" a second -- its own state
-# folder (state-b), status file, viewer port and service; everything else shared.
+# Which organism on this host. PARKED FEATURE (2026-09-30) -- a second
+# organism per host; the full story, the steps to switch it on and the gaps
+# still open are in docs/second-organism.md. Summary for a reader here:
+#   - unset (every host today): the one organism; every path is what it
+#     always was -- state/, /dev/shm/cambrian-perception/, port 8090,
+#     cambrian-perception.service. Nothing in this file behaves differently.
+#   - CAMBRIAN_INSTANCE=b (set only by the parked units in
+#     deploy/second-organism/): a second organism with its OWN state-b/,
+#     /dev/shm/cambrian-perception-b/, viewer on 8091 and
+#     cambrian-perception-b.service; the code, venv and models are shared.
+#   - only "b" is supported (tools/viewer.py DEFAULT_PORT, tools/fleet.py's
+#     "siblings" probe); a third would need a port scheme first.
+# Parked by a resource panel (Gregg, Poettering, Russinovich, Gelman): only
+# one host of four had room, and there the two would share one USB disk.
+# The derivations below are repeated in tools/viewer.py and
+# tools/resource_handler.py (which don't import this module): keep them equal.
 INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()
 STATE_DIR = Path(__file__).resolve().parents[1] / ("state" if not INSTANCE else f"state-{INSTANCE}")
 # .jsonl, not .json -- see log_generation's own comment for the real
@@ -74,6 +87,7 @@ EPISODES_PATH = STATE_DIR / "episodes.npz"
 CORTEX_PATH = STATE_DIR / "cortex.json"
 EGGS_DIR = STATE_DIR / "eggs"  # the eggs its live body laid (livelife.LiveLife._lay): one genome each
 LIFE_HISTORY_PATH = STATE_DIR / "life_history.json"  # this host's lives: founded, died (of what, how old, how many eggs), hatched, extinct
+LIFE_HISTORY_PREV_PATH = STATE_DIR / "life_history.prev.json"  # its previous copy (a power cut mid-write loses one record, not the history)
 TALLY_PATH = STATE_DIR / "tally.json"
 EXPERIMENTS_PATH = STATE_DIR / "experiments.json"  # this host's trials, e.g. {"ram_feeding": true} (the host's, kept across lineages)  # its life's good and bad events since its birth (livelife.Tally)
 
@@ -104,10 +118,14 @@ def save_episodes(arrays: dict) -> None:
     import numpy as np
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     temp = EPISODES_PATH.with_name("episodes.tmp.npz")
-    np.savez_compressed(temp, **arrays)
+    with open(temp, "wb") as f:  # durable, as a checkpoint is: its memories survive a power cut too
+        np.savez_compressed(f, **arrays)
+        f.flush()
+        os.fsync(f.fileno())
     for attempt in range(20):
         try:
             temp.replace(EPISODES_PATH)
+            _fsync_dir(EPISODES_PATH)
             return
         except PermissionError:
             time.sleep(0.05)
@@ -141,15 +159,25 @@ def hive() -> bool:
 
 
 def life_history() -> list:
-    """This host's lives, oldest first (a list of records)."""
-    return _read_json(LIFE_HISTORY_PATH, []) if LIFE_HISTORY_PATH.exists() else []
+    """This host's lives, oldest first (a list of records) -- from its previous
+    copy if the file itself was damaged (a power cut mid-write)."""
+    for p in (LIFE_HISTORY_PATH, LIFE_HISTORY_PREV_PATH):
+        data = _read_json(p, None) if p.exists() else None
+        if isinstance(data, list):
+            return data
+    return []
 
 
 def record_life(entry: dict) -> None:
-    """Appends one record to this host's life history (founded, died, hatched, extinct)."""
+    """Appends one record to this host's life history (founded, died, hatched,
+    extinct). Durable, with the previous copy kept, as a checkpoint is: its
+    history is what migration and the development record stand on."""
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(LIFE_HISTORY_PATH, life_history() + [{"t": round(time.time(), 1), **entry}])
+        hist = life_history()
+        if LIFE_HISTORY_PATH.exists():
+            os.replace(LIFE_HISTORY_PATH, LIFE_HISTORY_PREV_PATH)
+        _write_json_atomic(LIFE_HISTORY_PATH, hist + [{"t": round(time.time(), 1), **entry}], durable=True)
     except OSError:
         pass
 
@@ -208,14 +236,23 @@ def save_checkpoint(data: dict) -> None:
     _write_json_atomic(CHECKPOINT_PATH, data, durable=True)
 
 
-class CheckpointUnreadable(RuntimeError):
+class CheckpointUnreadable(RuntimeError):  # kept for anything that imports it; no longer raised
     pass
 
 
 def load_checkpoint() -> dict | None:
-    """The checkpoint, else its previous copy. None only if neither file
-    exists (a genuine first birth). If files exist but none can be read,
-    raise -- never silently start a fresh lineage over a damaged one."""
+    """The checkpoint, else its previous copy. None only if no checkpoint
+    exists anywhere (a genuine first birth).
+
+    Reboot-hardened (2026-09-30: like a game that loses some play but never
+    the save): if both are damaged -- a power cut mid-write on a disk that
+    reordered it -- it neither crash-loops (it used to raise, and systemd
+    restarted it into the same error forever) nor silently starts over. The
+    damaged files are moved aside to state/damaged-<time>/ for a human, and
+    its lineage restarts from its own founder (state/founder.json, saved at
+    its birth); only if that is unreadable too does a new founder start.
+    Which, and why, goes in its life history. (Two good copies failing at
+    once needs the disk to lose a file it wasn't writing: rare.)"""
     existing = [p for p in (CHECKPOINT_PATH, CHECKPOINT_PREV_PATH) if p.exists()]
     for p in existing:
         data = _read_json(p, None)
@@ -223,8 +260,24 @@ def load_checkpoint() -> dict | None:
             if p is CHECKPOINT_PREV_PATH:
                 print("checkpoint.json unreadable -- resuming from checkpoint.prev.json")
             return data
-    if existing:
-        raise CheckpointUnreadable(f"checkpoint(s) exist but none are readable: {[str(p) for p in existing]}")
+    if not existing:
+        return None
+    aside = STATE_DIR / time.strftime("damaged-%Y%m%d-%H%M%S")
+    try:
+        aside.mkdir(parents=True, exist_ok=True)
+        for p in existing:
+            os.replace(p, aside / p.name)
+    except OSError as e:
+        print(f"Its damaged checkpoints couldn't be moved aside ({e}).")
+    # Only this lineage's own founder: state/backup-*/ hold the lineage a reset
+    # or a fleet clone REPLACED, so resuming from one would bring back another organism.
+    data = _read_json(FOUNDER_PATH, None) if FOUNDER_PATH.exists() else None
+    if isinstance(data, dict) and "genome" in data:
+        print(f"Both checkpoints were damaged (kept in {aside.name}/) -- its lineage restarts from its founder.")
+        record_life({"event": "resumed after damage", "from": "founder", "damaged": aside.name})
+        return data
+    print(f"Both checkpoints were damaged (kept in {aside.name}/) and its founder is unreadable -- a new founder starts.")
+    record_life({"event": "resumed after damage", "from": None, "damaged": aside.name})
     return None
 
 
@@ -232,12 +285,31 @@ SOURCE_FAILURES_PATH = STATE_DIR / "source_failures.json"
 SOURCE_FAILURES_TO_DROP = 3  # a chosen stream is dropped after this many failed runs in a row
 
 
+def _resolves(url: str) -> bool:
+    """Whether the stream's host name resolves now (no name: assume it does)."""
+    import socket
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname
+    if not host:
+        return True
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except OSError:
+        return False
+
+
 def source_failed(url: str) -> bool:
     """A chosen stream failed to open: count it, and say whether to give up
     on it. One timeout (a network hiccup) used to drop a human's choice for
     good; now only a stream that fails SOURCE_FAILURES_TO_DROP runs in a row
-    (about a minute apart, as the supervisor restarts it) is dropped."""
-    seen = _read_json(SOURCE_FAILURES_PATH, {}) if SOURCE_FAILURES_PATH.exists() else {}
+    (about a minute apart, as the supervisor restarts it) is dropped.
+    And a failure while the machine has no network at all (its stream's host
+    doesn't resolve: e.g. just after a reboot, before the network is up) is
+    the machine's, not the stream's: not counted."""
+    if not _resolves(url):
+        return False
+    seen =_read_json(SOURCE_FAILURES_PATH, {}) if SOURCE_FAILURES_PATH.exists() else {}
     count = (int(seen.get("count", 0)) if seen.get("url") == url else 0) + 1
     _write_json_atomic(SOURCE_FAILURES_PATH, {"url": url, "count": count})
     return count >= SOURCE_FAILURES_TO_DROP
@@ -435,6 +507,25 @@ def _write_json_atomic(path: Path, data, compact: bool = False, durable: bool = 
         if durable:
             f.flush()
             os.fsync(f.fileno())
+    _replace(temp, path, durable)
+
+
+def _fsync_dir(path: Path) -> None:
+    """After a rename, the folder's own entry to disk too (POSIX): without it
+    a power cut can undo the rename, or keep the name with the old data."""
+    if os.name != "posix":
+        return
+    try:
+        fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def _replace(temp: Path, path: Path, durable: bool) -> None:
     # Windows refuses to replace a file another process has open this instant
     # (the viewer or `cambrian --status` reading it): "Access is denied". It
     # crashed the organism on hera 22 times. Retry briefly; a live status
@@ -443,6 +534,8 @@ def _write_json_atomic(path: Path, data, compact: bool = False, durable: bool = 
     for attempt in range(20):
         try:
             temp.replace(path)
+            if durable:
+                _fsync_dir(path)
             return
         except PermissionError:
             if attempt == 19:

@@ -67,9 +67,9 @@ are its zooids.
   Russinovich, Gelman): only one host of four has the room, and on it two
   bodies would share one USB disk (the contention behind the fleet's worst
   watchdog kills); two organisms on one machine and one stream are weak
-  replicates of each other. The plumbing is in and inert
-  (`CAMBRIAN_INSTANCE`: its own `state-<i>`, runtime folder, service name;
-  fleet discovery probes 8090 and 8091); nothing runs a second one.
+  replicates of each other. Built as far as it goes without switching it on,
+  and documented for whoever picks it up, with the gaps still open:
+  docs/second-organism.md. Nothing runs a second one.
 - **Sensing each other, and sharing energy** (Wilkinson's reciprocity). It
   needs no second organism per host -- the four hosts' organisms can do it
   across machines, in the hive only, pull-only and data-only -- but it is a

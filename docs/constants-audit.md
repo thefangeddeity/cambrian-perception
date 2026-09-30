@@ -376,6 +376,15 @@ yardsticks are found.
 | revival | a host at least `MOUTH_SIDE` tall in view, or a new stream | D | its own mouth |
 | upbringing | its mother's learned parts (live._learned_parts), once | D | the model card's frozen parts, reused |
 
+### The hive and power cuts (2026-09-30)
+
+| Constant | Value | Label | Basis |
+|---|---|---|---|
+| `MAX_PEER_BYTES` (tools/fleet.py) | 16 MiB | H | 20x the largest checkpoint measured in the fleet (0.83 MB, 7elwe); a larger reply is not an organism of this program |
+| a migrant's limits | `MAX_CONST`, `Limits().max_tree_nodes` / `max_tree_depth`, `MAX_THINK_FACTOR` | D | this host's own evolution's limits, reused |
+| a failed stream that isn't counted | its host name doesn't resolve | D | no network is the machine's failure, not the stream's |
+| after a damaged checkpoint | its previous copy, then its founder | D | the lineage's own saved states; never another lineage's backup |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px
