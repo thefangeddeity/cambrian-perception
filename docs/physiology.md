@@ -620,6 +620,49 @@ can afford more and bigger ones.
 - Memories formed on a stream of another shape replay without touching maps
   whose cells don't exist on the current one.
 
+## Life history: eggs, death and hatching (2026-09-29)
+
+A panel (6-3; Kooijman, Pearl, Kirkwood, Stearns, Charnov, Wilkinson,
+Dawkins, Gelman, Sterling & Laughlin) gave it a life history, because replay
+trials are blind to slow costs: a lineage could drift into a costly metabolism
+and starve for hours, and a starving body never died.
+
+- **The kappa rule** (Kooijman's Dynamic Energy Budget theory): of what it
+  assimilates -- what digestion moves into its blood, less the cost of
+  digesting it -- a share kappa goes to its body as before and 1 - kappa into a
+  reproduction buffer. Stores mobilised while starving never feed it. Gene
+  `kappa`, born 1 (no eggs); seed set "reproduction" sets the Add-my-Pet
+  collection's median across ~3000 species, 0.9 (Marques et al. 2018; DEB's
+  prior of 0.8 barely moves fitted values), exactly: random seed steps clipped
+  at 1 would have seeded lineages that can never lay.
+- **Kappa is never mutated in replay trials**: they see its cost (less for the
+  body) but never its benefit (eggs), and would push it to 1. It changes only
+  when an egg is laid, one step on its log-odds (by `LEARNING_SIGMA`, as its
+  rates step on their logs), so it nears 0 or 1 but never reaches them, and is
+  selected by which lineages go on (unanimous).
+- **An egg** costs what a newborn is made of: a fresh body's stores (blood sugar
+  and fat, 10,968 B) made from sugar at `STORE_EFFICIENCY`: 14,624 B, about 4 h
+  of waking burn. The live body lays one whenever its buffer holds one; its
+  genome (kappa stepped) waits in `state/eggs/`.
+- **Death** comes from its own body. Starvation: wasting reaches its ceiling
+  (all the tissue `PROTEIN_CAP` measures; from a newborn's stores with no food,
+  48 h). Age, by the rate of living (Pearl 1928): a share of all the energy it
+  burns damages it -- the share of respiratory electrons that leak to
+  superoxide, 0.15% (St-Pierre et al. 2002) -- and it dies when that damage
+  equals the same tissue. At metabolism 1 that is ~629 days; at 2, 0.62 of it
+  (not all of its burn scales with metabolism). It has its own lifetime, not
+  a mosquito's (~8 days in the field) nor a vampire bat's (~30 years).
+- **At death**: its state moves aside (`backup-<time>-died`); its newest egg
+  hatches -- that genome, a newborn body, no memories; the lineage's founder
+  and seed record go on with it, the other eggs stay with their mother. With no
+  egg the lineage is extinct and a new random founder starts. Every founding,
+  death (cause, age, eggs), hatching and extinction is recorded in
+  `state/life_history.json` (the host's record, kept across lineages) and on
+  the model card (`life_history`).
+- Proposed, not built: eggs that also need blood protein (the protein store
+  already exists; real mosquitoes need a blood meal to make eggs), and egg
+  resorption when starving (oosorption).
+
 ## Consolidation and pyramidal units (2026-09-29)
 
 - **Sleep distillation** (inherited plasticity, born 0; complementary learning

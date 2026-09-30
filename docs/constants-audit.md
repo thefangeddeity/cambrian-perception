@@ -324,6 +324,18 @@ yardsticks are found.
 | the gate | p < 0.05 | S | the standard 5% test |
 | a class counts | its line fitted and >= 3 residuals kept | S | as its ground fit's own minimum |
 
+### Life history (fishbowl/state.py, genome.py, livelife.py; 2026-09-29)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| kappa seed | 0.9 | S | Add-my-Pet median across ~3000 species (Marques et al. 2018) |
+| kappa at laying | one log-odds step, sd `LEARNING_SIGMA` | P | a bounded share steps on its log-odds |
+| `EGG_COST` | newborn's stores / `STORE_EFFICIENCY` = 14,624 B | P | derived from the body's own defaults |
+| `DAMAGE_FRACTION` | 0.0015 | S | electrons leaking to superoxide (St-Pierre et al. 2002) |
+| death by age | damage = `PROTEIN_CAP` | P | the same tissue wasting breaks down |
+| death by starvation | wasting = 1 | P | its own ceiling |
+| `MARGIN_START` | 0.05 | B | a new lineage's acceptance margin (as before; now named) |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

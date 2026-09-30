@@ -178,6 +178,21 @@ NIGHT_LIGHT, DAY_LIGHT = 0.15, 0.5  # field light (~20 min average) that counts 
 # whatever its brain prefers -- sleep pays over hours, and a choice judged over
 # minutes never picks it (the Tanzania lineage never slept in 48 h): a gate, like
 # collapse, is the body plan's answer. Aedes, its model, sleeps at night.
+# Its life history (a 2026-09-29 panel -- Kooijman's Dynamic Energy Budget
+# theory, Pearl's rate of living, Kirkwood, Stearns, Charnov, Gelman):
+# - the kappa rule: of what it assimilates (what digestion moves into its blood,
+#   less the cost of digesting it), a share kappa (genome.kappa) goes to its body
+#   as before and 1 - kappa into a reproduction buffer (repro), from which it
+#   lays eggs; stores mobilised while starving never feed it
+# - an egg costs what a newborn is made of: a fresh body's stores
+#   (newborn_energy()), made from sugar at STORE_EFFICIENCY
+# - ageing: a share of all the energy it burns damages it (DAMAGE_FRACTION,
+#   the share of the respiratory chain's electrons that leak to superoxide:
+#   0.15%, St-Pierre, Buckingham, Roebuck & Brand 2002, J Biol Chem 277:44784);
+#   it dies of age when that damage equals its own tissue (PROTEIN_CAP, the
+#   same tissue wasting breaks down) -- a faster metabolism ages it faster
+# - it dies of starvation when wasting reaches its ceiling (1: all that tissue)
+DAMAGE_FRACTION = 0.0015
 CIRC_PERIOD_S = 24 * 3600.0
 CIRC_SHIFT_RATE = (2 * math.pi / 24.0) / (24 * 3600.0)  # rad/s of phase at most: one hour a day
 
@@ -220,6 +235,23 @@ class MosquitoState:
     sleep_mismatch: float = 0.0  # the field's mismatch when it fell asleep (or lowest since): the room it fell asleep in
     woke_by: str = ""          # what ended its last sleep (hourly metrics): mismatch, loom, motion, rested, choice
     circ_phase: float = -1.0   # its clock's phase (radians, 0 = its midday); -1 until it first sees light
+    repro: float = 0.0         # its reproduction buffer, B (the kappa rule's 1 - kappa of what it assimilates)
+    damage: float = 0.0        # the damage its burning has done, B (DAMAGE_FRACTION of all it burned); age = damage / PROTEIN_CAP
+    kappa: float = 1.0         # its share of assimilation kept for its body (genome.kappa; set by the organism, not saved)
+
+    # ---- its life history ----------------------------------------------
+    @property
+    def age(self) -> float:
+        """How much of its tissue its burning has damaged (0..1; 1 = dead of age)."""
+        return self.damage / PROTEIN_CAP
+
+    def death(self) -> str | None:
+        """What it died of, or None: starvation (wasting at its ceiling) or age."""
+        if self.wasting >= 1.0:
+            return "starvation"
+        if self.damage >= PROTEIN_CAP:
+            return "age"
+        return None
 
     # ---- what the organism "feels" ------------------------------------
     @property
@@ -413,11 +445,15 @@ class MosquitoState:
             f = 0.5 + 0.5 * self.energy / EMPTY_G
             aerobic_need, brain, glyco_fuel = aerobic_need * f, brain * f, glyco_fuel * f
 
+        # the damage of burning (its ageing): a share of everything it burns this step
+        self.damage += DAMAGE_FRACTION * (aerobic_need + brain + glyco_fuel)
         # --- digestion: gut -> blood sugar (costs part of the meal: SDA) ---
         gut_bs = self.gut * GUT_CAP
         moved = gut_bs * (1.0 - math.exp(-seconds / DIGEST_TAU_S))
         gut_bs -= moved
-        g_bs = self.energy * G_CAP + moved * (1.0 - SDA_FRACTION) + back * LACTATE_RETURN
+        assimilated = moved * (1.0 - SDA_FRACTION)
+        self.repro += (1.0 - self.kappa) * assimilated  # the kappa rule: only what it assimilates feeds its eggs
+        g_bs = self.energy * G_CAP + self.kappa * assimilated + back * LACTATE_RETURN
         gly_bs, fat_bs = self.glycogen * GLYCOGEN_CAP, self.reserve * FAT_CAP
 
         # --- fasted (glucagon): fat pays aerobic work directly, up to its limit.
@@ -556,7 +592,8 @@ class MosquitoState:
     # ---- persistence --------------------------------------------------
     FIELDS = ("energy", "gut", "reserve", "sleep_pressure", "asleep", "sleep_clock", "arousal", "threat",
               "search", "fatigue", "hunger", "curiosity", "metabolic_rate", "light_fast", "light_slow", "debt",
-              "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch", "protein", "circ_phase")
+              "glycogen", "phosphagen", "lactate", "ketone", "wasting", "sleep_mismatch", "protein", "circ_phase",
+              "repro", "damage")
 
     @classmethod
     def from_dict(cls, data: dict) -> "MosquitoState":
@@ -569,3 +606,12 @@ class MosquitoState:
 
     def to_dict(self) -> dict[str, float]:
         return {k: round(float(getattr(self, k)), 6) for k in self.FIELDS}
+
+
+def newborn_energy() -> float:
+    """What a newborn is made of: a fresh body's stores, B (blood sugar, glycogen, fat)."""
+    b = MosquitoState()
+    return b.energy * G_CAP + b.glycogen * GLYCOGEN_CAP + b.reserve * FAT_CAP
+
+
+EGG_COST = newborn_energy() / STORE_EFFICIENCY  # an egg: a newborn's stores, made from sugar

@@ -248,6 +248,7 @@ class Genome:
         colour_constancy: float = 0.0,
         texture: int = 0,
         texture_teacher: float = 0.0,
+        kappa: float = 1.0,
         colliculus: list | None = None,
         mobilize: float = MOBILIZE_BELOW,
         store: float = STORE_ABOVE,
@@ -321,6 +322,13 @@ class Genome:
         self.colour_constancy = float(np.clip(colour_constancy, 0.0, COLOUR_ADAPT_MAX_S))
         self.texture = int(bool(texture))
         self.texture_teacher = float(np.clip(texture_teacher, 0.0, 1.0))
+        # Its kappa (state.py: the Dynamic Energy Budget's allocation rule): the
+        # share of what it assimilates kept for its body; the rest feeds its eggs.
+        # Born 1 (no eggs: the body as before). Never mutated in replay trials --
+        # they see its cost (less for the body) but never its benefit (eggs) --
+        # only when an egg is laid (laid_egg), so it is selected by which
+        # lineages go on (a 2026-09-29 panel, unanimous).
+        self.kappa = float(np.clip(kappa, 0.0, 1.0))
         # Its collicular priority map's weights (organism.COLLICULAR_FEATURES), born 0.
         self.colliculus = ([float(w) for w in (colliculus or [])] + [0.0] * 6)[:6]
         # Its fuel set points (state.py), inherited, born at the rulebook's
@@ -423,10 +431,23 @@ class Genome:
             self.colour_constancy,
             self.texture,
             self.texture_teacher,
+            self.kappa,
             list(self.colliculus),
             self.mobilize,
             self.store,
         )
+
+    def laid_egg(self, rng: random.Random) -> "Genome":
+        """The genome an egg carries: this one, its kappa stepped once -- the
+        only place kappa changes. A share steps on its log-odds (a ratio, so by
+        LEARNING_SIGMA as its rates step on their logs): it nears 0 or 1 but
+        never reaches them. (Stepped by TRAIT_SIGMA and clipped, ~1 egg in 6
+        from kappa 0.9 came out 1.0 -- sterile, its lineage ending at its death.)"""
+        egg = self.clone()
+        k = min(1.0 - 1e-9, max(1e-9, self.kappa))
+        logit = math.log(k / (1.0 - k)) + rng.gauss(0.0, LEARNING_SIGMA)
+        egg.kappa = float(1.0 / (1.0 + math.exp(-logit)))
+        return egg
 
     def evaluate(self, name: str, inputs: np.ndarray, retina: np.ndarray | None = None) -> np.ndarray:
         return self.trees[name].evaluate(inputs, retina)
@@ -960,6 +981,7 @@ class Genome:
             "colour_constancy": self.colour_constancy,
             "texture": self.texture,
             "texture_teacher": self.texture_teacher,
+            "kappa": self.kappa,
             "colliculus": list(self.colliculus),
             "mobilize": self.mobilize,
             "store": self.store,
@@ -1045,6 +1067,7 @@ class Genome:
             colour_constancy=float(data.get("colour_constancy", 0.0)),
             texture=int(data.get("texture", 0)),
             texture_teacher=float(data.get("texture_teacher", 0.0)),
+            kappa=float(data.get("kappa", 1.0)),
             colliculus=data.get("colliculus"),
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),

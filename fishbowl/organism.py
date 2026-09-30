@@ -814,6 +814,7 @@ class Organism:
         self.prey_level = int(getattr(g, "prey_sense", 0)) if prey else 0
         # Metabolic strategy, host preference, replay and vigilance (genome).
         self.body.metabolism = float(getattr(g, "metabolism", 1.0))
+        self.body.kappa = float(getattr(g, "kappa", 1.0))  # its allocation to its body vs its eggs (state.py)
         self.body.mobilize = float(getattr(g, "mobilize", self.body.mobilize))  # its inherited fuel set points
         self.body.store = float(getattr(g, "store", self.body.store))
         self.host_pref = dict(getattr(g, "host_pref", {}) or {})

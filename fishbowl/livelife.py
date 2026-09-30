@@ -26,6 +26,7 @@ import json
 import math
 import os
 import threading
+import random
 import time
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from .metrics import HourlyMetrics
 from .mushroom import PROTO_SIDE
 from .organism import (EXPANSION_GAIN, NOISE_FLOOR, PERIPH_MOTION_GAIN, REFERENCE_MACS, RESTING_BURN, THINK_COST,
                        Organism, kc_macs)
-from .state import EMPTY_G, LEGACY_UNIT
+from .state import EGG_COST, EMPTY_G, LEGACY_UNIT, PROTEIN_CAP
 
 # Living in the present, and oxygen (a 2026-09-29 panel). Its present is its
 # own look interval (the time between two looks: its pace): a frame older than
@@ -72,14 +73,15 @@ class Tally:
     the mushroom body's HUD. Each is defined where it is counted (LiveLife._live):
 
       good -- meals: separate bites (a run of looks with a host at its mouth);
-              sips: nectar sips; snacks: looks it fed on something new
+              sips: nectar sips; snacks: looks it fed on something new;
+              eggs: eggs it laid (state.py's kappa rule)
       bad  -- swats: a host swatted it; missed: looks it was still thinking
               when it had to act; starving: minutes its body was empty
       neither -- approaches: something began coming at its gaze (tau)
 
     Rates are per hour lived: what the last 60 minutes of its life held."""
 
-    KINDS = ("meals", "sips", "snacks", "approaches", "swats", "missed", "starving_min")
+    KINDS = ("meals", "sips", "snacks", "eggs", "approaches", "swats", "missed", "starving_min")
 
     def __init__(self, saved: dict | None = None):
         saved = saved or {}
@@ -307,6 +309,9 @@ class LiveLife:
         self.error = None
         self.error_trace = ""
         self.tally = Tally(sandbox._read_json(sandbox.TALLY_PATH, None) if sandbox.TALLY_PATH.exists() else None)
+        self.died = None             # what it died of (state.MosquitoState.death); run_vision buries it
+        self.eggs_laid = 0           # in this process's stretch of its life (its tally keeps the lifetime's)
+        self._rng = random.Random(time.time_ns())
         self._eat_prev = self._contact_prev = 0.0
         self._stop = False
         self._written = 0.0
@@ -575,6 +580,15 @@ class LiveLife:
                     self.tally.add("approaches", 1.0 if near > 0 and self._contact_prev <= 0 else 0.0, org.lived_s)
                     self.tally.add("snacks", 1.0 if snack > 0 else 0.0, org.lived_s)
                     self._eat_prev, self._contact_prev = eat, near
+                # its life history (state.py): an egg whenever its buffer holds one; death, from its own body
+                while org.body.repro >= EGG_COST:
+                    self._lay(org)
+                cause = org.body.death()
+                if cause:
+                    self.died, self._stop = cause, True
+                    self._event("died", cause=cause, lived_s=round(self.tally.lived_s, 1),
+                                eggs=int(self.tally.total["eggs"]), age=round(org.body.age, 3))
+                    break
                 if out["gazed"]:
                     looks += 1
                     if not out["asleep"]:
@@ -623,6 +637,39 @@ class LiveLife:
             self._breathe(items[-1][4])
             batch["missed_share"] = missed / max(1, looks)
             self.metrics.add(batch, items[0][0], fps)
+
+    def _lay(self, org) -> None:
+        """One egg: its buffer pays for it, and the genome it carries (its own,
+        kappa stepped once: genome.laid_egg) waits in state/eggs/."""
+        org.body.repro -= EGG_COST
+        egg = org.g.laid_egg(self._rng)
+        now = time.time()
+        b = org.body
+        try:
+            sandbox.EGGS_DIR.mkdir(parents=True, exist_ok=True)
+            sandbox._write_json_atomic(sandbox.EGGS_DIR / f"{int(now * 1000)}.json",
+                                       {"genome": egg.to_dict(), "laid_at": round(now, 1),
+                                        "mother_lived_s": round(self.tally.lived_s, 1), "mother_kappa": round(org.g.kappa, 4),
+                                        "mother_stores": {"energy": round(b.energy, 3), "glycogen": round(b.glycogen, 3),
+                                                          "fat": round(b.reserve, 3), "age": round(b.age, 4)}})
+        except OSError as e:
+            print(f"An egg couldn't be kept ({e}).")
+            return
+        self.eggs_laid += 1
+        self.tally.add("eggs", 1.0, org.lived_s)
+        self._event("laid an egg", kappa=round(egg.kappa, 4), eggs=int(self.tally.total["eggs"]))
+
+    def life_view(self) -> dict:
+        """Its life history for the viewer: toward its next egg, its age, what
+        its own damage rate so far says its lifespan is, and this host's deaths."""
+        b = self.org.body
+        hist = sandbox.life_history()
+        deaths = [r for r in hist if r.get("event") == "died"]
+        lived = self.tally.lived_s
+        return {"egg_progress": round(b.repro / EGG_COST, 4), "egg_cost": round(EGG_COST, 1), "kappa": round(self.org.g.kappa, 4),
+                "age": round(b.age, 5), "lived_s": round(lived, 1),
+                "expected_lifespan_s": round(lived / b.age, 0) if b.age > 1e-9 and lived > 0 else None,
+                "deaths": len(deaths), "deaths_by": {c: sum(1 for r in deaths if r.get("cause") == c) for c in ("starvation", "age")}}
 
     def _breathe(self, arrived: float) -> None:
         """Its oxygen: its load is its work per frame over the frame's own time.
@@ -711,6 +758,7 @@ class LiveLife:
             timing = {k: round(v, 2) for k, v in self.timing.items()}
             scores = {k: v.report() for k, v in self.org.scores.items()}
             tally = self.tally.view(self.org.lived_s)
+            life = self.life_view()
         if not shown:
             return
         first = shown[0]["i"]
@@ -732,7 +780,7 @@ class LiveLife:
             # what its wide-field motion sense is fed, per cell (not a picture: it
             # never senses per-cell brightness, only where and how much things change)
             "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
-            "cortex": cortex, "timing_ms": timing, "scores": scores, "tally": tally,
+            "cortex": cortex, "timing_ms": timing, "scores": scores, "tally": tally, "life": life,
             "oxygen": {"stage": self.stage, "shed": list(SHED[:self.stage]), "behind_s": round(self._latency, 2),
                        "load": round((timing["field"] + timing["organism"] + timing["cortex"]) * max(1.0, fps) / 1000.0, 2),
                        "dropped": self.dropped},

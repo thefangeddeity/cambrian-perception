@@ -1248,7 +1248,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     if checkpoint is not None:
         box.generation = int(checkpoint.get("total_generation", 0))
         box.run_start_generation = box.generation
-    margin = 0.05
+    margin = MARGIN_START
 
     # Plain inputs are only ever APPENDED (e.g. the brain's hidden units), so
     # a genome with fewer is prefix-compatible: every existing tree index
@@ -1352,6 +1352,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                                "frames_per_second": round(world.fps, 2),
                                "rules_version": RULES_VERSION, "code_version": CODE_VERSION,
                                "learned": learned, "scores": scores,
+                               "life_history": _life_card(life),
                                "fitness": {"at_adoption": card["adopted_fitness"],
                                            "out_of_sample": None if n < 2 else {"n": n, "mean": round(mean, 4),
                                                                                 "se": round(math.sqrt(m2 / (n - 1) / n), 4)}}})
@@ -1406,6 +1407,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         except OSError as e:
             print(f"Its founder couldn't be kept for a reset ({e}).")
         print("Its founder is saved: a restart resumes it, and Reset to founder returns to it.")
+        sandbox.record_life({"event": "founded", "kappa": round(genome.kappa, 4), "metabolism": round(genome.metabolism, 4)})
 
     # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
     # switch in the viewer) ends the loop cleanly so the checkpoint is
@@ -1639,6 +1641,19 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             waited = time.time()
             while life.stage >= 1 and life.error is None and not stop["now"] and time.time() - waited < gen_seconds:
                 time.sleep(0.1)
+        if life is not None and life.died:
+            # It died (state.MosquitoState.death): recorded, saved as at any
+            # stop, then (main) buried and its newest egg hatched -- or, with
+            # none, its lineage is extinct and a new random founder starts.
+            t = life.tally
+            print(f"It died of {life.died}, {t.lived_s / 86400.0:.2f} days old, having laid {int(t.total['eggs'])} eggs.")
+            sandbox.record_life({"event": "died", "cause": life.died, "lived_s": round(t.lived_s, 1), "born": round(t.born, 1),
+                                 "eggs": int(t.total["eggs"]), "kappa": round(genome.kappa, 4), "metabolism": round(genome.metabolism, 4),
+                                 "generation": box.generation})
+            sandbox.log_event({"t": round(time.time(), 1), "event": "died", "cause": life.died, "lived_s": round(t.lived_s, 1),
+                               "eggs": int(t.total["eggs"])})
+            _AMNESIA["died"] = life.died
+            break
         if life is not None:
             if life.error:
                 # A living body is reborn from its last snapshot (its body and
@@ -2165,7 +2180,7 @@ class _Watchdog:
         if now - self.progress > WATCHDOG_MAIN_S + self.gen_seconds:
             return f"its main loop made no progress for {now - self.progress:.0f} s"
         life, feed = self.life, self.feed
-        if life is not None and life.error is None and feed is not None:
+        if life is not None and life.error is None and not getattr(life, "died", None) and feed is not None:
             if feed.total != self._total:
                 self._total, self._total_at = feed.total, now
             arriving = now - self._total_at < STREAM_STALL_MIN_S
@@ -2204,7 +2219,60 @@ def _body_at_full_speed() -> None:
         pass
 
 
-_AMNESIA = {"now": False, "founder": False}
+MARGIN_START = 0.05  # a new lineage's acceptance margin (it shrinks as it runs)
+_AMNESIA = {"now": False, "founder": False, "died": None}
+
+
+def _life_card(life) -> dict:
+    """Its life history for the model card: eggs this life, and this host's
+    record of lives -- lifespans of the dead, deaths by cause, eggs per lifetime."""
+    hist = sandbox.life_history()
+    deaths = [r for r in hist if r.get("event") == "died"]
+    return {"eggs_this_life": int(life.tally.total["eggs"]) if life is not None else None,
+            "lifespans_days": [round(r.get("lived_s", 0.0) / 86400.0, 3) for r in deaths],
+            "deaths_by_cause": {c: sum(1 for r in deaths if r.get("cause") == c) for c in ("starvation", "age")},
+            "eggs_per_lifetime": [r.get("eggs", 0) for r in deaths],
+            "hatched": sum(1 for r in hist if r.get("event") == "hatched"),
+            "extinctions": sum(1 for r in hist if r.get("event") == "extinct")}
+
+
+def _bury_and_hatch(cause: str) -> int:
+    """After a death (its state already saved): the dead body's state moves
+    aside into backup-<time>-died (tools/reset_founder.reset). Its newest egg
+    hatches -- that genome, a fresh body (MosquitoState's own defaults), no
+    memories; the lineage's founder and seed record go on with it, the other
+    eggs stay with their mother. With no egg, the lineage is extinct and the
+    next start makes a new random founder. Then it exits to be restarted."""
+    import json
+    import shutil
+    from tools.reset_founder import reset
+    backup, moved = reset(sandbox.STATE_DIR, "died")
+    eggs = sorted((backup / "eggs").glob("*.json")) if (backup / "eggs").is_dir() else []
+    if not eggs:
+        sandbox.record_life({"event": "extinct", "cause": cause, "backup": backup.name})
+        print(f"Its lineage is extinct (it laid no egg); {len(moved)} files moved to {backup.name}. A new random founder starts.")
+        return sandbox.EXIT_RESTART_ME
+    egg = json.loads(eggs[-1].read_text(encoding="utf-8"))
+    mother = json.loads((backup / "checkpoint.json").read_text(encoding="utf-8")) if (backup / "checkpoint.json").exists() else {}
+    for name in ("founder.json", "founder_seeded.txt", "seeded.txt"):  # the lineage's, not the body's
+        if (backup / name).exists():
+            shutil.copy2(backup / name, sandbox.STATE_DIR / name)
+    sandbox.save_checkpoint({
+        "genome": egg["genome"],
+        "best_fitness": mother.get("best_fitness", 0.0),  # re-derived on its first frames, as at any start
+        "peak_fitness_seen": mother.get("peak_fitness_seen", 0.0),
+        "margin": mother.get("margin", MARGIN_START),
+        "n_vars": mother.get("n_vars", TREE_PLAIN_INPUTS),
+        "clip_index": 0, "total_generation": 0, "saved_at": time.time(),
+        "body": MosquitoState().to_dict(),  # a newborn's body
+        "memory": None, "feeding_record": {},
+        "hatched": {"egg": eggs[-1].name, "laid_at": egg.get("laid_at"), "mother_died_of": cause, "mother_backup": backup.name},
+    })
+    sandbox.record_life({"event": "hatched", "egg": eggs[-1].name, "kappa": egg["genome"].get("kappa"),
+                         "mother_died_of": cause, "eggs_left_with_mother": len(eggs) - 1})
+    print(f"Its newest egg hatches ({eggs[-1].name}; kappa {egg['genome'].get('kappa', 1.0):.3f}); "
+          f"its mother's {len(moved)} files and {len(eggs) - 1} other eggs are in {backup.name}.")
+    return sandbox.EXIT_RESTART_ME
 
 
 def main() -> int:
@@ -2221,6 +2289,8 @@ def main() -> int:
 
     limits = sandbox.Limits(max_generations=args.generations, max_wallclock_seconds=args.seconds)
     run(args.source, limits)
+    if _AMNESIA["died"]:
+        return _bury_and_hatch(_AMNESIA["died"])
     if _AMNESIA["founder"]:
         import shutil
         from tools.reset_founder import reset

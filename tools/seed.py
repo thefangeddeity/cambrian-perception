@@ -349,6 +349,18 @@ def seed_strangeness(g, rng: random.Random) -> list[str]:
     return []
 
 
+def seed_reproduction(g, rng: random.Random) -> list[str]:
+    """Reproduction (2026-09-29): kappa at the Add-my-Pet collection's median
+    across ~3000 species, 0.9 (Marques et al. 2018, PLOS Comput Biol; 0.8 is
+    only DEB's prior). Exactly, with no random steps: steps clipped at 1 would
+    seed about a quarter of lineages that can never lay (and kappa changes only
+    at laying). Its variation begins with its first egg."""
+    if g.kappa < 1.0:
+        return []
+    g.kappa = 0.9
+    return ["kappa 0.90"]
+
+
 # Each seed set applies once per lineage (state/seeded.txt lists those applied).
 SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus, "2026-09-29 terrain": seed_terrain,
              "2026-09-29 nearness": seed_nearness, "2026-09-29 everything": seed_everything,
@@ -357,7 +369,7 @@ SEED_SETS = {"2026-09-29": seed_genome, "2026-09-29 colliculus": seed_colliculus
              "2026-09-29 looking ahead": seed_looking_ahead, "2026-09-29 rotation": seed_rotation,
              "2026-09-29 entorhinal": seed_entorhinal, "2026-09-29 frames of reference": seed_frames,
              "2026-09-29 flow-taught terrain": seed_flow_teacher, "2026-09-29 V4": seed_v4,
-             "2026-09-29 strangeness": seed_strangeness}
+             "2026-09-29 strangeness": seed_strangeness, "2026-09-29 reproduction": seed_reproduction}
 
 
 def main() -> int:

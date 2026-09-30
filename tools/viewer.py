@@ -1425,13 +1425,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function drawMBHud(d) {
     const el = $('mb-hud'), t = d && d.tally; if (!el) return;
     if (!t) { el.innerHTML = ''; return; }
-    const ph = t.per_hour, sb = t.since_birth, f = v => v >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(0) : v.toFixed(1);
+    const ph = t.per_hour, sb = t.since_birth, f = v => (v = v || 0) >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(0) : v.toFixed(1);
     const row = (cls, name, k) => `<div class="${cls}">${name.padEnd(9, '\u00a0')} ${f(ph[k]).padStart(5, '\u00a0')}/h \u00b7 ${f(sb[k])}</div>`;
-    const age = t.hours_lived < 48 ? `${t.hours_lived.toFixed(1)} h` : `${(t.hours_lived / 24).toFixed(1)} d`;
-    el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD \u00b7 /h \u00b7 since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}</div>`
-      + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD \u00b7 /h \u00b7 since birth</div>${row('b', 'SWATS', 'swats')}${row('b', 'MISSED', 'missed')}${row('b', 'STARVING', 'starving_min').replace('/h', ' min/h')}</div>`
+    const dur = s => s < 172800 ? `${(s / 3600).toFixed(1)} h` : `${(s / 86400).toFixed(1)} d`;
+    const L = d.life || {}, age = dur(t.hours_lived * 3600);
+    const span = L.expected_lifespan_s ? ` of ~${dur(L.expected_lifespan_s)}` : '';  // its lifespan, as its own damage rate so far says
+    el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD \u00b7 /h \u00b7 since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}${row('g', 'EGGS', 'eggs')}</div>`
+      + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD \u00b7 /h \u00b7 since birth</div>${row('b', 'SWATS', 'swats')}${row('b', 'MISSED', 'missed')}${row('b', 'STARVING', 'starving_min').replace('/h', ' min/h')}<div class="b">DEATHS${'\u00a0'.repeat(4)} ${L.deaths || 0} on this host</div></div>`
       + `<div class="q" style="left:10px;bottom:8px">${row('n', 'APPROACH', 'approaches')}</div>`
-      + `<div class="q h" style="right:10px;bottom:8px">lived ${age} since birth</div>`;
+      + `<div class="q h" style="right:10px;bottom:8px">age ${age}${span}</div>`;
   }
   function drawMB(d) {
     const c = $('mb'), cap = $('mb-cap'); if (!c) return;
@@ -1876,7 +1878,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       gauge('protein', b.protein ?? 1, '#e0909c', 'for eggs: only blood fills it; spent over ~3 days (a gonotrophic cycle)') +
       gauge('phosphagen', b.phosphagen, '#fd6', 'the first ~10 s of a burst; refills in ~30 s') +
       gauge('ketosis', b.ketone, '#c9f', 'once glycogen is gone, fat feeds up to 2/3 of the brain as ketones') +
-      gauge('wasting', b.wasting, '#f55', 'tissue burned for a brain with no sugar: Kenyon cells, hidden units and the outer rings of its eye go with it') +
+      gauge('wasting', b.wasting, '#f55', 'tissue burned for a brain with no sugar: Kenyon cells, hidden units and the outer rings of its eye go with it; at full, it dies') +
+      (d.life ? gauge('toward an egg', d.life.egg_progress, '#9cf', `its reproduction buffer: ${Math.round(100 * (1 - d.life.kappa))}% of what it digests (kappa ${d.life.kappa.toFixed(2)}); an egg costs what a newborn is made of`) +
+                gauge('age', d.life.age, '#b9a', 'the damage its own burning has done to its tissue; at full, it dies of age') : '') +
       gauge('sleep pressure', b.sleep_pressure, '#c8f', 'builds while awake, clears asleep; tiredness costs it half of what it catches at full pressure') +
       gauge('hunger', b.hunger, '#f6a', 'blood sugar and gut together') +
       gauge('search', b.search, '#fd4', 'urge to look around, driven by hunger') + gauge('curiosity', b.curiosity, '#c8f', 'appetite for something new') +

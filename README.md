@@ -85,8 +85,11 @@ backup in its state folder.
 
 **Mushroom body.** Its HUD is its life's tally, each per hour lived (its last
 60 minutes) and since its birth. Good: meals (separate bites), sips (nectar),
-snacks (looks that fed on something new). Bad: swats, missed looks (still
-thinking when it had to act), minutes starving. Neither: approaches (something
+snacks (looks that fed on something new), eggs laid. Bad: swats, missed looks
+(still thinking when it had to act), minutes starving, and deaths on this host
+(a body dies of starvation or of age; its newest egg hatches, or its lineage
+ends). Bottom right: its age, and the lifespan its own damage rate so far
+gives. Neither: approaches (something
 began coming at its gaze; the navigation card's ring tightens as it comes).
 Its Kenyon cells, each coloured by what it has learned:
 green food, red danger, amber food it learned to avoid, grey lost to wasting.
@@ -103,7 +106,9 @@ rebuild (asleep, its eye sees it: a dream); "what it saw" is for you only,
 never the organism. The place map shows replay paths: blue NREM, violet REM,
 grey awake replay, gold dreamt.
 
-**Body.** The first line says whether it is awake and gives its sense of time:
+**Body.** "Toward an egg" is its reproduction buffer (a share of what it
+digests, set by its gene kappa); "age" is the damage its own burning has done
+(full: it dies). The first line says whether it is awake and gives its sense of time:
 how long one of its looks takes and how many it takes a second (a look is its
 moment; people make about 3-4 fixations a second). Gut, blood sugar and stores:
 - blood sugar pays for everything (~10 min of waking burn);

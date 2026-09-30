@@ -19,7 +19,8 @@ import time
 from pathlib import Path
 
 KEEP = {".gitkeep", "selected_source.json", "host_limits.json", "handler_state.json", "yielded.json",
-        "service.log", "run.log", "viewer.log", "launchd.log", "service.stop"}
+        "service.log", "run.log", "viewer.log", "launchd.log", "service.stop",
+        "life_history.json"}  # the host's record of its lives, across lineages
 
 
 def reset(state: Path, suffix: str = "before-reset") -> tuple[Path, list]:

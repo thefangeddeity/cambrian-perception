@@ -68,6 +68,8 @@ def load_quota_pct(default: float) -> float:
 
 EPISODES_PATH = STATE_DIR / "episodes.npz"
 CORTEX_PATH = STATE_DIR / "cortex.json"
+EGGS_DIR = STATE_DIR / "eggs"  # the eggs its live body laid (livelife.LiveLife._lay): one genome each
+LIFE_HISTORY_PATH = STATE_DIR / "life_history.json"  # this host's lives: founded, died (of what, how old, how many eggs), hatched, extinct
 TALLY_PATH = STATE_DIR / "tally.json"  # its life's good and bad events since its birth (livelife.Tally)
 
 
@@ -108,6 +110,20 @@ def save_episodes(arrays: dict) -> None:
 
 EVENTS_PATH = STATE_DIR / "events.jsonl"
 EVENTS_MAX_BYTES = 5_000_000  # then it rotates to events.1.jsonl (one old file kept): a disk-wear bound
+
+
+def life_history() -> list:
+    """This host's lives, oldest first (a list of records)."""
+    return _read_json(LIFE_HISTORY_PATH, []) if LIFE_HISTORY_PATH.exists() else []
+
+
+def record_life(entry: dict) -> None:
+    """Appends one record to this host's life history (founded, died, hatched, extinct)."""
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _write_json_atomic(LIFE_HISTORY_PATH, life_history() + [{"t": round(time.time(), 1), **entry}])
+    except OSError:
+        pass
 
 
 def log_event(entry: dict) -> None:
