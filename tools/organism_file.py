@@ -257,6 +257,53 @@ def install(blob: bytes, state: Path) -> tuple[dict, Path]:
     return manifest, backup
 
 
+def safe_name(name: str) -> bool:
+    """A save's file name as the viewer accepts one: letters, digits, dots,
+    dashes, underscores, ending .cambrioid -- no folders, nothing hidden."""
+    import re
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.cambrioid", name or "")) and ".." not in name
+
+
+def list_saves(folder: Path | None = None) -> list[dict]:
+    """This ecohost's saved organisms (its games_dir()), newest first: the file,
+    its size, and its manifest's name, ecohost, generation and when saved --
+    read from the manifest alone (size-checked), never unpacking the rest."""
+    folder = games_dir() if folder is None else Path(folder)
+    out = []
+    for p in sorted(folder.glob("*" + SUFFIX)) if folder.is_dir() else []:
+        if not safe_name(p.name):
+            continue
+        entry = {"file": p.name, "size": p.stat().st_size, "mtime": p.stat().st_mtime}
+        try:
+            with zipfile.ZipFile(p) as z:
+                info = z.getinfo("manifest.json")
+                if info.file_size <= MAX_MEMBER_BYTES:
+                    m = json.loads(z.read("manifest.json"))
+                    entry.update({k: m.get(k) for k in ("name", "ecohost", "generation", "saved_at")})
+        except (zipfile.BadZipFile, KeyError, ValueError, OSError):
+            entry["damaged"] = True
+        out.append(entry)
+    return sorted(out, key=lambda e: -(e.get("saved_at") or e["mtime"]))
+
+
+def store(blob: bytes, name: str, folder: Path | None = None) -> Path:
+    """An arriving file (copied from another ecohost, or uploaded), checked as
+    a load checks it, kept in this ecohost's folder -- under its own name, or
+    name-2, name-3 ... when that one is taken (nothing is overwritten)."""
+    read(blob)  # refused files are never kept
+    if not safe_name(name):
+        raise Refused("not a plain .cambrioid file name")
+    folder = games_dir() if folder is None else Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    dest, stem, k = folder / name, name[:-len(SUFFIX)], 2
+    while dest.exists():
+        dest, k = folder / f"{stem}-{k}{SUFFIX}", k + 1
+    tmp = dest.with_name(dest.name + ".part")
+    tmp.write_bytes(blob)
+    tmp.replace(dest)
+    return dest
+
+
 def stage(path: Path, state: Path) -> dict:
     """Checks a file and stages it for the organism in `state` to load at its
     next generation (the request its main loop answers, as for the viewer's

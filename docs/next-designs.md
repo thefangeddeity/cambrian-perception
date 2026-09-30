@@ -71,3 +71,13 @@ cameras' relative pose (calibrated once, or learned from the things both see).
 Parked until one organism can read two feeds; then depth from disparity is a
 sense it can be priced for like any other (Land & Nilsson: most animals'
 stereo is for the near field -- a wide baseline is an unusual eye).
+
+## 4. A card collapse toggle (parked for a UX/UI sprint)
+
+Clicking a card used to maximize it; with a full-screen button on every
+display the two stepped on each other, and the click was removed
+(2026-09-30). What the page lacks instead is a way to fold away the cards a
+viewer isn't watching. A collapse toggle of some kind belongs to a UX/UI
+sprint -- designed with the page's layout as a whole (the quad, the side
+charts, phone widths) and its military-standard HUD vocabulary, not bolted
+onto one card.

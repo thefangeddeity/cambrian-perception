@@ -16,7 +16,7 @@ for everything it does.
 - The camera suite (organism and livecam never run together): [docs/suite.md](docs/suite.md)
 - A developing organism, and fitness that knows its stage (proposed): [docs/design-ontogeny.md](docs/design-ontogeny.md)
 - A second organism per ecohost (parked, documented for later): [docs/second-organism.md](docs/second-organism.md)
-- Next designs (not built): when its ground stops being its ground, binocular vision: [docs/next-designs.md](docs/next-designs.md)
+- Next designs (not built): when its ground stops being its ground, binocular vision, a card collapse toggle: [docs/next-designs.md](docs/next-designs.md)
 - Its self-test, which every installer runs first: `python tools/selftest.py`
 
 Licence: GPL-3.0-only.
@@ -184,13 +184,20 @@ body, memories, episodes, the individuals it knows, its founder -- fits in one
 is saved from its latest checkpoint, which it writes every 10 minutes and at
 every stop.
 
-- **From the viewer,** on the brain card beside *Reset to founder*:
-  - **Save** writes it straight into the ecohost's own **Lifeforms/Cambrioids**
-    folder -- no dialog (the folder is made if it's missing).
-  - **Save as…** downloads it: your browser decides where, and may ask (a web
-    page can't choose a folder). Use it from another device, or to put it
-    somewhere else.
-  - **Load…**: choose a file, then click *Load* again.
+- **From the viewer,** on the brain card beside *Reset to founder*. Every
+  file there lives in the **ecohost's** own **Lifeforms/Cambrioids** folder --
+  the machine whose page you are on, wherever you view it from:
+  - **Save** puts the organism there (no dialog; the folder is made if it's
+    missing).
+  - **Load** -- choose one of its saves from the list, then click *Load*
+    twice. It takes this one's place at its next generation.
+  - **Copy from** -- choose another ecohost of the hive, then one of its
+    saves, then *Copy here*: the file is pulled into this ecohost's folder
+    (checked on arrival) and shows under *Load*. Only ecohosts that are both
+    in the hive share their saves; a solo one shares nothing.
+  - **Download** copies the organism to the device you are viewing on;
+    **Upload…** puts a file from that device into this ecohost's saves (it
+    then shows under *Load*) -- e.g. an organism from outside the hive.
 - **From a terminal:** `cambrian --save [file or folder]` and
   `cambrian --load <file>`. Without a path it saves to your own
   **Lifeforms/Cambrioids** folder; any missing folder is made.
@@ -198,7 +205,7 @@ every stop.
 Files are named after the ecohost, generation and date
 (e.g. `tina-gen1326-2026-09-30.cambrioid`). Where they go:
 
-| | `cambrian --save` | the viewer's *Save* |
+| | `cambrian --save` | the viewer's *Save*, *Load*, *Copy from* and *Upload* |
 |---|---|---|
 | Linux | `/home/<you>/Games/Lifeforms/Cambrioids/` | `/srv/cambrian/Games/Lifeforms/Cambrioids/` (the viewer runs as the organism's own account; readable by you) |
 | macOS | `/Users/<you>/Games/Lifeforms/Cambrioids/` | the same (the viewer runs as you) |
@@ -267,8 +274,8 @@ to read each card. What those cards show is explained here.
 **Gestures.** The page keeps its own scroll and pinch-zoom. A graphic (brain,
 mushroom body, perception tree) takes wheel, drag and pinch only after you
 click or tap it (a thin outline shows which); Esc or a click outside releases
-it. Clicking a card shows it full screen; clicking the video shows the picture
-alone full screen. On a phone the brain and mushroom body open in 2D.
+it. The full-screen button (top right of a card, bottom right of the video)
+shows it full screen; Esc or the button again closes it. On a phone the brain and mushroom body open in 2D.
 
 **Video stream.** What it saw, a few seconds behind live, in step with the
 visual field (frames stay in RAM, never on disk). The HUD: the reticle is its

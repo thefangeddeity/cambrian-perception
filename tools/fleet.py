@@ -121,18 +121,36 @@ def vet_genome(data) -> str | None:
 def discover(names: list[str] | None) -> list[dict]:
     """Hosts whose viewer answers /organism/info: the named ones, else every
     online Tailscale peer and this machine."""
+    # a peer's name -> its Tailscale address (asked by address: no MagicDNS
+    # needed). This machine is asked as 127.0.0.1, a name no peer can take (a
+    # tailnet device calling itself "localhost" -- a WSL instance on 7elwe --
+    # took this machine's place in the list, and 7elwe went missing from its own).
+    THIS = "127.0.0.1"
+    addr = {}
     if not names:
-        names = ["localhost"]
-        try:
-            out = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True, timeout=10).stdout
-            st = json.loads(out)
+        names = [THIS]
+        # the Tailscale command: on the PATH (Linux, Windows), else inside the
+        # macOS app, where it isn't on the PATH
+        for ts in ("tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"):
+            try:
+                out = subprocess.run([ts, "status", "--json"], capture_output=True, text=True, timeout=10).stdout
+                st = json.loads(out)
+            except (OSError, ValueError, subprocess.SubprocessError):
+                continue
             for peer in (st.get("Peer") or {}).values():
                 if peer.get("Online"):
-                    names.append((peer.get("HostName") or peer.get("DNSName", "").split(".")[0]).lower())
-        except (OSError, ValueError, subprocess.SubprocessError):
-            pass
-    found, seen = [], set()
-    for name in names:
+                    n = (peer.get("HostName") or peer.get("DNSName", "").split(".")[0]).lower()
+                    ips = [i for i in (peer.get("TailscaleIPs") or []) if ":" not in i]
+                    if not ips:
+                        continue
+                    key = n if n not in addr and n != THIS else f"{n}@{ips[0]}"  # a duplicate name keeps its own address
+                    names.append(key)
+                    addr[key] = ips[0]
+            break
+    def probe(name: str) -> list[dict]:
+        """One host's organisms, asked by its Tailscale address where known."""
+        out = []
+        at = addr.get(name, name)
         # A host's first organism on PORT; a second one (PARKED feature,
         # docs/second-organism.md) on PORT + 1, asked only when the first names
         # it in "siblings" -- probing 8091 everywhere cost a 3 s timeout on a
@@ -140,7 +158,7 @@ def discover(names: list[str] | None) -> list[dict]:
         ports = [PORT]
         while ports:
             port = ports.pop(0)
-            raw = _get(f"http://{name}:{port}/organism/info", 3.0)
+            raw = _get(f"http://{at}:{port}/organism/info", 3.0)
             if not raw:
                 continue
             try:
@@ -151,25 +169,36 @@ def discover(names: list[str] | None) -> list[dict]:
                 continue  # something answered, but not an organism's viewer
             if port == PORT and "b" in (info.get("siblings") or []):
                 ports.append(PORT + 1)  # only "b" is supported (the viewer's DEFAULT_PORT)
-            host = info["hostname"].split(".")[0].lower()
-            inst = info.get("instance") or ""
-            key = f"{host}:{inst}"
-            if key in seen or not info.get("has_checkpoint"):
-                continue
-            seen.add(key)
-            this = socket.gethostname().split(".")[0].lower()
-            here = os.environ.get("CAMBRIAN_INSTANCE", "").strip()
-            local = host == this and inst == here  # this very organism (the other on this host is a peer)
-            if not local and not info.get("hive", True):  # a solo organism is no one's peer (an older viewer reports no "hive": it predates solo)
-                continue
-            label = host if not inst else f"{host}-{inst}"
-            found.append({"name": name if name != "localhost" else host, "port": port, "host": label, "local": local, **info})
+            out.append((name, at, port, info))
+        return out
+
+    # every host asked at once: a device on the tailnet that silently drops the
+    # request costs its 3 s timeout in parallel, not in turn
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1, min(16, len(names)))) as pool:
+        answers = [a for per_host in pool.map(probe, names) for a in per_host]
+    found, seen = [], set()
+    this = socket.gethostname().split(".")[0].lower()
+    here = os.environ.get("CAMBRIAN_INSTANCE", "").strip()
+    for name, at, port, info in answers:
+        host = info["hostname"].split(".")[0].lower()
+        inst = info.get("instance") or ""
+        key = f"{host}:{inst}"
+        if key in seen or not info.get("has_checkpoint"):
+            continue
+        seen.add(key)
+        local = host == this and inst == here  # this very organism (the other on this host is a peer)
+        if not local and not info.get("hive", True):  # a solo organism is no one's peer (an older viewer reports no "hive": it predates solo)
+            continue
+        label = host if not inst else f"{host}-{inst}"
+        found.append({"name": host if name in (THIS, "localhost") or "@" in name else name, "addr": at,
+                      "port": port, "host": label, "local": local, **info})
     return found
 
 
 def fetch(h: dict) -> None:
     """Its organism of record: checkpoint (genome, body, memory) and episodes."""
-    base = f"http://{'127.0.0.1' if h['local'] else h['name']}:{h.get('port', PORT)}"
+    base = f"http://{'127.0.0.1' if h['local'] else h.get('addr') or h['name']}:{h.get('port', PORT)}"
     raw = _get(base + "/organism/checkpoint", 30.0)
     h["checkpoint_bytes"] = raw
     h["checkpoint"] = json.loads(raw) if raw else None
@@ -321,7 +350,7 @@ def main() -> int:
     url = args.source
     if not url:
         for h in hosts:
-            raw = _get(f"http://{'127.0.0.1' if h['local'] else h['name']}:{h.get('port', PORT)}/sources")
+            raw = _get(f"http://{'127.0.0.1' if h['local'] else h.get('addr') or h['name']}:{h.get('port', PORT)}/sources")
             sel = json.loads(raw).get("selected_url") if raw else None
             if sel:
                 url = sel

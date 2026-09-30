@@ -39,6 +39,10 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+import urllib.request
+
+
+_PEERS: dict = {}  # the hive's ecohosts the page last listed: name -> (address, port); Copy from only asks these
 
 
 class QuietHTTPServer(ThreadingHTTPServer):
@@ -688,10 +692,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   .chip { color: var(--dim); } .chip b { color: var(--cyan); font-weight: normal; }
   h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--cyan); margin: 0 0 4px; font-weight: normal; }
   .cap { color: var(--dim); font-size: 12px; margin: 0 0 10px; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; cursor: zoom-in; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
   /* Tap/click a panel to show it full screen; tap again (or Esc) to put it back.
      Where the browser has no full screen for a card (an iPhone), it fills the page instead. */
-  .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; cursor: zoom-out; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
+  .panel.maximized { position: fixed; inset: 8px; z-index: 1000; overflow: auto; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.75); }
   .panel.maximized:fullscreen { inset: 0; border-radius: 0; border: 0; box-shadow: none; }
   .panel.maximized::backdrop { background: var(--bg, #000); }
   body.has-max { overflow: hidden; touch-action: none; }
@@ -699,15 +703,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   .video16x9 iframe, .video16x9 img, .video16x9 canvas { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
   .video16x9 canvas { pointer-events: none; }
   /* the picture alone full screen (a click on it); where a browser can't, it fills the page */
-  .video16x9 { cursor: zoom-in; }
+  /* (no zoom cursor: a click on the video does nothing -- its full-screen button does) */
   /* its full-screen button (a 2026-09-29 UX panel: a visible control, where every video player puts one) */
   .panel { position: relative; }
   .fsbtn { position: absolute; z-index: 6; width: 28px; height: 28px; padding: 5px; border-radius: 4px; cursor: pointer;
            background: rgba(5, 7, 10, 0.55); border: 1px solid var(--line); color: #ffe2d6; line-height: 0; }
   .fsbtn:hover { background: rgba(5, 7, 10, 0.85); }
   .video16x9 > .fsbtn { right: 8px; bottom: 8px; }
-  .panel > .fsbtn { right: 10px; top: 8px; }
-  .video16x9:fullscreen, .video16x9.filling { aspect-ratio: auto; cursor: zoom-out; background: #000; }
+  .panel > .fsbtn { right: 10px; top: 8px; }  /* until placed at its picture's bottom right (fsCorner) */
+  .video16x9:fullscreen, .video16x9.filling { aspect-ratio: auto; background: #000; }
   /* iPhone: no full screen for anything but <video>, so the picture is lifted out of the page and fills the
      screen -- black to the edges, under the notch and the home bar, the page frozen behind it */
   .video16x9.filling { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; height: 100dvh; z-index: 2000; margin: 0; }
@@ -715,7 +719,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   #left-stack { align-self: start; }  /* its own height, so charts can fill the rest beside the body */
   .quad { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
-  .panel.maximized::before { content: 'tap to close (Esc)'; float: right; color: var(--dim); font-size: 11px; }
+  .panel.maximized::before { content: 'Esc or the corner button closes it'; float: right; color: var(--dim); font-size: 11px; }
   .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; margin-top: 16px; }
   @media (max-width: 1250px) { .quad { grid-template-columns: 1fr; } }  /* narrow: one column, in the same order */
   @media (max-width: 480px) { body { padding: 10px; } .charts { grid-template-columns: 1fr; } }
@@ -732,7 +736,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   #mb-hud .g { color: #7cffa0; } #mb-hud .b { color: #ffb000; } #mb-hud .w { color: #ff4040; } #mb-hud .n { color: #e8e8e8; }
   #mb-hud .h { color: #c8c8c8; }
   @media (max-width: 600px) { #mb-hud { font-size: 11px; } #mb-hud .q { line-height: 14px; } }
-  #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder, #save-organism, #save-here, #load-organism { color: #b88a80; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
+  #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder, #save-organism, #save-here, #load-organism, #copy-here, #upload-organism { color: #b88a80; } .orgsel { font: inherit; font-size: 12px; max-width: 16em; background: #10161c; color: #e8d8d0; border: 1px solid #3a2a26; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
   .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
@@ -803,7 +807,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span> &middot; <a href="#" id="save-organism" title="Download the organism: your browser asks where to put it">Save as&hellip;</a> <span id="save-organism-note"></span> &middot; <a href="#" id="load-organism" title="Load a saved organism in this one's place (this one is kept in a backup)">Load&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="load-organism-note"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span> &middot; <select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span> &middot; Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span> &middot; <a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span> &middot; <a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -1961,48 +1965,90 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         .catch(() => { note.textContent = 'no answer'; });
     });
   });
-  // Save as... (the download): the whole organism as a .cambrioid file (tools/organism_file.py),
-  // downloaded where the browser keeps downloads. Load...: choose a file,
-  // then click again within 8 s -- this organism is kept in a backup, and the
-  // loaded one takes its place at its next generation.
+  // Its organism files (tools/organism_file.py), all in THIS ecohost's
+  // Games/Lifeforms/Cambrioids folder: Save puts it there; Load (a list of
+  // them, two clicks) takes one in its place at its next generation, this one
+  // kept in a backup; Copy from pulls one of a hive peer's there; Download and
+  // Upload move one between that folder and the device you are viewing on.
   (() => {
-    const s = $('save-organism'), sn = $('save-organism-note');
-    if (s) s.addEventListener('click', ev => {
-      ev.preventDefault(); sn.textContent = 'saving...';
-      fetch('/organism/save', { headers: { 'X-Cambrian': '1' } }).then(r => {
-        if (!r.ok) return r.json().then(j => { sn.textContent = j.error || 'refused'; }, () => { sn.textContent = 'refused'; });
-        const cd = r.headers.get('Content-Disposition') || '', m = /filename="([^"]+)"/.exec(cd), name = m ? m[1] : 'organism.cambrioid';
+    const H = { 'X-Cambrian': '1' }, say = (id, t) => { const e = $(id); if (e) e.textContent = t; };
+    const when = t => t ? new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + new Date(t * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+    const label = e => e.damaged ? `${e.file} (damaged)` : `${e.ecohost || '?'} gen ${e.generation ?? '?'} · ${when(e.saved_at)}`;
+    const fill = (sel, list, empty) => {
+      sel.innerHTML = list.length ? '' : `<option value="">${empty}</option>`;
+      list.forEach(e => { const o = document.createElement('option'); o.value = e.file; o.textContent = label(e); o.title = e.file; sel.appendChild(o); });
+    };
+    const ll = $('load-list');
+    const refresh = () => ll && fetch('/organism/saves', { headers: H }).then(r => r.json()).then(l => fill(ll, l, 'no saves yet')).catch(() => {});
+    refresh();
+    const post = (url, body) => fetch(url, { method: 'POST', headers: H, body }).then(r => r.json());
+    // Save
+    const sh = $('save-here');
+    if (sh) sh.addEventListener('click', ev => {
+      ev.preventDefault(); say('save-here-note', 'saving...');
+      post('/save-here').then(j => { say('save-here-note', j.ok ? 'saved' : `refused: ${j.error}`); refresh(); }, () => say('save-here-note', 'no answer'));
+    });
+    // Load (from the list)
+    let armed = 0;
+    const lo = $('load-organism');
+    if (lo) lo.addEventListener('click', ev => {
+      ev.preventDefault();
+      const f = ll && ll.value;
+      if (!f) { say('load-organism-note', 'choose one of its saves first'); return; }
+      if (Date.now() - armed > 4000) { armed = Date.now(); say('load-organism-note', 'click again: it takes this one’s place (a backup is kept)'); return; }
+      armed = 0; say('load-organism-note', 'checking...');
+      post('/load-saved?file=' + encodeURIComponent(f)).then(j => say('load-organism-note', j.ok ? `${j.name}: at its next generation` : `refused: ${j.error}`), () => say('load-organism-note', 'no answer'));
+    });
+    // Copy from (a hive peer)
+    const pl = $('peer-list'), ps = $('peer-saves'), ch = $('copy-here');
+    let asked = false;
+    const askPeers = () => {
+      if (asked) return;
+      asked = true; say('copy-note', 'finding ecohosts...');
+      fetch('/organism/peers', { headers: H }).then(r => r.json()).then(j => {
+        say('copy-note', !j.hive ? 'solo: this ecohost is not in the hive' : j.peers.length ? '' : 'no other ecohost answers');
+        j.peers.forEach(h => { const o = document.createElement('option'); o.value = h; o.textContent = h; pl.appendChild(o); });
+      }, () => { asked = false; say('copy-note', 'no answer'); });
+    };
+    if (pl) { pl.addEventListener('pointerdown', askPeers); pl.addEventListener('focus', askPeers); }
+    if (pl) pl.addEventListener('change', () => {
+      ps.hidden = ch.hidden = !pl.value;
+      if (!pl.value) return;
+      say('copy-note', 'asking...');
+      fetch('/organism/peer-saves?host=' + encodeURIComponent(pl.value), { headers: H }).then(r => r.json())
+        .then(j => { if (j.error) { say('copy-note', j.error); return; } fill(ps, j.saves, 'no saves there'); say('copy-note', ''); }, () => say('copy-note', 'no answer'));
+    });
+    if (ch) ch.addEventListener('click', ev => {
+      ev.preventDefault();
+      if (!ps.value) return;
+      say('copy-note', 'copying...');
+      post('/copy-from?host=' + encodeURIComponent(pl.value) + '&file=' + encodeURIComponent(ps.value))
+        .then(j => { say('copy-note', j.ok ? `copied: ${j.file} (now under Load)` : `refused: ${j.error}`); refresh(); }, () => say('copy-note', 'no answer'));
+    });
+    // Download (to the device you are viewing on)
+    const dl = $('save-organism');
+    if (dl) dl.addEventListener('click', ev => {
+      ev.preventDefault(); say('save-organism-note', 'saving...');
+      fetch('/organism/save', { headers: H }).then(r => {
+        if (!r.ok) return r.json().then(j => say('save-organism-note', j.error || 'refused'), () => say('save-organism-note', 'refused'));
+        const m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || ''), name = m ? m[1] : 'organism.cambrioid';
         return r.blob().then(b => {
           const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
           document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-          sn.textContent = `saved ${name} (in your downloads)`;
+          say('save-organism-note', 'downloaded');
         });
-      }).catch(() => { sn.textContent = 'no answer'; });
+      }).catch(() => say('save-organism-note', 'no answer'));
     });
-    // Save: straight into this machine's Games/Lifeforms/Cambrioids, no dialog
-    const h = $('save-here'), hn = $('save-here-note');
-    if (h) h.addEventListener('click', ev => {
-      ev.preventDefault(); hn.textContent = 'saving...';
-      fetch('/save-here', { method: 'POST', headers: { 'X-Cambrian': '1' } }).then(r => r.json())
-        .then(j => { hn.textContent = j.ok ? `saved: ${j.path}` : `refused: ${j.error}`; }, () => { hn.textContent = 'no answer'; });
-    });
-    const l = $('load-organism'), ln = $('load-organism-note'), f = $('load-file');
-    let chosen = null, armed = 0;
-    if (l && f) {
-      l.addEventListener('click', ev => {
-        ev.preventDefault();
-        if (chosen && Date.now() - armed < 8000) {
-          armed = 0; ln.textContent = 'checking...';
-          chosen.arrayBuffer().then(buf => fetch('/load', { method: 'POST', headers: { 'X-Cambrian': '1', 'Content-Type': 'application/octet-stream' }, body: buf }))
-            .then(r => r.json()).then(j => { ln.textContent = j.ok ? `${j.name}: it takes this one's place at its next generation` : `refused: ${j.error}`; })
-            .catch(() => { ln.textContent = 'no answer'; });
-          chosen = null; return;
-        }
-        f.value = ''; f.click();
-      });
-      f.addEventListener('change', () => {
-        chosen = f.files && f.files[0]; if (!chosen) return;
-        armed = Date.now(); ln.textContent = `${chosen.name}: click Load again to load it (this one is kept in a backup)`;
+    // Upload (from the device you are viewing on, into its saves)
+    const up = $('upload-organism'), fi = $('load-file');
+    if (up && fi) {
+      up.addEventListener('click', ev => { ev.preventDefault(); fi.value = ''; fi.click(); });
+      fi.addEventListener('change', () => {
+        const f = fi.files && fi.files[0];
+        if (!f) return;
+        say('upload-note', 'checking...');
+        f.arrayBuffer().then(buf => post('/upload?name=' + encodeURIComponent(f.name), buf))
+          .then(j => { say('upload-note', j.ok ? `kept: ${j.file} (now under Load)` : `refused: ${j.error}`); refresh(); }, () => say('upload-note', 'no answer'));
       });
     }
   })();
@@ -2528,25 +2574,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     }
     requestAnimationFrame(redrawAll);
   });
-  document.addEventListener('click', e => {
-    const vid = e.target.closest('.video16x9');
-    if (vid) {  // the video: the picture alone goes full screen, not its card
-      if (document.fullscreenElement === vid) document.exitFullscreen().catch(() => {});
-      else if (vid.classList.contains('filling')) fillScreen(vid, false);
-      else if (vid.requestFullscreen) vid.requestFullscreen({ navigationUI: 'hide' }).catch(() => fillScreen(vid, true));
-      else fillScreen(vid, true);
-      requestAnimationFrame(redrawAll);
-      return;
-    }
-    if (e.target.closest('input, button, label, a, select, textarea, iframe, canvas.steer')) return;
-    const p = e.target.closest('.panel');
-    if (p) setMax(p);
-  });
+  // (A click on a card or the video used to maximize it too; with a full-screen
+  // button on each, the two stepped on each other, so only the buttons do it.
+  // A card collapse toggle is parked for a UX/UI sprint: docs/next-designs.md.)
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { const p = document.querySelector('.panel.maximized'); if (p) setMax(p); }
   });
   // A full-screen button on every display that goes full screen: the video (bottom right) and
-  // the cards drawn from its mind (top right). It does what a click on them does.
+  // the cards drawn from its mind (top right) -- the one way in, and out (or Esc).
   function videoFull(vid) {
     if (document.fullscreenElement === vid) document.exitFullscreen().catch(() => {});
     else if (vid.classList.contains('filling')) fillScreen(vid, false);
@@ -2562,7 +2597,22 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     host.appendChild(b);
   }
   document.querySelectorAll('.video16x9').forEach(v => fsButton(v, () => videoFull(v)));
-  ['space-panel', 'look-panel', 'field-panel', 'brain-panel', 'mb-panel'].forEach(id => { const p = $(id); if (p) fsButton(p, () => setMax(p)); });
+  // On a card, the button sits at its picture's bottom right, as a video
+  // player's does -- kept there as the picture resizes (a ResizeObserver;
+  // the pictures are sized from their card, so they are never wrapped).
+  function fsCorner(panel) {
+    const c = panel.querySelector('canvas'), b = panel.querySelector(':scope > .fsbtn');
+    if (!c || !b) return;
+    const place = () => {
+      if (!c.offsetWidth) return;
+      b.style.top = `${c.offsetTop + c.offsetHeight - b.offsetHeight - 8}px`;
+      b.style.right = `${panel.clientWidth - (c.offsetLeft + c.offsetWidth) + 8}px`;
+    };
+    place();
+    if (window.ResizeObserver) new ResizeObserver(place).observe(c);
+    window.addEventListener('resize', place);
+  }
+  ['space-panel', 'look-panel', 'field-panel', 'brain-panel', 'mb-panel'].forEach(id => { const p = $(id); if (p) { fsButton(p, () => setMax(p)); fsCorner(p); } });
   window.addEventListener('resize', () => requestAnimationFrame(redrawAll));
 
   async function fetchHistory() {
@@ -2762,6 +2812,72 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/organism/saves" or self.path.startswith("/organism/saves/"):
+            # Its saved organisms: the list, or one file. To its own page (which
+            # sends X-Cambrian) always; to another ecohost's viewer only while
+            # this one is in the hive -- a solo ecohost shares nothing.
+            from fishbowl import sandbox
+            from tools import organism_file as of
+            if self.headers.get("X-Cambrian") != "1" and not sandbox.hive():
+                self.send_response(403)
+                self.end_headers()
+                return
+            if self.path == "/organism/saves":
+                body, ctype = json.dumps(of.list_saves()).encode("utf-8"), "application/json"
+            else:
+                f = self.path.rsplit("/", 1)[1]
+                p = of.games_dir() / f
+                if not of.safe_name(f) or not p.is_file():
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                body, ctype = p.read_bytes(), "application/zip"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path.startswith("/organism/peer-saves"):
+            # A hive peer's saves, asked by this viewer for its page (a page may
+            # not ask another machine itself); only peers the page was shown.
+            from tools import organism_file as of
+            if self.headers.get("X-Cambrian") != "1":
+                self.send_response(403)
+                self.end_headers()
+                return
+            peer = _PEERS.get((parse_qs(urlparse(self.path).query).get("host") or [""])[0])
+            try:
+                if peer is None:
+                    raise ValueError("not an ecohost of the hive (open the list again)")
+                with urllib.request.urlopen(f"http://{peer[0]}:{peer[1]}/organism/saves", timeout=10) as r:
+                    saves = json.loads(r.read(of.MAX_MEMBER_BYTES))
+                saves = [e for e in saves if isinstance(e, dict) and of.safe_name(str(e.get("file")))]
+                body = json.dumps({"saves": saves}).encode("utf-8")
+            except (OSError, ValueError) as e:
+                body = json.dumps({"error": f"{type(e).__name__}: {e}"}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/organism/peers":
+            # The hive's other live ecohosts (tools/fleet.py discover), for Copy
+            # from; only these may be copied from (remembered in _PEERS).
+            from fishbowl import sandbox
+            from tools import fleet
+            if self.headers.get("X-Cambrian") != "1":
+                self.send_response(403)
+                self.end_headers()
+                return
+            peers = [h for h in fleet.discover(None) if not h.get("local") and h.get("hive")] if sandbox.hive() else []
+            _PEERS.clear()
+            _PEERS.update({h["host"]: (h["addr"], h["port"]) for h in peers})
+            body = json.dumps({"hive": sandbox.hive(), "peers": sorted(_PEERS)}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif self.path == "/organism/save":
             # Save as... (the brain card): the whole organism as a .cambrioid
             # file (tools/organism_file.py). Only this page's own fetch sends
@@ -2903,7 +3019,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/load", "/save-here")) or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/save-here", "/upload", "/load-saved", "/copy-from")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -2940,30 +3056,50 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path.startswith("/load"):
-            # Load...: the file checked here (tools/organism_file.py: sizes,
-            # checksums, no pickles, its genome held to this ecohost's limits),
-            # staged beside a request; the organism saves, moves its lineage
-            # aside and takes the loaded one's place at its next generation.
-            from tools import organism_file
-            n = int(self.headers.get("Content-Length") or 0)
-            ok, error, name = False, None, None
-            if not 0 < n <= organism_file.MAX_TOTAL_BYTES:
-                error = "no file, or larger than a .cambrioid can be"
-            else:
-                blob = self.rfile.read(n)
-                try:
-                    m, _ = organism_file.read(blob)
-                    tmp = STATE_DIR / "load.cambrioid.tmp"
-                    tmp.write_bytes(blob)
-                    tmp.replace(STATE_DIR / "load.cambrioid")
-                    _write_json_atomic(STATE_DIR / "load.request", {"t": time.time()})
-                    ok, name = True, m.get("name")
-                    print(f"load: staged {name}", flush=True)
-                except organism_file.Refused as e:
-                    error = str(e)
-                    print(f"load: refused ({e})", flush=True)
-            body = json.dumps({"ok": ok, "error": error, "name": name}).encode("utf-8")
+        if self.path.startswith(("/upload", "/load-saved", "/copy-from")):
+            # The organism files (the brain card; tools/organism_file.py). All of
+            # them live in THIS ecohost's Games/Lifeforms/Cambrioids folder:
+            #   /upload?name=      a file from the device you view on, kept there
+            #   /load-saved?file=  one of them loaded: staged for its next generation
+            #   /copy-from?host=&file=  one of a hive peer's, pulled and kept there
+            # Every arriving file is checked as a load checks it (sizes,
+            # checksums, no pickles, its genome held to this ecohost's limits).
+            from tools import organism_file as of
+            qs = parse_qs(urlparse(self.path).query)
+            arg = lambda k: (qs.get(k) or [""])[0]
+            ok, error, extra = False, None, {}
+            try:
+                if self.path.startswith("/upload"):
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if not 0 < n <= of.MAX_TOTAL_BYTES:
+                        raise of.Refused("no file, or larger than a .cambrioid can be")
+                    kept = of.store(self.rfile.read(n), arg("name"))
+                    ok, extra = True, {"file": kept.name}
+                elif self.path.startswith("/load-saved"):
+                    f = arg("file")
+                    if not of.safe_name(f) or not (of.games_dir() / f).is_file():
+                        raise of.Refused("no such saved organism here")
+                    m = of.stage(of.games_dir() / f, STATE_DIR)
+                    ok, extra = True, {"name": m.get("name")}
+                else:
+                    host, f = arg("host"), arg("file")
+                    peer = _PEERS.get(host)
+                    if peer is None:
+                        raise of.Refused("not an ecohost of the hive (open the list again)")
+                    if not of.safe_name(f):
+                        raise of.Refused("not a plain .cambrioid file name")
+                    with urllib.request.urlopen(f"http://{peer[0]}:{peer[1]}/organism/saves/{f}", timeout=60) as r:
+                        blob = r.read(of.MAX_TOTAL_BYTES + 1)
+                    if len(blob) > of.MAX_TOTAL_BYTES:
+                        raise of.Refused("larger than a .cambrioid can be")
+                    kept = of.store(blob, f)
+                    ok, extra = True, {"file": kept.name}
+            except of.Refused as e:
+                error = str(e)
+            except (OSError, ValueError) as e:
+                error = f"{type(e).__name__}: {e}"
+            print(f"{self.path.split('?')[0].lstrip('/')}: {'ok ' + json.dumps(extra) if ok else 'refused (' + str(error) + ')'}", flush=True)
+            body = json.dumps({"ok": ok, "error": error, **extra}).encode("utf-8")
             self.send_response(200 if ok else 400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
