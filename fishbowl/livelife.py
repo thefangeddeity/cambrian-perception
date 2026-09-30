@@ -66,6 +66,49 @@ def memory_of(org: Organism) -> tuple:
             np.array(org.mb.proto, copy=True), copy.deepcopy(org.library()), c(org.ground), c(org.mb.heads), c(org.terrain), c(org.frame_map))
 
 
+class Tally:
+    """Its life's events, since its birth (this lineage's founder; Amnesia or
+    tools/reset_founder.py starts a new one) and over its last hour lived, for
+    the mushroom body's HUD. Each is defined where it is counted (LiveLife._live):
+
+      good -- meals: separate bites (a run of looks with a host at its mouth);
+              sips: nectar sips; snacks: looks it fed on something new
+      bad  -- swats: a host swatted it; missed: looks it was still thinking
+              when it had to act; starving: minutes its body was empty
+      neither -- approaches: something began coming at its gaze (tau)
+
+    Rates are per hour lived: what the last 60 minutes of its life held."""
+
+    KINDS = ("meals", "sips", "snacks", "approaches", "swats", "missed", "starving_min")
+
+    def __init__(self, saved: dict | None = None):
+        saved = saved or {}
+        self.born = float(saved.get("born", time.time()))
+        self.total = {k: float((saved.get("total") or {}).get(k, 0.0)) for k in self.KINDS}
+        self.lived_s = float(saved.get("lived_s", 0.0))
+        self.minutes: collections.deque = collections.deque(maxlen=60)  # (minute of its life, counts)
+
+    def add(self, kind: str, n: float, lived_s: float) -> None:
+        if not n:
+            return
+        self.total[kind] += n
+        m = int(lived_s // 60)
+        if not self.minutes or self.minutes[-1][0] != m:
+            self.minutes.append((m, dict.fromkeys(self.KINDS, 0.0)))
+        self.minutes[-1][1][kind] += n
+
+    def view(self, lived_s: float) -> dict:
+        now = int(lived_s // 60)
+        recent = [c for m, c in self.minutes if now - m < 60]
+        span_h = max(1.0 / 60.0, min(60.0, (lived_s - self.minutes[0][0] * 60.0) / 60.0 if self.minutes else 1.0) / 60.0)
+        return {"since_birth": {k: round(v, 1) for k, v in self.total.items()},
+                "per_hour": {k: round(sum(c[k] for c in recent) / span_h, 1) for k in self.KINDS},
+                "born": round(self.born), "hours_lived": round(self.lived_s / 3600.0, 2)}
+
+    def to_dict(self) -> dict:
+        return {"born": self.born, "total": self.total, "lived_s": self.lived_s}
+
+
 def _carry(old: Organism, new: Organism) -> None:
     """A transplant keeps the moment going wherever the new genome's shapes
     still fit: the gaze and its motion, the brain's recurrent state (most
@@ -263,6 +306,8 @@ class LiveLife:
         self._pursuit = None  # (gaze, pursued box, last step) of the host it is following, for the metrics
         self.error = None
         self.error_trace = ""
+        self.tally = Tally(sandbox._read_json(sandbox.TALLY_PATH, None) if sandbox.TALLY_PATH.exists() else None)
+        self._eat_prev = self._contact_prev = 0.0
         self._stop = False
         self._written = 0.0
         self._thread = threading.Thread(target=self._run, name="LiveLife", daemon=True)
@@ -315,6 +360,15 @@ class LiveLife:
         self._thread.join(timeout=10.0)
         self._save_episodes()
         self._save_cortex()
+        self._save_tally()
+
+    def _save_tally(self) -> None:
+        with self.lock:
+            data = self.tally.to_dict()
+        try:
+            sandbox._write_json_atomic(sandbox.TALLY_PATH, data)
+        except OSError:
+            pass
 
     def _save_cortex(self) -> None:
         with self.lock:
@@ -436,6 +490,7 @@ class LiveLife:
                     self._episodes_saved = time.time()
                     self._save_episodes()
                     self._save_cortex()
+                    self._save_tally()
                 if time.time() - self._written >= WRITE_EVERY_S:
                     self._write()
         except Exception as e:  # its death must not take evolution with it; the run's end reports it
@@ -508,6 +563,18 @@ class LiveLife:
                 if org.edits_kept > ev0[1]:
                     self._event("taught itself", tree_nodes=org.tree.node_count() if org.tree is not None else None)
                 snack = org.pending["snack"] if out["gazed"] and org.pending else 0.0
+                # its tally (Tally): each event where it happens
+                dt = 1.0 / max(1.0, org.fps)
+                self.tally.lived_s += dt
+                self.tally.add("swats", org.swats - swats0, org.lived_s)
+                if org.body.degraded:
+                    self.tally.add("starving_min", dt / 60.0, org.lived_s)
+                if out["gazed"]:
+                    eat, near = float(out["eating"]), float(org.contact)
+                    self.tally.add("meals", 1.0 if eat > 0 and self._eat_prev <= 0 else 0.0, org.lived_s)
+                    self.tally.add("approaches", 1.0 if near > 0 and self._contact_prev <= 0 else 0.0, org.lived_s)
+                    self.tally.add("snacks", 1.0 if snack > 0 else 0.0, org.lived_s)
+                    self._eat_prev, self._contact_prev = eat, near
                 if out["gazed"]:
                     looks += 1
                     if not out["asleep"]:
@@ -539,6 +606,8 @@ class LiveLife:
                     self.trail.append(tuple(org.ec.position))
             missed = org.missed - missed0
             batch["sums"]["sips"] += org.sips - sips0
+            self.tally.add("sips", org.sips - sips0, org.lived_s)
+            self.tally.add("missed", missed, org.lived_s)
             for key, now_v, then_v in zip(("img_n", "img_sx", "img_sy", "img_sxx", "img_syy", "img_sxy"), org.imagery_sums, img0):
                 batch["sums"][key] += now_v - then_v
             # what it replayed and dreamt (for the hourly metrics)
@@ -640,6 +709,7 @@ class LiveLife:
             cortex = self.cortex.view()
             timing = {k: round(v, 2) for k, v in self.timing.items()}
             scores = {k: v.report() for k, v in self.org.scores.items()}
+            tally = self.tally.view(self.org.lived_s)
         if not shown:
             return
         first = shown[0]["i"]
@@ -661,7 +731,7 @@ class LiveLife:
             # what its wide-field motion sense is fed, per cell (not a picture: it
             # never senses per-cell brightness, only where and how much things change)
             "field_motion": fm, "field_motion_gain": PERIPH_MOTION_GAIN,
-            "cortex": cortex, "timing_ms": timing, "scores": scores,
+            "cortex": cortex, "timing_ms": timing, "scores": scores, "tally": tally,
             "oxygen": {"stage": self.stage, "shed": list(SHED[:self.stage]), "behind_s": round(self._latency, 2),
                        "load": round((timing["field"] + timing["organism"] + timing["cortex"]) * max(1.0, fps) / 1000.0, 2),
                        "dropped": self.dropped},

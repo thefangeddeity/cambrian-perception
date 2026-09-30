@@ -573,14 +573,12 @@ LOCK_HUD_JS = r"""
     const tw = ctx.measureText(tag).width, tx = bw / 2 - (tw + 9) / 2;
     ctx.fillStyle = blink ? HUD_HOT : HUD_ASH; ctx.beginPath(); ctx.arc(tx + 4, y0, 4 * hk, 0, 7); ctx.fill();
     ctx.fillStyle = HUD_SYS; ctx.textAlign = 'left'; ctx.fillText(tag, tx + 13 * hk, y0);
-    // Left-hand readout, top to bottom: mode + ID, delay, contact, then its
+    // Left-hand readout, top to bottom: mode + ID, delay, then its
     // warning. The same rows, size and look as the other three corners (their
     // translations).
     const rf = n => Math.max(7, Math.round(n * 0.85 * hk));
     const rows = [[L.mode + lockIdText(L.id), col, `bold ${rf(14)}px monospace`],
                   [fs.delay != null ? (fs.catching ? `catching up: ${fs.delay.toFixed(1)} s` : `delayed ${fs.delay.toFixed(1)} s`) : 'its latest run, looped', fs.catching ? HUD_CATCH : HUD_SYS, `${rf(11)}px monospace`]];
-    // something approaching its gaze: how soon it arrives, in its own looks (Lee's tau)
-    if (fs.contact > 0) rows.push([`contact ~${Math.max(1, Math.round(1 / fs.contact))} looks`, HUD_WARN, `bold ${rf(11)}px monospace`]);
     // Its warning, last, for the owner only until the owner's feedback has trained
     // it (untrained, it drifts: one lineage warned in every waking frame): lit when
     // it warns, a dim lamp otherwise. The client page never shows it.
@@ -703,6 +701,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   canvas { display: block; max-width: 100%; }
   canvas.px { image-rendering: pixelated; }
   canvas.steer { cursor: pointer; } canvas.steer.steering { outline: 1px solid #9a6f67; outline-offset: -1px; cursor: grab; }
+  /* its life's tally over the mushroom body (a 2026-09-29 UX panel): good in its phosphor green, bad in the HUD's red */
+  #mb-hud { position: absolute; inset: 0; pointer-events: none; font: 11px monospace; padding: 8px 10px; }
+  #mb-hud .q { position: absolute; line-height: 15px; }
+  #mb-hud .g { color: rgba(124, 255, 160, 0.9); } #mb-hud .b { color: rgba(255, 90, 70, 0.95); } #mb-hud .n { color: rgba(255, 226, 214, 0.75); }
+  #mb-hud .h { color: rgba(184, 138, 128, 0.9); }
   #brain-mode a, #mb-mode a { color: #b88a80; } #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
@@ -771,7 +774,12 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <h2>its perception tree</h2>
     <div id="trees"></div>
   </div>
-  <div class="panel" id="field-panel" style="grid-column: 1 / -1">
+  <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
+    <h2>its brain</h2>
+    <canvas id="brain" height="520"></canvas>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">Randomize</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">Amnesia</a> <span id="amnesia-note"></span></div>
+  </div>
+  <div class="panel" id="field-panel">
     <h2>visual field</h2>
     <canvas id="field" class="px"></canvas>
     <div class="cap" id="layers">Layers:
@@ -784,14 +792,12 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <div class="cap" id="replay-clock">--</div>
     <div class="cap" id="senses-strip"></div>
   </div>
-  <div class="panel" id="brain-panel">
-    <h2>its brain</h2>
-    <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
-  </div>
   <div class="panel" id="mb-panel">
     <h2>its mushroom body</h2>
-    <canvas id="mb"></canvas>
+    <div style="position:relative">
+      <canvas id="mb"></canvas>
+      <div id="mb-hud"></div>
+    </div>
     <div class="cap" id="mb-cap"></div>
   </div>
   <div class="stack" id="left-stack">
@@ -873,7 +879,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
 <script>
 /*LOCK_HUD_JS*/
   const $ = id => document.getElementById(id);
-  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy', 'protein', 'host vx', 'host vy', 'own pace', 'missed', 'uncertainty', 'ground near', 'horizon', 'parallax', 'camera moving', 'archetype 1', 'archetype 2', 'archetype 3', 'archetype 4', 'collicular dx', 'collicular dy', 'collicular strength'];
+  const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'blood sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy', 'protein', 'host vx', 'host vy', 'own pace', 'missed', 'uncertainty', 'ground near', 'horizon', 'parallax', 'camera moving', 'archetype 1', 'archetype 2', 'archetype 3', 'archetype 4', 'collicular dx', 'collicular dy', 'collicular strength',
+    'terrain', 'nearness', 'felt nearness', 'contact', 'turning', 'tilting', 'heading sin', 'heading cos', 'speed', 'acceleration', 'map value', 'riding',
+    'texture contrast', 'texture fineness', 'texture grain', 'strangeness'];  // controller.py's inputs, in order (76)
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
@@ -1399,10 +1407,33 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     c.addEventListener('pointerleave', () => { if (MB3.hover != null) { MB3.hover = null; touch(); } });
   })();
   document.addEventListener('click', e => { const a = e.target.closest('#mb-mode a'); if (a) { e.preventDefault(); e.stopPropagation(); setMBView(a.dataset.mb === '2d'); } }, true);
+  // Its life's tally (livelife.Tally): each event per hour lived (its last 60
+  // minutes) and since its birth. Good: meals (separate bites), sips (nectar),
+  // snacks (looks that fed on something new). Bad: swats, missed looks (still
+  // thinking when it had to act), minutes starving. Neither: approaches
+  // (something began coming at its gaze).
+  function drawMBHud(d) {
+    const el = $('mb-hud'), t = d && d.tally; if (!el) return;
+    if (!t) { el.innerHTML = ''; return; }
+    const ph = t.per_hour, sb = t.since_birth, f = v => v >= 100 ? Math.round(v) : v >= 10 ? v.toFixed(0) : v.toFixed(1);
+    const row = (cls, name, k) => `<div class="${cls}">${name.padEnd(9, '\u00a0')} ${f(ph[k]).padStart(5, '\u00a0')}/h \u00b7 ${f(sb[k])}</div>`;
+    const age = t.hours_lived < 48 ? `${t.hours_lived.toFixed(1)} h` : `${(t.hours_lived / 24).toFixed(1)} d`;
+    el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD \u00b7 /h \u00b7 since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}</div>`
+      + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD \u00b7 /h \u00b7 since birth</div>${row('b', 'SWATS', 'swats')}${row('b', 'MISSED', 'missed')}${row('b', 'STARVING', 'starving_min').replace('/h', ' min/h')}</div>`
+      + `<div class="q" style="left:10px;bottom:8px">${row('n', 'APPROACH', 'approaches')}</div>`
+      + `<div class="q h" style="right:10px;bottom:8px">lived ${age} since birth</div>`;
+  }
   function drawMB(d) {
     const c = $('mb'), cap = $('mb-cap'); if (!c) return;
     const mb = d.mb;
-    if (!mb) { c.style.display = 'none'; cap.textContent = ''; return; }
+    drawMBHud(d);
+    if (!mb) {  // no mushroom body (yet): the card keeps its tally
+      const W = Math.max(200, fitWidth($('mb-panel'), quadAspect())), H = Math.round(W * quadAspect());
+      if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#6b5a55'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText('no mushroom body yet', W / 2, H / 2);
+      MB3.d = null; c.style.display = ''; cap.textContent = ''; return;
+    }
     c.style.display = '';
     const W = Math.max(200, fitWidth($('mb-panel'), quadAspect())), H = Math.round(W * quadAspect());
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
@@ -1462,9 +1493,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       const tr = Math.max(-1, Math.min(1, sn.turning || 0));  // its turning: a caret along the tape
       if (Math.abs(tr) > 0.01) { ctx.fillRect(W / 2, ty + px(19), tr * tw / 2, 2); }
     }
+    // data block, top left: what else it senses now (the tapes start below it)
+    const rows = [sn.out_of_model ? 'LEARNING HELD' : '', sn.strangeness ? `ODD ${sn.strangeness.toFixed(2)}` : '',
+                  sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
+                  sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
+                  sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
+    const TOP = Math.max(px(70), px(8) + rows.length * px(13) + px(22));
     // a tape with its value boxed at the middle
     const tape = (x, v, lo, hi, side, label, marks) => {
-      const y0 = px(70), th = Math.max(px(30), H - Math.min(110, H * 0.3) - px(34) - y0), yv = t => y0 + th * (1 - (t - lo) / (hi - lo));
+      const y0 = TOP, th = Math.max(px(30), H - Math.min(110, H * 0.3) - px(34) - y0), yv = t => y0 + th * (1 - (t - lo) / (hi - lo));
       ctx.strokeStyle = G(0.6); ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 + th); ctx.stroke();
       for (let t = 0; t <= 4; t++) { const yy = y0 + th * t / 4; ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + side * px(5), yy); ctx.stroke(); }
       (marks || []).forEach(([mv, col, name]) => { if (mv == null) return; const yy = yv(Math.max(lo, Math.min(hi, mv)));
@@ -1479,11 +1516,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     }
     const nr = v => v == null ? '--' : v.toFixed(2);
     tape(W - px(12), null, 0, 1, -1, `NR T${nr(sn.nearness)} F${nr(sn.felt_nearness)}`, [[sn.nearness, 'rgb(156, 207, 122)', 'T'], [sn.felt_nearness, 'rgb(127, 212, 255)', 'F']]);
-    // data block, bottom left: what else it senses now
-    const rows = [sn.out_of_model ? 'LEARNING HELD' : '', sn.strangeness ? `ODD ${sn.strangeness.toFixed(2)}` : '',
-                  sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
-                  sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
-                  sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
     ctx.fillStyle = G(0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     rows.forEach((t, i) => ctx.fillText(t, px(8), px(8) + i * px(13)));
     ctx.restore();
@@ -1622,8 +1654,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         ctx.strokeStyle = ct > 0 ? 'rgba(255, 90, 70, 0.95)' : 'rgba(127, 212, 255, 0.8)'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(gx, gy, rr, 0, 7); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(gx - rr - 4, gy); ctx.lineTo(gx - rr + 3, gy); ctx.moveTo(gx + rr - 3, gy); ctx.lineTo(gx + rr + 4, gy); ctx.stroke();
-        if (ct > 0) { ctx.fillStyle = 'rgb(255, 90, 70)'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-          ctx.fillText(`contact ~${Math.max(1, Math.round(1 / ct))} looks`, gx, gy - rr - 4); }
       }
       if (SP3.pov) hudNav(ctx, W, H, hz, sn, d);
       note = `horizon ${Math.round(100 * hz)}% down &middot; <b style="color:#ff6f8a">hosts</b> <b style="color:#9ccf7a">plants</b> <b style="color:#a0a0aa">things</b>`
@@ -1858,6 +1888,23 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   }
 
   // The whole recurrent brain.
+  // Randomize: its brain drawn afresh as a founder's (run_vision.py), at its
+  // next generation. Two clicks within 4 s (no browser dialog): the first arms it.
+  // Amnesia: randomized AND its eye, body, memories and traits back to a fresh
+  // install's (tools/reset_founder.py; everything is kept in a backup).
+  [['randomize', 'click again to draw a new brain', 'a new brain at its next generation'],
+   ['amnesia', 'click again: a fresh install (a backup is kept)', 'a fresh founder at its next generation']].forEach(([id, arm, done]) => {
+    const a = $(id), note = $(id + '-note'); if (!a) return;
+    let armed = 0;
+    a.addEventListener('click', ev => {
+      ev.preventDefault();
+      if (Date.now() - armed > 4000) { armed = Date.now(); note.textContent = arm; return; }
+      armed = 0; note.textContent = 'asking...';
+      fetch('/' + id, { method: 'POST', headers: { 'X-Cambrian': '1' } })
+        .then(r => { note.textContent = r.ok ? done : 'refused'; })
+        .catch(() => { note.textContent = 'no answer'; });
+    });
+  });
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
@@ -2684,7 +2731,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith("/select") or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -2694,6 +2741,20 @@ class Handler(BaseHTTPRequestHandler):
             print(f"select: refused (origin {origin} is not this page's host {self.headers.get('Host', '')})", flush=True)
             self.send_response(403)
             self.end_headers()
+            return
+        if self.path.startswith(("/randomize", "/amnesia")):
+            # The owner's Randomize (its brain drawn afresh) or Amnesia (a
+            # fresh install's founder): the organism picks it up at its next
+            # generation (run_vision.py).
+            what = "randomize" if self.path.startswith("/randomize") else "amnesia"
+            _write_json_atomic(STATE_DIR / f"{what}.request", {"t": time.time()})
+            print(f"{what}: requested", flush=True)
+            body = json.dumps({"ok": True}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         # "auto" clears the override, resuming normal round-robin.
         # A whitelisted name is fine as-is. Free-text "url" has no

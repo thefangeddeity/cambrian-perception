@@ -28,6 +28,9 @@ CHECKPOINT_PATH = STATE_DIR / "checkpoint.json"
 # generation it is on, saves its checkpoint and exits -- the file form of
 # systemd's SIGTERM, for supervisors that can't signal (Task Scheduler).
 STOP_REQUEST_PATH = STATE_DIR / "stop.request"
+RANDOMIZE_REQUEST_PATH = STATE_DIR / "randomize.request"
+AMNESIA_REQUEST_PATH = STATE_DIR / "amnesia.request"  # the owner's Amnesia: a fresh install's founder (tools/reset_founder.py)
+EXIT_RESTART_ME = 75  # EX_TEMPFAIL: its supervisor (systemd, cambrian_service.py) starts it again  # the owner's Randomize (viewer's brain card): a founder's brain, drawn afresh
 # live_status.json is throwaway (rewritten constantly, only for the viewer):
 # kept in RAM (/dev/shm) where available, so it costs no SSD writes (audit:
 # ~25 GB/day when it was written to disk every generation).
@@ -62,6 +65,7 @@ def load_quota_pct(default: float) -> float:
 
 EPISODES_PATH = STATE_DIR / "episodes.npz"
 CORTEX_PATH = STATE_DIR / "cortex.json"
+TALLY_PATH = STATE_DIR / "tally.json"  # its life's good and bad events since its birth (livelife.Tally)
 
 
 def load_cortex() -> dict | None:

@@ -22,14 +22,8 @@ KEEP = {".gitkeep", "selected_source.json", "host_limits.json", "handler_state.j
         "service.log", "run.log", "viewer.log", "launchd.log", "service.stop"}
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print(__doc__)
-        return 2
-    state = Path(sys.argv[1])
-    if not (state / "checkpoint.json").exists():
-        print("no checkpoint here: nothing to reset")
-        return 1
+def reset(state: Path) -> tuple[Path, list]:
+    """Moves the being's state aside; returns (the backup folder, what moved)."""
     backup = state / f"backup-{time.strftime('%Y%m%d-%H%M%S')}-before-reset"
     backup.mkdir()
     moved = []
@@ -38,6 +32,18 @@ def main() -> int:
             continue
         shutil.move(str(f), str(backup / f.name))
         moved.append(f.name)
+    return backup, moved
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print(__doc__)
+        return 2
+    state = Path(sys.argv[1])
+    if not (state / "checkpoint.json").exists():
+        print("no checkpoint here: nothing to reset")
+        return 1
+    backup, moved = reset(state)
     print(f"reset to a founder: {len(moved)} files moved to {backup.name} ({', '.join(moved)})")
     return 0
 

@@ -1447,6 +1447,34 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             print("Stop requested -- saving and exiting.")
             sandbox.STOP_REQUEST_PATH.unlink(missing_ok=True)
             break
+        if sandbox.AMNESIA_REQUEST_PATH.exists():
+            # The owner's Amnesia: it saves as at any stop, then (main) its
+            # state moves aside as tools/reset_founder.py moves it, and it exits
+            # to be started again as a fresh install's founder.
+            sandbox.AMNESIA_REQUEST_PATH.unlink(missing_ok=True)
+            print("Amnesia requested -- saving, then a fresh install's founder.")
+            _AMNESIA["now"] = True
+            break
+        if sandbox.RANDOMIZE_REQUEST_PATH.exists():
+            # The owner's Randomize (the viewer's brain card): its brain drawn
+            # afresh as a founder's is (random weights over every input); its
+            # eye, body, memories and other traits stay. Its checkpoint is
+            # backed up first, as a seeding is.
+            sandbox.RANDOMIZE_REQUEST_PATH.unlink(missing_ok=True)
+            import shutil
+            backup = sandbox.STATE_DIR / f"backup-{time.strftime('%Y%m%d-%H%M%S')}-before-randomize"
+            try:
+                backup.mkdir(parents=True, exist_ok=True)
+                if sandbox.CHECKPOINT_PATH.exists():
+                    shutil.copy2(sandbox.CHECKPOINT_PATH, backup / "checkpoint.json")
+            except OSError as e:
+                print(f"Randomize: couldn't back up its checkpoint ({e}).")
+            from fishbowl.controller import MosquitoBrain
+            genome.brain = MosquitoBrain.random(random.Random(time.time_ns()))
+            if life is not None:
+                life.adopt(genome)
+            print(f"Randomized: a founder's brain, drawn afresh (backup: {backup.name}).")
+            sandbox.log_event({"t": round(time.time(), 1), "event": "randomized", "backup": backup.name})
         # Dessert over (deadline passed, or cleared in the viewer): stop
         # this run so systemd brings it back on its home camera.
         # A chosen video (live or recorded) that has ended: back to its camera.
@@ -2127,6 +2155,9 @@ def _body_at_full_speed() -> None:
         pass
 
 
+_AMNESIA = {"now": False}
+
+
 def main() -> int:
     _body_at_full_speed()
     _split_body_and_workers()
@@ -2141,6 +2172,11 @@ def main() -> int:
 
     limits = sandbox.Limits(max_generations=args.generations, max_wallclock_seconds=args.seconds)
     run(args.source, limits)
+    if _AMNESIA["now"]:
+        from tools.reset_founder import reset
+        backup, moved = reset(sandbox.STATE_DIR)
+        print(f"Amnesia: {len(moved)} files moved to {backup.name}; starting again as a founder.")
+        return sandbox.EXIT_RESTART_ME
     return 0
 
 

@@ -27,8 +27,7 @@ alone full screen. On a phone the brain and mushroom body open in 2D.
 
 **Video stream.** What it saw, a few seconds behind live, in step with the
 visual field (frames stay in RAM, never on disk). The HUD: the reticle is its
-gaze; red corners are hosts; SCAN / TRACK / LOCK is what it is doing; "contact ~N looks" means something is approaching its gaze
-and will reach it in about N of its looks (Lee's tau); a dashed ghost ahead of
+gaze; red corners are hosts; SCAN / TRACK / LOCK is what it is doing; a dashed ghost ahead of
 a host is where it expects that host to be by the time it acts (it carries the
 host forward by the host's velocity times its own lag). WARN is its warning.
 The client view is `/live`. The HUD's text is repeated in Lebanese Arabic,
@@ -75,9 +74,17 @@ a data block; ODD is how strange the look is to its model, and LEARNING HELD
 means it failed its model's test, so it isn't learning from that look.
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
-orange inhibits.
+orange inhibits. Randomize (two clicks) draws its brain afresh as a founder's at its
+next generation, keeping everything else; Amnesia (two clicks) makes it a
+fresh install's founder, eye, body, memories and traits included. Both keep a
+backup in its state folder.
 
-**Mushroom body.** Its Kenyon cells, each coloured by what it has learned:
+**Mushroom body.** Its HUD is its life's tally, each per hour lived (its last
+60 minutes) and since its birth. Good: meals (separate bites), sips (nectar),
+snacks (looks that fed on something new). Bad: swats, missed looks (still
+thinking when it had to act), minutes starving. Neither: approaches (something
+began coming at its gaze; the navigation card's ring tightens as it comes).
+Its Kenyon cells, each coloured by what it has learned:
 green food, red danger, amber food it learned to avoid, grey lost to wasting.
 Firing cells glow phosphor green, brighter the more they have learned. In 3D
 the firing cells send their axons down the peduncle to the medial lobe (food
