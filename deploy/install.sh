@@ -30,7 +30,9 @@ done
 sudo -u "$OWNER" "$REPO/.venv/bin/python" -m pip install -q --disable-pip-version-check -r "$REPO/requirements.lock"
 # 2b. Its self-test (tools/selftest.py) before it runs the new code: failing,
 #     the checkout goes back to the code that is running, which keeps running.
-if ! sudo -u "$OWNER" "$REPO/.venv/bin/python" "$REPO/tools/selftest.py" > /tmp/cambrian-selftest.log 2>&1; then
+#     (From the repo: its worker processes start in the working directory, and the
+#     owner may not be able to enter the one this was run from.)
+if ! (cd "$REPO" && sudo -u "$OWNER" "$REPO/.venv/bin/python" "$REPO/tools/selftest.py") > /tmp/cambrian-selftest.log 2>&1; then
     echo "self-test FAILED -- kept the running code ($OLD); see /tmp/cambrian-selftest.log"
     tail -20 /tmp/cambrian-selftest.log
     sudo -u "$OWNER" git -C "$REPO" reset -q --hard "$OLD"
