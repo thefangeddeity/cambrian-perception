@@ -1422,6 +1422,69 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   // it looks -- it is driving into this, not studying a graph of it), or from
   // outside ("overview", the oblique orbit).
   const SP3 = { pov: true, hy: 0, hp: 0, yaw: -0.5, pitch: 0.45, zoom: 1, dirty: true, loop: false, drag: null, d: null };
+  // Its navigation HUD (a 2026-09-29 UX panel -- Kare, Victor, Norman, Raskin,
+  // Laurel -- after a fighter's HUD, MIL-STD-1787's layout): one colour for its
+  // own symbology (phosphor green, as its mushroom body's), the world's colours
+  // for the world; conformal where it can be (horizon, flight-path marker at
+  // the focus of expansion), tapes for the rest: heading on top (its compass),
+  // speed on the left (its speed cells; the caret leans with starting or
+  // stopping), nearness on the right (T what its ground model teaches, F what
+  // its terrain head feels; near at the top), a bank pointer (its tilting),
+  // and a data block. Text scales with the picture, floored as the video's HUD.
+  function hudNav(ctx, W, H, hz, sn, d) {
+    const k = Math.max(0.6, Math.min(1, W / 560)), px = n => Math.max(8, Math.round(n * k)), G = a => `rgba(124, 255, 160, ${a})`;
+    ctx.save(); ctx.lineWidth = 1; ctx.font = `${px(11)}px monospace`;
+    const hy = hz * H;
+    // horizon line, broken at the middle for the flight-path marker
+    ctx.strokeStyle = G(0.55); ctx.beginPath(); ctx.moveTo(W * 0.14, hy); ctx.lineTo(W * 0.44, hy); ctx.moveTo(W * 0.56, hy); ctx.lineTo(W * 0.86, hy); ctx.stroke();
+    // flight-path marker: where it is going (the focus of expansion, moved by its turning), shown while it moves
+    if (sn.speed != null && Math.abs(sn.speed) > 0.01) {
+      const fx = W * (0.5 + 0.5 * Math.max(-1, Math.min(1, sn.turning || 0))), r = px(6);
+      ctx.strokeStyle = G(0.95); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(fx, hy, r, 0, 7);
+      ctx.moveTo(fx - r, hy); ctx.lineTo(fx - 2.4 * r, hy); ctx.moveTo(fx + r, hy); ctx.lineTo(fx + 2.4 * r, hy); ctx.moveTo(fx, hy - r); ctx.lineTo(fx, hy - 1.8 * r); ctx.stroke(); ctx.lineWidth = 1;
+    }
+    // bank pointer: its tilting this look, on an arc under the heading tape
+    const bx = W / 2, by = px(46), br = px(22), tilt = Math.max(-1, Math.min(1, sn.tilting || 0)) * Math.PI / 4;
+    ctx.strokeStyle = G(0.5); ctx.beginPath(); ctx.arc(bx, by + br, br, -Math.PI / 2 - Math.PI / 4, -Math.PI / 2 + Math.PI / 4); ctx.stroke();
+    ctx.fillStyle = G(0.95); ctx.beginPath(); const ta = -Math.PI / 2 + tilt; ctx.moveTo(bx + br * Math.cos(ta), by + br + br * Math.sin(ta));
+    ctx.lineTo(bx + (br - px(6)) * Math.cos(ta - 0.08), by + br + (br - px(6)) * Math.sin(ta - 0.08)); ctx.lineTo(bx + (br - px(6)) * Math.cos(ta + 0.08), by + br + (br - px(6)) * Math.sin(ta + 0.08)); ctx.fill();
+    // heading tape (its compass): 60 degrees wide, ticks every 10, numbers every 30
+    if (sn.heading != null) {
+      const hd = (sn.heading + 360) % 360, tw = Math.min(W * 0.36, px(220)), ty = px(14), x0 = W / 2 - tw / 2;
+      ctx.strokeStyle = G(0.7); ctx.fillStyle = G(0.85); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      for (let a = Math.ceil((hd - 30) / 10) * 10; a <= hd + 30; a += 10) {
+        const x = W / 2 + (a - hd) / 30 * (tw / 2), big = ((a % 30) + 30) % 30 === 0;
+        ctx.beginPath(); ctx.moveTo(x, ty + px(4)); ctx.lineTo(x, ty + px(big ? 11 : 7)); ctx.stroke();
+        if (big) ctx.fillText(String(((a % 360) + 360) % 360).padStart(3, '0'), x, ty + px(3));
+      }
+      ctx.beginPath(); ctx.moveTo(W / 2, ty + px(12)); ctx.lineTo(W / 2 - px(4), ty + px(18)); ctx.lineTo(W / 2 + px(4), ty + px(18)); ctx.closePath(); ctx.fill();
+      const tr = Math.max(-1, Math.min(1, sn.turning || 0));  // its turning: a caret along the tape
+      if (Math.abs(tr) > 0.01) { ctx.fillRect(W / 2, ty + px(19), tr * tw / 2, 2); }
+    }
+    // a tape with its value boxed at the middle
+    const tape = (x, v, lo, hi, side, label, marks) => {
+      const th = H * 0.42, y0 = H / 2 - th / 2, yv = t => y0 + th * (1 - (t - lo) / (hi - lo));
+      ctx.strokeStyle = G(0.6); ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 + th); ctx.stroke();
+      for (let t = 0; t <= 4; t++) { const yy = y0 + th * t / 4; ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + side * px(5), yy); ctx.stroke(); }
+      (marks || []).forEach(([mv, col, name]) => { if (mv == null) return; const yy = yv(Math.max(lo, Math.min(hi, mv)));
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + side * px(8), yy - px(4)); ctx.lineTo(x + side * px(8), yy + px(4)); ctx.fill();
+        ctx.textAlign = side > 0 ? 'left' : 'right'; ctx.textBaseline = 'middle'; ctx.fillText(name, x + side * px(10), yy); });
+      ctx.fillStyle = G(0.85); ctx.textAlign = side > 0 ? 'left' : 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(label, x, y0 - px(3));
+    };
+    const spd = sn.speed, acc = sn.acceleration || 0;
+    if (spd != null) {
+      const top = Math.max(0.5, Math.ceil(Math.abs(spd) * 2) / 2);
+      tape(px(12), spd, 0, top, 1, `SPD ${spd.toFixed(2)}${acc > 0.05 ? ' ▲' : acc < -0.05 ? ' ▼' : ''}`, [[Math.max(0, spd), G(0.95), '']]);
+    }
+    tape(W - px(12), null, 0, 1, -1, 'NEAR', [[sn.nearness, 'rgb(156, 207, 122)', 'T'], [sn.felt_nearness, 'rgb(127, 212, 255)', 'F']]);
+    // data block, bottom left: what else it senses now
+    const rows = [sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
+                  sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
+                  sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
+    ctx.fillStyle = G(0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    rows.forEach((t, i) => ctx.fillText(t, px(12), H - px(8) - (rows.length - 1 - i) * px(13)));
+    ctx.restore();
+  }
   function drawSpace(d) {
     const c = $('space'); if (!c || !d) return;
     const W = Math.max(240, Math.floor(c.parentElement.clientWidth - 24));
@@ -1556,15 +1619,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         ctx.strokeStyle = ct > 0 ? 'rgba(255, 90, 70, 0.95)' : 'rgba(127, 212, 255, 0.8)'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(gx, gy, rr, 0, 7); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(gx - rr - 4, gy); ctx.lineTo(gx - rr + 3, gy); ctx.moveTo(gx + rr - 3, gy); ctx.lineTo(gx + rr + 4, gy); ctx.stroke();
-        const tick = (v, dxs, col, name) => { if (v == null) return; const hh = 24, y0 = gy + hh / 2;
-          ctx.fillStyle = 'rgba(28, 42, 54, 0.9)'; ctx.fillRect(gx + dxs, gy - hh / 2, 4, hh);
-          ctx.fillStyle = col; ctx.fillRect(gx + dxs, y0 - hh * Math.max(0, Math.min(1, v)), 4, hh * Math.max(0, Math.min(1, v)));
-          ctx.fillStyle = col; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(name, gx + dxs + 2, gy + hh / 2 + 2); };
-        tick(sn.nearness, rr + 12, 'rgb(156, 207, 122)', 'taught');
-        tick(sn.felt_nearness, rr + 50, 'rgb(127, 212, 255)', 'felt');
         if (ct > 0) { ctx.fillStyle = 'rgb(255, 90, 70)'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
           ctx.fillText(`contact ~${Math.max(1, Math.round(1 / ct))} looks`, gx, gy - rr - 4); }
       }
+      if (SP3.pov) hudNav(ctx, W, H, hz, sn, d);
       note = `horizon ${Math.round(100 * hz)}% down &middot; <b style="color:#ff6f8a">hosts</b> <b style="color:#9ccf7a">plants</b> <b style="color:#a0a0aa">things</b>`
              + (nCut ? ` &middot; dashed: cut by the frame` : '') + (sn.parallax && sn.parallax.some(v => v > 0.05) ? ' &middot; <b style="color:#7fd4ff">parallax</b>' : '')
              + (sn.local_frame && sn.local_frame.some(Boolean) ? ' &middot; <b style="color:#8a92a2">rides with it</b>' : '');
