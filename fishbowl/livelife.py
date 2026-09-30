@@ -311,6 +311,7 @@ class LiveLife:
         self.tally = Tally(sandbox._read_json(sandbox.TALLY_PATH, None) if sandbox.TALLY_PATH.exists() else None)
         self.died = None             # what it died of (state.MosquitoState.death); run_vision buries it
         self.eggs_laid = 0           # in this process's stretch of its life (its tally keeps the lifetime's)
+        self._damage0 = None         # (lived s, damage) when this process began watching its ageing
         self._rng = random.Random(time.time_ns())
         self._eat_prev = self._contact_prev = 0.0
         self._stop = False
@@ -666,9 +667,16 @@ class LiveLife:
         hist = sandbox.life_history()
         deaths = [r for r in hist if r.get("event") == "died"]
         lived = self.tally.lived_s
+        # its lifespan from its damage RATE since this process began watching (a
+        # body older than the damage count would otherwise look near immortal):
+        # what it has lived, plus its remaining tissue over that rate
+        if self._damage0 is None:
+            self._damage0 = (lived, b.damage)
+        dl, dd = lived - self._damage0[0], b.damage - self._damage0[1]
+        span = lived + (PROTEIN_CAP - b.damage) * dl / dd if dd > 1e-9 and dl > 0 else None
         return {"egg_progress": round(b.repro / EGG_COST, 4), "egg_cost": round(EGG_COST, 1), "kappa": round(self.org.g.kappa, 4),
                 "age": round(b.age, 5), "lived_s": round(lived, 1),
-                "expected_lifespan_s": round(lived / b.age, 0) if b.age > 1e-9 and lived > 0 else None,
+                "expected_lifespan_s": round(span, 0) if span else None,
                 "deaths": len(deaths), "deaths_by": {c: sum(1 for r in deaths if r.get("cause") == c) for c in ("starvation", "age")}}
 
     def _breathe(self, arrived: float) -> None:

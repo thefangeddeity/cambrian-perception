@@ -717,7 +717,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   #mb-hud .q { position: absolute; line-height: 15px; }
   #mb-hud .g { color: rgba(124, 255, 160, 0.9); } #mb-hud .b { color: rgba(255, 90, 70, 0.95); } #mb-hud .n { color: rgba(255, 226, 214, 0.75); }
   #mb-hud .h { color: rgba(184, 138, 128, 0.9); }
-  #brain-mode a, #mb-mode a { color: #b88a80; } #brain-mode b, #mb-mode b { color: #ffe2d6; }
+  #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder { color: #b88a80; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
   .legend span { display: inline-block; margin-right: 12px; white-space: normal; }
