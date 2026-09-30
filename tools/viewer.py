@@ -777,7 +777,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">Randomize</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">Amnesia</a> <span id="amnesia-note"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">Randomize</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New founder</a> <span id="amnesia-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -1891,10 +1891,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   // The whole recurrent brain.
   // Randomize: its brain drawn afresh as a founder's (run_vision.py), at its
   // next generation. Two clicks within 4 s (no browser dialog): the first arms it.
-  // Amnesia: randomized AND its eye, body, memories and traits back to a fresh
+  // New founder (the Amnesia request): randomized AND its eye, body, memories and traits back to a fresh
   // install's (tools/reset_founder.py; everything is kept in a backup).
   [['randomize', 'click again to draw a new brain', 'a new brain at its next generation'],
-   ['amnesia', 'click again: a fresh install (a backup is kept)', 'a fresh founder at its next generation']].forEach(([id, arm, done]) => {
+   ['amnesia', 'click again: a new random founder, everything it was kept in a backup', 'a new founder at its next generation']].forEach(([id, arm, done]) => {
     const a = $(id), note = $(id + '-note'); if (!a) return;
     let armed = 0;
     a.addEventListener('click', ev => {

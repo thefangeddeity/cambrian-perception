@@ -75,8 +75,8 @@ means it failed its model's test, so it isn't learning from that look.
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
 orange inhibits. Randomize (two clicks) draws its brain afresh as a founder's at its
-next generation, keeping everything else; Amnesia (two clicks) makes it a
-fresh install's founder, eye, body, memories and traits included. Both keep a
+next generation, keeping everything else; New founder (two clicks) replaces it with a new
+random founder, as a fresh install has: eye, body, memories and traits included. Both keep a
 backup in its state folder.
 
 **Mushroom body.** Its HUD is its life's tally, each per hour lived (its last
