@@ -59,12 +59,13 @@ import sys
 import time
 from pathlib import Path
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+_INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()  # which organism on this host (fishbowl/sandbox.py)
+STATE_DIR = Path(__file__).resolve().parent.parent / ("state" if not _INSTANCE else f"state-{_INSTANCE}")
 EVOLUTION_LOG_PATH = STATE_DIR / "evolution_log.jsonl"
 REQUESTS_PATH = STATE_DIR / "requests.json"
 HANDLER_STATE_PATH = STATE_DIR / "handler_state.json"
 
-SERVICE_NAME = "cambrian-perception.service"
+SERVICE_NAME = "cambrian-perception.service" if not _INSTANCE else f"cambrian-perception-{_INSTANCE}.service"
 # Windows (docs/packaging.md): no systemd; tools/cambrian_service.py applies
 # the quota recorded in handler_state.json as a Job Object hard CPU cap, and
 # the measurements come from the Win32 API instead of /proc.

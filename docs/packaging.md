@@ -46,6 +46,17 @@ Removing a package stops it and keeps its state. Versions come from the release 
 `0.1.0`, then `0.1.0.r3.gabc1234` (Arch) / `0.1.0+r3.gabc1234` (Debian) three commits later.
 Don't install a package over a git-checkout host without moving its `state/` aside first.
 
+**The hive is opt-in** (a 2026-09-30 panel: Ostrom, Schneier, Wilkinson, Gelman). A new
+install is **solo**: it never looks for peers, an extinction brings a new random founder,
+and its viewer serves its organism (`/organism/checkpoint`, `/organism/episodes`) only to
+its own machine. `--hive` (`-Hive` on Windows) joins the hive: after an extinction it may
+take a migrant from its peers (`run_vision._migrate`), and it serves its own organism to
+them; `--no-hive` (`-NoHive`) leaves. Without either an update keeps what the host had.
+The choice is `"hive"` in the host's `cambrian.json` (`tools/settings.py` writes it; a
+package, which writes none, is solo). The viewer's life HUD says **HIVE on** or **SOLO**,
+and the life history records each change ("joined the hive", "solo"), so hive and solo
+lineages can be compared.
+
 ## Living beside laptop-livecam (no clash, by construction)
 
 The two are a camera suite and never run together: starting either stops the

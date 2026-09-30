@@ -14,7 +14,11 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-STATE_DIR = Path(__file__).resolve().parents[1] / "state"
+# Which organism on this host (a 2026-09-30 panel: two organisms per host
+# where resources allow): "" is the first, "b" a second -- its own state
+# folder (state-b), status file, viewer port and service; everything else shared.
+INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()
+STATE_DIR = Path(__file__).resolve().parents[1] / ("state" if not INSTANCE else f"state-{INSTANCE}")
 # .jsonl, not .json -- see log_generation's own comment for the real
 # disk-write-volume bug this fixes (external audit, 2026-09-24). Any
 # reader expecting a single JSON array at the old evolution_log.json
@@ -37,7 +41,7 @@ EXIT_RESTART_ME = 75  # EX_TEMPFAIL: its supervisor (systemd, cambrian_service.p
 # live_status.json is throwaway (rewritten constantly, only for the viewer):
 # kept in RAM (/dev/shm) where available, so it costs no SSD writes (audit:
 # ~25 GB/day when it was written to disk every generation).
-_RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception"))
+_RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception" + (f"-{INSTANCE}" if INSTANCE else "")))
 LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR) / "live_status.json"
 CHECKPOINT_PREV_PATH = STATE_DIR / "checkpoint.prev.json"
 SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
@@ -119,6 +123,20 @@ def experiment(name: str) -> bool:
     try:
         return bool((_read_json(EXPERIMENTS_PATH, {}) or {}).get(name, False)) if EXPERIMENTS_PATH.exists() else False
     except (OSError, ValueError, AttributeError):
+        return False
+
+
+SETTINGS_PATH = Path(__file__).resolve().parents[1] / "cambrian.json"  # the host's own settings, written by the installers
+
+
+def hive() -> bool:
+    """Whether this host's organisms are in the hive (a 2026-09-30 panel --
+    Ostrom: joining a shared pool is the owner's choice, so it is opt-in;
+    Schneier: out of it means it neither fetches genomes nor serves its own).
+    cambrian.json's "hive", set by an installer's --hive; absent, it is solo."""
+    try:
+        return bool((_read_json(SETTINGS_PATH, {}) or {}).get("hive", False))
+    except AttributeError:
         return False
 
 

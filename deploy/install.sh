@@ -11,7 +11,20 @@
 # running. Installing is starting: the organism takes the camera, and the
 # livecam, if installed, stops and stays off at boot (the camera suite,
 # docs/suite.md; `livecam`'s own start takes it back).
+#
+#   --hive      join the hive: after an extinction it may take a migrant from
+#               its peers, and it serves its own organism to them
+#   --no-hive   solo (the default for a new install); without either, an
+#               update keeps what the host had
 set -eu
+HIVE=""
+for a in "$@"; do
+    case "$a" in
+        --hive) HIVE=true ;;
+        --no-hive) HIVE=false ;;
+        *) echo "unknown option $a (--hive | --no-hive)"; exit 2 ;;
+    esac
+done
 REPO=/srv/cambrian/cambrian-perception
 OWNER=$(stat -c %U "$REPO/.git")
 # 1. The code: pull as the checkout's owner (an update is a re-run of this).
@@ -39,6 +52,8 @@ if ! (cd "$REPO" && sudo -u "$OWNER" "$REPO/.venv/bin/python" "$REPO/tools/selft
     exit 1
 fi
 echo "self-test passed"
+# 2c. The host's settings (cambrian.json): in the hive or solo.
+sudo -u "$OWNER" "$REPO/.venv/bin/python" "$REPO/tools/settings.py" "$REPO/cambrian.json" "${HIVE:-keep}"
 # 3. The services.
 cd "$REPO/deploy"
 install -m 644 cambrian.target cambrian-perception.service cambrian-viewer.service \

@@ -256,9 +256,36 @@ def _():
         raise OSError("no fleet")
     fleet.discover = boom
     try:
+        sandbox.SETTINGS_PATH.write_text('{"hive": true}')
+        assert sandbox.hive()
         assert RV._migrate(w, f, RV.TREE_PLAIN_INPUTS) is f
     finally:
         fleet.discover = saved
+        sandbox.SETTINGS_PATH.unlink(missing_ok=True)
+
+
+@check("solo (no hive): it never asks the fleet; the installers' settings keep what is there")
+def _():
+    from tools import fleet, settings
+    saved = fleet.discover
+
+    def asked(names):
+        raise AssertionError("a solo organism asked the fleet")
+    fleet.discover = asked
+    try:
+        assert not sandbox.hive()  # no settings: solo
+        f = founder()
+        assert RV._migrate(None, f, RV.TREE_PLAIN_INPUTS) is f
+    finally:
+        fleet.discover = saved
+    p = TMP / "settings-test.json"
+    settings.main([str(p), "keep", "source=0", "viewer_port=8090"])
+    s = json.loads(p.read_text())
+    assert s == {"hive": False, "source": "0", "viewer_port": 8090}, s
+    settings.main([str(p), "true"])
+    settings.main([str(p), "keep", "source=rtsp://x"])
+    s = json.loads(p.read_text())
+    assert s["hive"] is True and s["source"] == "rtsp://x" and s["viewer_port"] == 8090, s
 
 
 @check("viewer: every <script> parses (node --check), where node exists")

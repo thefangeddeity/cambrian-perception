@@ -1314,7 +1314,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
         genome = G.random_genome(rng, n_vars=n_vars, receptors=fovea.DEFAULT_RECEPTORS)
         _default_brain(genome)
         hist = sandbox.life_history()
-        if hist and hist[-1].get("event") == "extinct":  # its lineage died out: a migrant may come instead
+        if hist and hist[-1].get("event") == "extinct":  # its lineage died out: a migrant may come instead (in the hive)
             genome = _migrate(world, genome, n_vars)
         founded = True
 
@@ -1469,6 +1469,13 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             print(f"Its founder couldn't be kept for a reset ({e}).")
         print("Its founder is saved: a restart resumes it, and Reset to founder returns to it.")
         sandbox.record_life({"event": "founded", "kappa": round(genome.kappa, 4), "metabolism": round(genome.metabolism, 4)})
+    # In the hive or solo, recorded as it changes, so hive and solo lineages can
+    # be told apart later (the 2026-09-30 panel, Gelman).
+    in_hive = sandbox.hive()
+    if next((r["hive"] for r in reversed(sandbox.life_history()) if "hive" in r), None) != in_hive:
+        sandbox.record_life({"event": "joined the hive" if in_hive else "solo", "hive": in_hive})
+    print("In the hive: it may take a migrant from its peers after an extinction, and serves its own to them."
+          if in_hive else "Solo (not in the hive): it neither takes migrants nor serves its organism to peers.")
 
     # A stop request (systemctl restart/stop -> SIGTERM, e.g. every video
     # switch in the viewer) ends the loop cleanly so the checkpoint is
@@ -2381,7 +2388,11 @@ def _migrate(world, founder, n_vars: int):
     would arrive -- its genome in a newborn body, no memories -- on this host's
     own first snapshot at the reference prices (the fleet's fair tournament).
     The winner comes as an egg (kappa stepped, as at any laying); if the random
-    founder wins, or no peer is reachable, or anything fails, the founder stays."""
+    founder wins, or no peer is reachable, or anything fails, the founder stays.
+    Solo (out of the hive, sandbox.hive()), the founder stays without asking."""
+    if not sandbox.hive():
+        sandbox.record_life({"event": "founded after extinction", "solo": True})
+        return founder
     try:
         from tools import fleet
         from fishbowl import hostspeed

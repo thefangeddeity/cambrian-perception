@@ -71,7 +71,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # to import: run_vision.py only runs main() under __main__.
 from run_vision import LIVE_SOURCES  # noqa: E402
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+_INSTANCE = os.environ.get("CAMBRIAN_INSTANCE", "").strip()  # which organism on this host (fishbowl/sandbox.py)
+STATE_DIR = Path(__file__).resolve().parent.parent / ("state" if not _INSTANCE else f"state-{_INSTANCE}")
+ORGANISM_UNIT = "cambrian-perception.service" if not _INSTANCE else f"cambrian-perception-{_INSTANCE}.service"
 # Same place run_vision writes it: RAM (/dev/shm) where available.
 _RUNTIME_DIR = Path(os.environ.get("CAMBRIAN_RUNTIME_DIR", "/dev/shm/cambrian-perception"))
 LIVE_STATUS_PATH = (_RUNTIME_DIR if _RUNTIME_DIR.parent.is_dir() else STATE_DIR) / "live_status.json"
@@ -1433,7 +1435,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     el.innerHTML = `<div class="q" style="left:10px;top:8px"><div class="h">GOOD \u00b7 /h \u00b7 since birth</div>${row('g', 'MEALS', 'meals')}${row('g', 'SIPS', 'sips')}${row('g', 'SNACKS', 'snacks')}${row('g', 'EGGS', 'eggs')}</div>`
       + `<div class="q" style="right:10px;top:8px;text-align:right"><div class="h">BAD \u00b7 /h \u00b7 since birth</div>${row('b', 'SWATS', 'swats')}${row('b', 'MISSED', 'missed')}${row('b', 'STARVING', 'starving_min').replace('/h', ' min/h')}<div class="b">DEATHS${'\u00a0'.repeat(4)} ${L.deaths || 0} on this host</div></div>`
       + `<div class="q" style="left:10px;bottom:8px">${row('n', 'APPROACH', 'approaches')}${row('n', 'TORPOR', 'torpor_min').replace('/h', ' min/h')}${row('n', 'CYST', 'cyst_min').replace('/h', ' min/h')}${L.developed ? '<div class="n">DEVELOPED: beats its founder</div>' : ''}</div>`
-      + `<div class="q h" style="right:10px;bottom:8px">age ${age}${span}</div>`;
+      + `<div class="q h" style="right:10px;bottom:8px;text-align:right">${L.hive ? 'HIVE on' : 'SOLO · hive off'}${L.migrant_from ? ` · lineage from ${String(L.migrant_from).replace(/[^\w.-]/g, '')}` : ''}<br>age ${age}${span}</div>`;
   }
   function drawMB(d) {
     const c = $('mb'), cap = $('mb-cap'); if (!c) return;
@@ -2676,10 +2678,17 @@ class Handler(BaseHTTPRequestHandler):
             # is, and its organism of record -- genome, body, memory and its
             # episodes' Kenyon-cell codes. Numbers only, never frames.
             import platform, socket
+            from fishbowl import sandbox
+            in_hive = sandbox.hive()
             if self.path == "/organism/info":
-                body = json.dumps({"hostname": socket.gethostname(), "platform": sys.platform, "machine": platform.machine(),
+                body = json.dumps({"hostname": socket.gethostname(), "instance": _INSTANCE, "hive": in_hive, "platform": sys.platform, "machine": platform.machine(),
                                    "state_dir": str(STATE_DIR), "has_checkpoint": (STATE_DIR / "checkpoint.json").exists()}).encode("utf-8")
                 ctype = "application/json"
+            elif not in_hive and self.client_address[0] not in ("127.0.0.1", "::1"):
+                # Solo: its organism stays on its own machine (the 2026-09-30 panel, Schneier).
+                self.send_response(403)
+                self.end_headers()
+                return
             else:
                 path = STATE_DIR / ("checkpoint.json" if self.path.endswith("checkpoint") else "episodes.npz")
                 body = _read_shared(path)
@@ -2866,7 +2875,7 @@ class Handler(BaseHTTPRequestHandler):
             if sys.platform.startswith("linux") and not (url and was_stream):
                 try:
                     subprocess.run(
-                        ["systemctl", "restart", "--no-ask-password", "cambrian-perception.service"],
+                        ["systemctl", "restart", "--no-ask-password", ORGANISM_UNIT],
                         capture_output=True, text=True, timeout=15,
                     )
                 except (OSError, subprocess.TimeoutExpired):

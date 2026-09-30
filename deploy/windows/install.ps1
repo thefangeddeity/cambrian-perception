@@ -15,7 +15,12 @@ param(
     [string]$Checkpoint = "",
     [string]$Model = "",
     [string]$InstallDir = "C:\ProgramData\cambrian\cambrian-perception",
-    [int]$ViewerPort = 8090
+    [int]$ViewerPort = 8090,
+    # -Hive joins the hive (after an extinction it may take a migrant from its
+    # peers, and it serves its own organism to them); a new install is solo
+    # (-NoHive), and an update keeps what the host had.
+    [switch]$Hive,
+    [switch]$NoHive
 )
 $ErrorActionPreference = "Stop"
 $Task = "cambrian-perception"
@@ -94,7 +99,9 @@ if (-not $Source -and (Test-Path "$InstallDir\cambrian.json")) {
 }
 if (-not $Source) { $Source = "0" }
 Write-Host "  source: $Source"
-@{ source = $Source; viewer_port = $ViewerPort } | ConvertTo-Json | Set-Content -Encoding utf8 "$InstallDir\cambrian.json"
+$hiveArg = if ($Hive) { "true" } elseif ($NoHive) { "false" } else { "keep" }  # (Windows PowerShell drops an empty argument)
+& "$InstallDir\.venv\Scripts\python.exe" "$InstallDir\tools\settings.py" "$InstallDir\cambrian.json" $hiveArg "source=$Source" "viewer_port=$ViewerPort"
+if ($LASTEXITCODE -ne 0) { throw "writing cambrian.json failed" }
 
 # 5. A lineage to continue, if given and none is here yet.
 if ($Checkpoint -and -not (Test-Path "$InstallDir\state\checkpoint.json")) {

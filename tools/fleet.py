@@ -72,22 +72,30 @@ def discover(names: list[str] | None) -> list[dict]:
             pass
     found, seen = [], set()
     for name in names:
-        raw = _get(f"http://{name}:{PORT}/organism/info", 3.0)
-        if not raw:
-            continue
-        info = json.loads(raw)
-        host = info["hostname"].split(".")[0].lower()
-        if host in seen or not info.get("has_checkpoint"):
-            continue
-        seen.add(host)
-        local = host == socket.gethostname().split(".")[0].lower()
-        found.append({"name": name if name != "localhost" else host, "host": host, "local": local, **info})
+        for port in (PORT, PORT + 1):  # a host's first organism, and its second where it has one
+            raw = _get(f"http://{name}:{port}/organism/info", 3.0)
+            if not raw:
+                continue
+            info = json.loads(raw)
+            host = info["hostname"].split(".")[0].lower()
+            inst = info.get("instance") or ""
+            key = f"{host}:{inst}"
+            if key in seen or not info.get("has_checkpoint"):
+                continue
+            seen.add(key)
+            this = socket.gethostname().split(".")[0].lower()
+            here = os.environ.get("CAMBRIAN_INSTANCE", "").strip()
+            local = host == this and inst == here  # this very organism (the other on this host is a peer)
+            if not local and not info.get("hive", True):  # a solo organism is no one's peer (an older viewer reports no "hive": it predates solo)
+                continue
+            label = host if not inst else f"{host}-{inst}"
+            found.append({"name": name if name != "localhost" else host, "port": port, "host": label, "local": local, **info})
     return found
 
 
 def fetch(h: dict) -> None:
     """Its organism of record: checkpoint (genome, body, memory) and episodes."""
-    base = f"http://{'127.0.0.1' if h['local'] else h['name']}:{PORT}"
+    base = f"http://{'127.0.0.1' if h['local'] else h['name']}:{h.get('port', PORT)}"
     raw = _get(base + "/organism/checkpoint", 30.0)
     h["checkpoint_bytes"] = raw
     h["checkpoint"] = json.loads(raw) if raw else None
@@ -234,7 +242,7 @@ def main() -> int:
     url = args.source
     if not url:
         for h in hosts:
-            raw = _get(f"http://{'127.0.0.1' if h['local'] else h['name']}:{PORT}/sources")
+            raw = _get(f"http://{'127.0.0.1' if h['local'] else h['name']}:{h.get('port', PORT)}/sources")
             sel = json.loads(raw).get("selected_url") if raw else None
             if sel:
                 url = sel

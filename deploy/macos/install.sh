@@ -2,7 +2,11 @@
 # Installs (or updates) cambrian-perception on macOS as a background service
 # (docs/packaging.md). Run from the repo, as the user who will own it:
 #
-#   sh deploy/macos/install.sh [--checkpoint <path>] [--source 0|rtsp://...] [--model <yolov8n.onnx>]
+#   sh deploy/macos/install.sh [--checkpoint <path>] [--source 0|rtsp://...] [--model <yolov8n.onnx>] [--hive | --no-hive]
+#
+# --hive joins the hive (after an extinction it may take a migrant from its
+# peers, and it serves its own organism to them); a new install is solo, and
+# an update keeps what the host had.
 #
 # A login agent runs it in this user's GUI session -- the only place macOS
 # lets a process use the camera (a background daemon's open just hangs) --
@@ -13,9 +17,11 @@
 # `livecam start`. Port 8090 only, its own folder and Python venv.
 # Re-running it updates the code and keeps state/ (checkpoint, logs).
 set -eu
-SOURCE="" CHECKPOINT="" MODEL=""
+SOURCE="" CHECKPOINT="" MODEL="" HIVE=""
 while [ $# -gt 0 ]; do
     case "$1" in
+        --hive) HIVE=true; shift ;;
+        --no-hive) HIVE=false; shift ;;
         --source) SOURCE=$2; shift 2 ;;
         --checkpoint) CHECKPOINT=$2; shift 2 ;;
         --model) MODEL=$2; shift 2 ;;
@@ -105,7 +111,7 @@ if [ -z "$SOURCE" ] && [ -f "$DIR/cambrian.json" ]; then
 fi
 SOURCE=${SOURCE:-0}
 echo "  source: $SOURCE"
-printf '{"source": "%s", "viewer_port": 8090}\n' "$SOURCE" > "$DIR/cambrian.json"
+"$DIR/.venv/bin/python" "$DIR/tools/settings.py" "$DIR/cambrian.json" "${HIVE:-keep}" "source=$SOURCE" viewer_port=8090
 
 # 5. A lineage to continue, if given and none is here yet.
 if [ -n "$CHECKPOINT" ] && [ ! -f "$DIR/state/checkpoint.json" ]; then

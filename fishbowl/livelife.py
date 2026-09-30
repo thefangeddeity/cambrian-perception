@@ -773,7 +773,9 @@ class LiveLife:
             self._damage0 = (lived, b.damage)
         dl, dd = lived - self._damage0[0], b.damage - self._damage0[1]
         span = lived + (PROTEIN_CAP - b.damage) * dl / dd if dd > 1e-9 and dl > 0 else None
-        return {"torpid": self.torpid, "encysted": self.encysted, "developed": self.developed,
+        came = next((r for r in reversed(hist) if r.get("event") in ("founded", "migrated", "founded after extinction")), {})  # its lineage's start
+        return {"hive": sandbox.hive(), "migrant_from": came.get("from") if came.get("event") == "migrated" else None,
+                "torpid": self.torpid, "encysted": self.encysted, "developed": self.developed,
                 "egg_progress": round(b.repro / EGG_COST, 4), "egg_cost": round(EGG_COST, 1), "kappa": round(self.org.g.kappa, 4),
                 "age": round(b.age, 5), "lived_s": round(lived, 1),
                 "expected_lifespan_s": round(span, 0) if span else None,
