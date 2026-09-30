@@ -1110,6 +1110,19 @@ def _default_brain(genome) -> None:
     print("A default brain: a random founder, every seed set applied.")
 
 
+def utf8_stdio() -> None:
+    """Its output in UTF-8, line by line, whatever the platform's default:
+    on Windows a supervisor's log file is cp1252, which has no jīng or 精 --
+    printing one crashed the organism at every start (2026-09-30: 46 restarts
+    on 7elwe before it was caught). What a console still can't show is
+    replaced, never fatal."""
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def memory_from_checkpoint(checkpoint: dict | None):
     """The memory tuple (evaluate_genome's order) saved in a checkpoint, or None."""
     if not checkpoint or not checkpoint.get("memory"):
@@ -2514,8 +2527,8 @@ def main() -> int:
     _body_at_full_speed()
     _split_body_and_workers()
     # Line-buffered, so the journal shows each line as it happens (not all
-    # at once when the run exits).
-    sys.stdout.reconfigure(line_buffering=True)
+    # at once when the run exits); and UTF-8, whatever the console's code page.
+    utf8_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument("source", help="'live' for real live streams (see LIVE_SOURCES), a media/ directory of clips, a single file, or a live device (e.g. /dev/video0)")
     parser.add_argument("--generations", type=int, default=0, help="0 (the default): no limit")

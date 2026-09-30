@@ -424,6 +424,22 @@ def _():
         raise AssertionError(f"{why}: not refused")
 
 
+@check("its output survives a code page without jīng (Windows' cp1252 log): no crash")
+def _():
+    # 2026-09-30: printing "Jīng" into a supervisor's cp1252 log crashed 7elwe's
+    # organism at every start. Each entry point's own guard, in a child whose
+    # output is cp1252, must print the treasures and exit cleanly.
+    import os
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+    code = "import sys; sys.path.insert(0, %r); import run_vision as R; R.utf8_stdio(); print('Jīng 精 · qì 氣 · shén 神')" % str(ROOT)
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, timeout=120)
+    assert out.returncode == 0, out.stderr.decode("utf-8", "replace")[-600:]
+    assert "Jīng 精".encode("utf-8") in out.stdout, out.stdout[-200:]
+    for f in ("tools/viewer.py", "tools/cambrian_service.py", "tools/organism_file.py", "tools/cambrian_ctl.py", "tools/fleet.py"):
+        src = (ROOT / f).read_text(encoding="utf-8")
+        assert "reconfigure(" in src.split('if __name__ == "__main__":', 1)[1][:600], f"{f}: no output guard at its entry"
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")
@@ -449,5 +465,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):  # UTF-8 into the installers' logs (Windows' cp1252 has no jīng)
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        except (AttributeError, ValueError, OSError):
+            pass
     threading.current_thread().name = "selftest"
     raise SystemExit(main())

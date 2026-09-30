@@ -320,4 +320,9 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):  # a console that can't show jīng or 精 shows "?", never a crash
+        try:
+            _s.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
     sys.exit(main(sys.argv[1:]))

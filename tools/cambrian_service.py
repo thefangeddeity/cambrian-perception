@@ -209,4 +209,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    for _s in (sys.stdout, sys.stderr):  # UTF-8 into its log, whatever the platform's code page (run_vision.utf8_stdio)
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        except (AttributeError, ValueError, OSError):
+            pass
     sys.exit(main())
