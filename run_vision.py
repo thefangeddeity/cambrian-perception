@@ -1570,6 +1570,21 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 _AMNESIA["founder"] = True
                 break
             print("Reset to founder: no founder was kept for this lineage (born before founders were kept).")
+        if sandbox.LOAD_REQUEST_PATH.exists():
+            # The owner's Load organism (the viewer, `cambrian --load`): the
+            # staged file checked now (tools/organism_file.py -- a refused one
+            # changes nothing); then it saves as at any stop, and main moves
+            # this lineage aside and installs the loaded one.
+            sandbox.LOAD_REQUEST_PATH.unlink(missing_ok=True)
+            try:
+                from tools import organism_file
+                m, _ = organism_file.read(sandbox.LOAD_STAGED_PATH.read_bytes())
+                print(f"Load requested: {m.get('name')} (from {m.get('ecohost')}) -- saving, then it takes this one's place.")
+                _AMNESIA["load"] = True
+                break
+            except Exception as e:  # organism_file.Refused, or no staged file
+                print(f"Load refused: {e}")
+                sandbox.LOAD_STAGED_PATH.unlink(missing_ok=True)
         if sandbox.AMNESIA_REQUEST_PATH.exists():
             # The owner's Amnesia: it saves as at any stop, then (main) its
             # state moves aside as tools/reset_founder.py moves it, and it exits
@@ -2318,7 +2333,7 @@ def _body_at_full_speed() -> None:
 
 
 MARGIN_START = 0.05  # a new lineage's acceptance margin (it shrinks as it runs)
-_AMNESIA = {"now": False, "founder": False, "died": None}
+_AMNESIA = {"now": False, "founder": False, "died": None, "load": False}
 
 
 def _t_sf(t: float, df: float) -> float:
@@ -2509,6 +2524,16 @@ def main() -> int:
 
     limits = sandbox.Limits(max_generations=args.generations, max_wallclock_seconds=args.seconds)
     run(args.source, limits)
+    if _AMNESIA["load"]:
+        from tools import organism_file
+        blob = sandbox.LOAD_STAGED_PATH.read_bytes()  # read before the state moves aside (it would go with it)
+        sandbox.LOAD_STAGED_PATH.unlink(missing_ok=True)
+        try:
+            m, backup = organism_file.install(blob, sandbox.STATE_DIR)
+            print(f"Loaded {m.get('name')}; the lineage it replaced is in {backup.name}.")
+        except Exception as e:
+            print(f"Load failed ({e}); this lineage goes on.")
+        return sandbox.EXIT_RESTART_ME
     if _AMNESIA["died"]:
         return _bury_and_hatch(_AMNESIA["died"])
     if _AMNESIA["founder"]:

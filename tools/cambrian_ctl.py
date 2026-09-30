@@ -11,6 +11,10 @@ tools/cambrian over systemd). Same verbs everywhere:
                        --start (what the livecam calls when it starts;
                        docs/suite.md)
   cambrian --status    what runs, and how the organism is doing
+  cambrian --save [file]  save the organism (default ~/Games/Lifeforms/Cambrioids;
+                       on Windows C:\\Users\\<you>\\Games\\Lifeforms\\Cambrioids)
+  cambrian --load <file>  load a saved one at its next generation (this one is
+                       kept in a backup); a bare name is looked for there
 """
 
 import json
@@ -143,6 +147,14 @@ def main() -> int:
         return start()
     if verb == "yield":
         return yield_(sys.argv[2] if len(sys.argv) > 2 else "livecam")
+    if verb in ("save", "load"):  # tools/organism_file.py: the same file format everywhere
+        import organism_file
+        if verb == "save":
+            return organism_file.main(["save", str(STATE)] + sys.argv[2:3])
+        if len(sys.argv) < 3:
+            print("cambrian --load <file>")
+            return 2
+        return organism_file.main(["stage", sys.argv[2], str(STATE)])
     return {"start": start, "stop": stop, "status": status}.get(verb, lambda: print(__doc__) or 2)()
 
 

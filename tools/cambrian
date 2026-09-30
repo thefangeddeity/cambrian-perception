@@ -11,6 +11,8 @@
 #   cambrian --status    what is running, and how the organism is doing
 #   cambrian --tui       its navigation display, in this terminal (q quits,
 #                        c twice: back to its camera, m: colour)
+#   cambrian --save [file]  save the organism (default ~/Games/Lifeforms/Cambrioids/)
+#   cambrian --load <file>  load a saved one (this one is kept in a backup)
 #
 # Installed by deploy/install.sh as /usr/local/bin/cambrian (a link to this file,
 # so it stays current with the repo). Starting and stopping need root: it asks
@@ -74,5 +76,13 @@ case "$1" in
     --yield|yield)     as_root systemctl disable --quiet --now cambrian.target && echo "stopped (checkpoint saved); off until \`cambrian --start\`" ;;
     --status|status|"") status ;;
     --tui|tui)         exec python3 "$(dirname "$(readlink -f "$0")")/tui.py" ;;
-    *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    --save|save)       # as you: into your own ~/Games/Lifeforms/Cambrioids (or where you say)
+                       R=$(dirname "$(dirname "$(readlink -f "$0")")")
+                       exec "$R/.venv/bin/python" "$R/tools/organism_file.py" save "$R/state" ${2:+"$2"} ;;
+    --load|load)       # the file found as you (a bare name: in your Cambrioids folder), staged as root
+                       R=$(dirname "$(dirname "$(readlink -f "$0")")")
+                       [ -n "$2" ] || { echo "cambrian --load <file>"; exit 2; }
+                       F=$("$R/.venv/bin/python" "$R/tools/organism_file.py" find "$2") || exit 1
+                       as_root "$R/.venv/bin/python" "$R/tools/organism_file.py" stage "$F" "$R/state" ;;
+    *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

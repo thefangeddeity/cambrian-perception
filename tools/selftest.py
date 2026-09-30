@@ -372,6 +372,58 @@ def _():
         sandbox.SETTINGS_PATH.unlink(missing_ok=True)
 
 
+@check("a saved organism (.cambrioid): a round trip, and every kind of bad file refused")
+def _():
+    import io
+    import zipfile
+    from tools import organism_file as of
+    src, dst = TMP / "save-src", TMP / "save-dst"
+    src.mkdir(); dst.mkdir()
+    ck = {"genome": founder().to_dict(), "total_generation": 42, "saved_at": time.time()}
+    (src / "checkpoint.json").write_text(json.dumps(ck))
+    (src / "founder.json").write_text(json.dumps(ck))
+    buf = io.BytesIO()
+    np.savez_compressed(buf, lens=np.array([2]), codes=np.array([1, 2]))
+    (src / "episodes.npz").write_bytes(buf.getvalue())
+    (dst / "checkpoint.json").write_text(json.dumps({**ck, "total_generation": 7}))  # the one it replaces
+    blob, m = of.save_bytes(src, "a cute one")
+    assert m["name"] == "a cute one" and m["generation"] == 42
+    m2, backup = of.install(blob, dst)
+    assert json.loads((dst / "checkpoint.json").read_text())["total_generation"] == 42
+    assert json.loads((backup / "checkpoint.json").read_text())["total_generation"] == 7, "the replaced one kept"
+    hist = json.loads((dst / "life_history.json").read_text())
+    assert hist[-1]["event"] == "loaded" and hist[-1]["name"] == "a cute one"
+    assert sandbox.LIFE_HISTORY_PATH.parent == TMP, "install put sandbox's paths back"
+
+    def rezip(files, manifest=None):
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w") as z:
+            z.writestr("manifest.json", json.dumps(manifest or {**m, "files": {k: of._sha(v) for k, v in files.items()}}))
+            for k, v in files.items():
+                z.writestr(k, v)
+        return out.getvalue()
+    _, files = of.read(blob)
+    bad = {
+        "tampered": rezip({**files, "checkpoint.json": files["checkpoint.json"].replace(b"42", b"43")}, m),
+        "a foreign op": rezip({**files, "checkpoint.json": json.dumps({**ck, "genome": {**ck["genome"], "trees": {"response": {"kind": "op", "op": "__import__", "children": []}}}}).encode()}),
+        "an extra member": rezip({**files, "run.sh": b"rm -rf /"}),
+        "a pickle": rezip({**files, "episodes.npz": (lambda b: (np.save(b, np.array([object()], dtype=object), allow_pickle=True), b.getvalue())[1])(io.BytesIO())}),
+        "not a zip": b"hello",
+        "a newer format": rezip(files, {**m, "format": 99}),
+        # its bytes damaged where its members are (past the first local header): refused, never a crash
+        "damaged": blob[:200] + bytes(b ^ 0x5A for b in blob[200:600]) + blob[600:],
+        "cut short": blob[:len(blob) // 2],
+    }
+    (src / "checkpoint.json").write_text(json.dumps({"genome": ck["genome"]}))  # no generation recorded
+    assert "?" not in of.default_name(src) and of.default_name(src).endswith(".cambrioid"), of.default_name(src)
+    for why, b in bad.items():
+        try:
+            of.read(b)
+        except of.Refused:
+            continue
+        raise AssertionError(f"{why}: not refused")
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")

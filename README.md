@@ -173,9 +173,42 @@ streams are chosen per ecohost in the viewer.
 
 ## Running it
 
-**Control:** `cambrian --start | --stop | --restart | --yield | --status`.
+**Control:** `cambrian --start | --stop | --restart | --yield | --status`
+(and `--save`, `--load`, below).
 `--stop` saves first; `--yield` also keeps it off at boot until the next
 `--start`.
+
+**Saving an organism, and bringing one back.** A whole organism -- genome,
+body, memories, episodes, the individuals it knows, its founder -- fits in one
+`.cambrioid` file (numbers only, never camera frames; usually under 1 MB). It
+is saved from its latest checkpoint, which it writes every 10 minutes and at
+every stop.
+
+- **From the viewer:** *Save organism* and *Load organism*, on the brain card
+  beside *Reset to founder*. A save downloads to wherever your browser keeps
+  downloads (a web page can't choose). To load, choose a file, then click
+  *Load organism* again.
+- **From a terminal:** `cambrian --save [file]` and `cambrian --load <file>`.
+  Saves go by default to your own **Lifeforms/Cambrioids** folder, made on
+  first save, named after the ecohost, generation and date
+  (e.g. `tina-gen1326-2026-09-30.cambrioid`):
+
+  | | Saved to |
+  |---|---|
+  | Linux | `/home/<you>/Games/Lifeforms/Cambrioids/` |
+  | macOS | `/Users/<you>/Games/Lifeforms/Cambrioids/` |
+  | Windows | `C:\Users\<you>\Games\Lifeforms\Cambrioids\` |
+
+  `--load` takes a path, or just a file name to look for in that folder.
+
+Loading replaces the organism at its next generation: it saves first, the
+lineage it replaces moves to `state/backup-<time>-before-load/` (nothing is
+deleted), and the life history records where the loaded one came from. A file
+from anywhere is treated like a hive migrant: its size, checksums and contents
+are checked, and its genome is held to this ecohost's own limits; a file that
+fails is refused with the reason. A file saved on one platform loads on the
+others. `python tools/organism_file.py check <file>` checks a file without
+loading it.
 
 **Its navigation display in a terminal (Linux):** `cambrian --tui` -- the
 viewer's nav display alone, drawn in Braille dots with the standard library

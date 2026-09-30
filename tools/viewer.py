@@ -396,9 +396,9 @@ LOCK_HUD_JS = r"""
   // Arabic-Indic digits, and the unit written out.
   const AR_FONT = '"Noto Naskh Arabic", "Geeza Pro", "Segoe UI", Tahoma, sans-serif';
   const AR_WORDS = [['catching up:', 'عم يلحّق:'], ['its latest run, looped', 'آخر دورة، عم تعيد'], ['delayed', 'متأخّر'],
-    ['own guess', 'تخمينو'], ['teacher', 'الأستاذ'], ['calibrating', 'عم يظبّط'], ['snacks', 'لقمات'], ['locks', 'مسكات'],
+    ['calibrating', 'عم يظبّط'], ['snacks', 'لقمات'], ['locks', 'مسكات'],
     ['SCAN', 'عم دوّر'], ['TRACK', 'لاحقو'], ['LOCK', 'مسكتو'], ['SLEEP', 'نايم'], ['TARGET', 'هدف'], ['WARN', 'دير بالك'],
-    ['contact', 'تماس'], ['looks', 'نظرات']];
+    ['looks', 'نظرات']];
   function toArabic(text) {
     let t = String(text);
     AR_WORDS.forEach(([en, ar]) => { t = t.split(en).join(ar); });
@@ -409,13 +409,13 @@ LOCK_HUD_JS = r"""
   // written in Taiwan (bottom right): the same rows, each language's own
   // decimal mark and unit.
   const UK_WORDS = [['catching up:', 'наздоганяю:'], ['its latest run, looped', 'останній прогін, по колу'], ['delayed', 'затримка'],
-    ['own guess', 'власна оцінка'], ['teacher', 'вчитель'], ['calibrating', 'калібрування'], ['snacks', 'перекуси'], ['locks', 'захоплення'],
+    ['calibrating', 'калібрування'], ['snacks', 'перекуси'], ['locks', 'захоплення'],
     ['SCAN', 'ПОШУК'], ['TRACK', 'СТЕЖУ'], ['LOCK', 'ЗАХОПЛЕНО'], ['SLEEP', 'СПЛЮ'], ['TARGET', 'ЦІЛЬ'], ['WARN', 'УВАГА'],
-    ['contact', 'зіткнення за'], ['looks', 'погляди']];
+    ['looks', 'погляди']];
   const TW_WORDS = [['catching up:', '追趕中：'], ['its latest run, looped', '最近一輪，循環播放'], ['delayed', '延遲'],
-    ['own guess', '自己的猜測'], ['teacher', '老師'], ['calibrating', '校準中'], ['snacks', '神'], ['locks', '鎖定次數'],
+    ['calibrating', '校準中'], ['snacks', '神'], ['locks', '鎖定次數'],
     ['SCAN', '搜尋'], ['TRACK', '追蹤'], ['LOCK', '鎖定'], ['SLEEP', '睡眠'], ['TARGET', '目標'], ['WARN', '警告'],
-    ['contact', '接觸'], ['looks', '次注視']];
+    ['looks', '次注視']];
   const TW_FONT = '"Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif';
   function translate(text, words) { let t = String(text); words.forEach(([en, x]) => { t = t.split(en).join(x); }); return t; }
   function toUkrainian(text) { return translate(text, UK_WORDS).replace(/([0-9])\.([0-9])/g, '$1,$2').replace(/ s(?= |$)/g, ' с'); }
@@ -803,7 +803,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-organism">Save organism</a> <span id="save-organism-note"></span> &middot; <a href="#" id="load-organism">Load organism</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="load-organism-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -998,8 +998,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const [gR, gC] = d.world_grid_shape || [9, 16], cellW = W / gC, cellH = H / gR;
     const snapL = x => Math.floor(x * gC) * cellW, snapR = x => Math.ceil(x * gC) * cellW;
     const snapT = y => Math.floor(y * gR) * cellH, snapB = y => Math.ceil(y * gR) * cellH;
-    const cellX = x => (Math.min(gC - 1, Math.max(0, Math.floor(x * gC))) + 0.5) * cellW;
-    const cellY = y => (Math.min(gR - 1, Math.max(0, Math.floor(y * gR))) + 0.5) * cellH;
     // Gazes are unevenly spaced (its tempo changes): replay in real frame
     // time and show whichever gaze is current at that moment -- the same
     // clock as the replayed picture beside it (replayAt, LOCK_HUD_JS).
@@ -1949,6 +1947,44 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         .catch(() => { note.textContent = 'no answer'; });
     });
   });
+  // Save organism: the whole organism as a .cambrioid file (tools/organism_file.py),
+  // downloaded where the browser keeps downloads. Load organism: choose a file,
+  // then click again within 8 s -- this organism is kept in a backup, and the
+  // loaded one takes its place at its next generation.
+  (() => {
+    const s = $('save-organism'), sn = $('save-organism-note');
+    if (s) s.addEventListener('click', ev => {
+      ev.preventDefault(); sn.textContent = 'saving...';
+      fetch('/organism/save', { headers: { 'X-Cambrian': '1' } }).then(r => {
+        if (!r.ok) return r.json().then(j => { sn.textContent = j.error || 'refused'; }, () => { sn.textContent = 'refused'; });
+        const cd = r.headers.get('Content-Disposition') || '', m = /filename="([^"]+)"/.exec(cd), name = m ? m[1] : 'organism.cambrioid';
+        return r.blob().then(b => {
+          const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
+          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+          sn.textContent = `saved ${name} (in your downloads)`;
+        });
+      }).catch(() => { sn.textContent = 'no answer'; });
+    });
+    const l = $('load-organism'), ln = $('load-organism-note'), f = $('load-file');
+    let chosen = null, armed = 0;
+    if (l && f) {
+      l.addEventListener('click', ev => {
+        ev.preventDefault();
+        if (chosen && Date.now() - armed < 8000) {
+          armed = 0; ln.textContent = 'checking...';
+          chosen.arrayBuffer().then(buf => fetch('/load', { method: 'POST', headers: { 'X-Cambrian': '1', 'Content-Type': 'application/octet-stream' }, body: buf }))
+            .then(r => r.json()).then(j => { ln.textContent = j.ok ? `${j.name}: it takes this one's place at its next generation` : `refused: ${j.error}`; })
+            .catch(() => { ln.textContent = 'no answer'; });
+          chosen = null; return;
+        }
+        f.value = ''; f.click();
+      });
+      f.addEventListener('change', () => {
+        chosen = f.files && f.files[0]; if (!chosen) return;
+        armed = Date.now(); ln.textContent = `${chosen.name}: click Load organism again to load it (this one is kept in a backup)`;
+      });
+    }
+  })();
   // A card's drawing, guarded: an error is recorded on <html data-js-errors / data-js-last>
   // (as an uncaught one is) with where it came from, and the other cards still draw.
   function guarded(fn, ...args) {
@@ -2705,6 +2741,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/organism/save":
+            # Save organism (the brain card): the whole organism as a .cambrioid
+            # file (tools/organism_file.py). Only this page's own fetch sends
+            # X-Cambrian (a peer's never does), so a solo organism is still
+            # never handed to another machine's tools.
+            from tools import organism_file
+            if self.headers.get("X-Cambrian") != "1":
+                self.send_response(403)
+                self.end_headers()
+                return
+            try:
+                body, _ = organism_file.save_bytes(STATE_DIR)
+                name = organism_file.default_name(STATE_DIR)
+            except (organism_file.Refused, OSError) as e:
+                body, name = json.dumps({"ok": False, "error": str(e)}).encode("utf-8"), None
+            self.send_response(200 if name else 409)
+            self.send_header("Content-Type", "application/zip" if name else "application/json")
+            if name:
+                self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif self.path in ("/organism/info", "/organism/checkpoint", "/organism/episodes"):
             # For tools/fleet.py (breeding across the fleet): what this host
             # is, and its organism of record -- genome, body, memory and its
@@ -2824,7 +2882,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder")) or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/load")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -2838,6 +2896,36 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/reset-founder") and not (STATE_DIR / "founder.json").exists():
             body = json.dumps({"ok": False, "error": "no founder kept for this lineage (born before founders were kept)"}).encode("utf-8")
             self.send_response(409)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/load"):
+            # Load organism: the file checked here (tools/organism_file.py: sizes,
+            # checksums, no pickles, its genome held to this ecohost's limits),
+            # staged beside a request; the organism saves, moves its lineage
+            # aside and takes the loaded one's place at its next generation.
+            from tools import organism_file
+            n = int(self.headers.get("Content-Length") or 0)
+            ok, error, name = False, None, None
+            if not 0 < n <= organism_file.MAX_TOTAL_BYTES:
+                error = "no file, or larger than a .cambrioid can be"
+            else:
+                blob = self.rfile.read(n)
+                try:
+                    m, _ = organism_file.read(blob)
+                    tmp = STATE_DIR / "load.cambrioid.tmp"
+                    tmp.write_bytes(blob)
+                    tmp.replace(STATE_DIR / "load.cambrioid")
+                    _write_json_atomic(STATE_DIR / "load.request", {"t": time.time()})
+                    ok, name = True, m.get("name")
+                    print(f"load: staged {name}", flush=True)
+                except organism_file.Refused as e:
+                    error = str(e)
+                    print(f"load: refused ({e})", flush=True)
+            body = json.dumps({"ok": ok, "error": error, "name": name}).encode("utf-8")
+            self.send_response(200 if ok else 400)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
