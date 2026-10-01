@@ -100,8 +100,8 @@ def capture_kind(source) -> str:
     A camera PATH went to FFmpeg from 2026-09-28 -- which can't read a V4L2
     camera -- and a Linux ecohost back on its by-id camera never got a frame
     (Tanzania, 2026-09-30: ten minutes' wait, a restart, over and over)."""
-    if isinstance(source, int) or (isinstance(source, str) and source.startswith("/dev/")):
-        return "camera"
+    if isinstance(source, int) or (isinstance(source, str) and (source.startswith("/dev/") or source.strip().isdigit())):
+        return "camera"  # a camera's index may arrive as text ("0", Windows' and macOS's camera)
     if cv2.videoio_registry.hasBackend(cv2.CAP_FFMPEG):
         return "ffmpeg"
     return "pipe" if _ffmpeg_binary() else "ffmpeg"
@@ -112,6 +112,8 @@ def open_capture(source):
     OpenCV was built without FFmpeg (and an ffmpeg is installed)."""
     kind = capture_kind(source)
     if kind == "camera":
+        if isinstance(source, str) and source.strip().isdigit():
+            source = int(source)  # an index, not a file named "0"
         if isinstance(source, str) and cv2.videoio_registry.hasBackend(cv2.CAP_V4L2):
             return cv2.VideoCapture(source, cv2.CAP_V4L2)
         return cv2.VideoCapture(source)

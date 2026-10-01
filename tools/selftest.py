@@ -462,7 +462,7 @@ def _():
 def _():
     # 2026-09-30: a by-id camera path went to FFmpeg and never gave a frame (Tanzania)
     from fishbowl import video_source as vs
-    for cam in (0, 1, "/dev/video0", "/dev/v4l/by-id/usb-DJKCVA1G4EKI5L_HP_TrueVision_HD_Camera_0001-video-index0"):
+    for cam in (0, 1, "0", "1", "/dev/video0", "/dev/v4l/by-id/usb-DJKCVA1G4EKI5L_HP_TrueVision_HD_Camera_0001-video-index0"):
         assert vs.capture_kind(cam) == "camera", cam
     for stream in ("https://example.org/live.m3u8", "rtsp://127.0.0.1:8554/cam", "media/clip.mp4"):
         assert vs.capture_kind(stream) in ("ffmpeg", "pipe"), stream
