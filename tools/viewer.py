@@ -2138,14 +2138,17 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       const box = $('od-local'); box.textContent = 'reading...';
       fetch('/organism/saves', { headers: H }).then(r => r.json()).then(list => {
         box.textContent = list.length ? '' : 'No saves yet -- Save this one, upload a file, or copy one from the hive.';
-        list.forEach(e => {
+        list.slice().sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0)).forEach(e => {  // newest first
           const row = document.createElement('div'), note = document.createElement('span');
           row.className = 'od-item' + (e.file === fresh ? ' fresh' : ''); note.className = 'od-note';
           const nm = document.createElement('span'); nm.className = 'od-name'; nm.textContent = label(e) + (e.file === fresh ? '  (just now)' : ''); nm.title = e.file;
           const lb = document.createElement('button'); lb.textContent = lb.dataset.label = 'Load'; lb.disabled = !!e.damaged;
           confirmTwice(lb, 'replace this organism', () => loadFile(e.file, label(e), note));
           const dl = btn('Download', () => { const a = document.createElement('a'); a.href = '/organism/saves/' + encodeURIComponent(e.file); a.download = e.file; document.body.appendChild(a); a.click(); a.remove(); });
-          row.append(nm, lb, dl, note); box.appendChild(row);
+          const del = document.createElement('button'); del.textContent = del.dataset.label = 'Delete';
+          confirmTwice(del, 'delete it (kept in .deleted)', () => { note.textContent = 'deleting...';
+            post('/delete-save?file=' + encodeURIComponent(e.file)).then(j => { if (j.ok) renderLocal(); else note.textContent = 'refused: ' + j.error; }, () => { note.textContent = 'no answer'; }); });
+          row.append(nm, lb, dl, del, note); box.appendChild(row);
         });
       }, () => { box.textContent = 'no answer from this ecohost'; });
     };
@@ -2162,7 +2165,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
             fetch('/organism/peer-saves?host=' + encodeURIComponent(h), { headers: H }).then(r => r.json()).then(r => {
               if (r.error) { list.textContent = r.error; return; }
               list.textContent = r.saves.length ? '' : 'no saves there';
-              r.saves.forEach(e => {
+              r.saves.slice().sort((a, b) => (b.saved_at || 0) - (a.saved_at || 0)).forEach(e => {  // newest first
                 const row = document.createElement('div'), note = document.createElement('span'), nm = document.createElement('span');
                 row.className = 'od-item'; note.className = 'od-note'; nm.className = 'od-name'; nm.textContent = label(e);
                 const copy = then => { note.textContent = 'copying...'; return post('/copy-from?host=' + encodeURIComponent(h) + '&file=' + encodeURIComponent(e.file)).then(c => {
@@ -3430,7 +3433,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/save-here", "/upload", "/load-saved", "/copy-from", "/forget-video")) or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/save-here", "/upload", "/load-saved", "/copy-from", "/forget-video", "/delete-save")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -3467,7 +3470,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path.startswith(("/upload", "/load-saved", "/copy-from")):
+        if self.path.startswith(("/upload", "/load-saved", "/copy-from", "/delete-save")):
             # The organism files (the brain card; tools/organism_file.py). All of
             # them live in THIS ecohost's Games/Lifeforms/Cambrioids folder:
             #   /upload?name=      a file from the device you view on, kept there
@@ -3486,6 +3489,18 @@ class Handler(BaseHTTPRequestHandler):
                         raise of.Refused("no file, or larger than a .cambrioid can be")
                     kept = of.store(self.rfile.read(n), arg("name"))
                     ok, extra = True, {"file": kept.name}
+                elif self.path.startswith("/delete-save"):
+                    # Delete: into its folder's .deleted, not erased -- a slip is undone by moving it back
+                    f = arg("file")
+                    if not of.safe_name(f) or not (of.games_dir() / f).is_file():
+                        raise of.Refused("no such saved organism here")
+                    bin_ = of.games_dir() / ".deleted"
+                    bin_.mkdir(parents=True, exist_ok=True)
+                    dest = bin_ / f
+                    if dest.exists():
+                        dest = bin_ / f"{dest.stem}-{int(time.time())}{dest.suffix}"
+                    _held(lambda: (of.games_dir() / f).replace(dest))
+                    ok, extra = True, {"file": f, "kept_in": str(bin_)}
                 elif self.path.startswith("/load-saved"):
                     f = arg("file")
                     if not of.safe_name(f) or not (of.games_dir() / f).is_file():
