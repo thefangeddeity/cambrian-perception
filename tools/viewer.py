@@ -1312,7 +1312,19 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function steerOff() { if (!STEER.el) return; STEER.el.style.touchAction = 'auto'; STEER.el.classList.remove('steering'); STEER.el = null; }
   document.addEventListener('pointerdown', e => { if (STEER.el && e.target !== STEER.el) steerOff(); }, true);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && STEER.el) { steerOff(); e.stopImmediatePropagation(); } }, true);
-  const MB3 = { yaw: 2.95, pitch: 0.1, zoom: 1, loop: false, dirty: true, d: null, drag: null, pos: null, n: 0, hover: null };
+  // Idle drift for the 3D views (brain, mushroom body, perception trees): a
+  // slow turn, eased in and out, from 4 s to 24 s after it was last touched
+  // (or the page opened), then still -- its loop then sleeps until the next
+  // touch, so a viewer left open costs nothing (it shares its machine with an
+  // organism). driftStep advances S.yaw and says whether to keep animating.
+  function driftStep(S, now, busy) {
+    const dt = Math.min(0.1, (now - (S.last || now)) / 1000); S.last = now;
+    const since = now - S.touched, drifting = since > 4000 && since < 24000 && !busy;
+    S.vyaw += ((drifting ? 0.12 : 0) - S.vyaw) * Math.min(1, dt * 1.5);
+    S.yaw += S.vyaw * dt;
+    return since < 24000 || Math.abs(S.vyaw) > 1e-4;
+  }
+  const MB3 = { yaw: 2.95, pitch: 0.1, zoom: 1, vyaw: 0, touched: performance.now() - 4000, loop: false, dirty: true, d: null, drag: null, pos: null, n: 0, hover: null };
   function mbPositions(n) {
     const pos = new Float32Array(n * 3), ga = Math.PI * (3 - Math.sqrt(5));
     for (let k = 0; k < n; k++) {  // a cup: the upper part of a sphere, cells spread evenly over it and through its wall
@@ -1449,16 +1461,18 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   }
   function setMBView(flat) {
     MB3.flat = flat; try { localStorage.setItem(MB_VIEW_KEY, flat ? '2d' : '3d'); } catch (e) {}
+    if (!flat) MB3.touched = performance.now() - 4000;  // into 3D: it drifts a while
     MB3.dirty = true; mbKick();
     if (MB3.d) drawMB(MB3.d);
   }
   function mbKick() {
     if (MB3.loop) return;
     MB3.loop = true;
-    const tick = () => {
-      const c = $('mb'), r = c && c.getBoundingClientRect();
-      if (MB3.dirty && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { MB3.dirty = false; if (MB3.flat) drawMB2D(); else drawMB3D(); }
-      MB3.loop = false;
+    const tick = now => {
+      const more = driftStep(MB3, now, MB3.flat || MB3.drag || MB3.hover != null);
+      const c = $('mb'), r = c && c.getBoundingClientRect(), moving = Math.abs(MB3.vyaw) > 1e-4;
+      if ((MB3.dirty || moving) && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { MB3.dirty = false; if (MB3.flat) drawMB2D(); else drawMB3D(); }
+      if (more || MB3.dirty) requestAnimationFrame(tick); else { MB3.vyaw = 0; MB3.last = null; MB3.loop = false; }
     };
     requestAnimationFrame(tick);
   }
@@ -2271,6 +2285,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       : q.kind === 'out' ? (q.k < OUTPUT_NAMES.length ? OUTPUT_NAMES[q.k] : channelName(br, q.k - OUTPUT_NAMES.length, 'out'))
       : `h${q.k + 1} ${(hid[q.k] || 0).toFixed(2)}`;
     ctx.textBaseline = 'middle';
+    const LS = br.layers || [], LC = d.brain_layers || [];
     P.map((q, idx) => [q, idx]).sort((a, b) => b[0].depth - a[0].depth).forEach(([q, idx]) => {
       const dim = hov != null && !lit.has(idx) && idx !== hov;
       const r = (q.kind === 'hid' ? 8 : q.kind === 'out' ? 10 : 5) * q.w * Math.sqrt(B3.zoom) * (MOBILE ? SMALL(W) : 1);
@@ -2279,6 +2294,17 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       else if (q.kind === 'out') { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; }
       else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
       ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
+      if (q.kind === 'hid' && LS.length) {  // its stacked layers, a row of cells under the unit (2D: a column beside it), riding with it
+        const sq = Math.max(3, 6 * q.w * Math.sqrt(B3.zoom)), gap = Math.max(1, sq / 4), y0 = q.sy + Math.max(2, r) + 3;
+        let x0 = q.sx - (LS.length * (sq + gap) - gap) / 2;
+        LS.forEach((L, k) => {
+          const g = L.gate ? L.gate[0] : 0, x = x0 + k * (sq + gap);
+          if (!g) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#8a9aaa'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y0 + 0.5, sq - 1, sq - 1); ctx.restore(); return; }
+          const row = LC[k], v = row && row[q.k] != null ? row[q.k] : 0, a = Math.min(1, Math.abs(v) / 0.25);
+          ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${0.06 + 0.94 * a})` : `rgba(255,153,0,${0.06 + 0.94 * a})`;
+          ctx.fillRect(x, y0, sq, sq); ctx.strokeStyle = '#345'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y0 + 0.5, sq - 1, sq - 1);
+        });
+      }
       if (!MOBILE || q.kind === 'out' || idx === hov || (hov != null && lit.has(idx))) {  // every unit named (on a phone: outputs, and the tapped unit's neighbourhood); a hovered unit's neighbours stay bright, the rest dim with their wires
         ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : q.kind === 'hid' ? '9px' : '10px') + ' monospace';
         ctx.fillStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'hid' ? '#a9bcc8' : '#b88a80';
@@ -2290,6 +2316,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       }
     });
     ctx.globalAlpha = 1;
+    if (LS.length) {  // the key to the rows under its units, in their order: each layer's gate (2D writes these above and below its columns)
+      ctx.font = '9px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      const key = 'layers under each unit: ' + LS.map((L, k) => L.gate && L.gate[0] ? `L${k + 1} ${L.gate[0].toFixed(2).replace(/^(-?)0\./, '$1.')}` : 'wait').join(' · ');
+      ctx.fillStyle = '#9a6f67'; ctx.fillText(key, 8, H - 6);
+    }
     B3.pts = P;
   }
   function brain3DAt(x, y) {
@@ -2297,17 +2328,17 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     B3.pts.forEach((q, i) => { const dd = Math.hypot(q.sx - x, q.sy - y); if (dd < bd) { bd = dd; best = i; } });
     return best;
   }
-  // It draws when something changes (new data, a touch), then its loop
-  // sleeps: a viewer left open costs nothing (it shares its machine with an
-  // organism). No idle rotation: the default views read as they are.
-  B3.loop = false;
+  // It draws when something changes (new data, a touch) and drifts a while
+  // after (driftStep), then its loop sleeps.
+  B3.loop = false; B3.touched = performance.now() - 4000;
   function brain3DKick() {
     if (B3.loop) return;
     B3.loop = true;
-    const tick = () => {
-      const c = $('brain'), r = c && c.getBoundingClientRect();
-      if (B3.dirty && B3.on && BZ.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { B3.dirty = false; drawBrain3D(); }
-      B3.loop = false;
+    const tick = now => {
+      const more = driftStep(B3, now, !B3.on || B3.hover != null || BZ.pts.size > 0);
+      const c = $('brain'), r = c && c.getBoundingClientRect(), moving = Math.abs(B3.vyaw) > 1e-4;
+      if ((B3.dirty || moving) && B3.on && BZ.d && r && r.bottom > 0 && r.top < innerHeight && !document.hidden) { B3.dirty = false; drawBrain3D(); }
+      if (more || B3.dirty) requestAnimationFrame(tick); else { B3.vyaw = 0; B3.last = null; B3.loop = false; }
     };
     requestAnimationFrame(tick);
   }
@@ -2317,6 +2348,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const m = $('brain-mode'); if (m) m.innerHTML = on ? '<a href="#">2D</a> &middot; <b>3D</b>' : '<b>2D</b> &middot; <a href="#">3D</a>';
 
     if (BZ.d) drawBrain(BZ.d);
+    if (on) { B3.touched = performance.now() - 4000; brain3DKick(); }  // into 3D: it drifts a while
   }
   // Zoom the brain: wheel (or pinch) zooms about the pointer, drag pans,
   // double-click fits it back.
@@ -2380,7 +2412,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   // its eye: a leaf that reads a receptor plugs into the retina grid at the
   // bottom, at the receptor it reads (plane: now / previous look / colour).
   // Drag to orbit, wheel or pinch to zoom, double-click to reset; hover names
-  // a node; it drifts for 20 s after a touch, then is still.
+  // a node; it drifts for 20 s after a touch (driftStep), then is still.
   const TREE3 = {};
   const PLANE_COL = ['255,226,214', '154,111,103', '255,95,162', '120,160,255'];
   function coneLayout(root, half) {
@@ -2472,10 +2504,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function treeKick(name) {
     const T = TREE3[name]; if (!T || T.loop) return;
     T.loop = true;
-    const tick = () => {
-      const r = T.canvas.getBoundingClientRect();
-      if (T.dirty && r.bottom > 0 && r.top < innerHeight && !document.hidden) { T.dirty = false; drawTree3D(name); }
-      T.loop = false;
+    const tick = now => {
+      const more = driftStep(T, now, T.hover != null || T.drag);
+      const r = T.canvas.getBoundingClientRect(), moving = Math.abs(T.vyaw) > 1e-4;
+      if ((T.dirty || moving) && r.bottom > 0 && r.top < innerHeight && !document.hidden) { T.dirty = false; drawTree3D(name); }
+      if (more || T.dirty) requestAnimationFrame(tick); else { T.vyaw = 0; T.last = null; T.loop = false; }
     };
     requestAnimationFrame(tick);
   }
