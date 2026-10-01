@@ -103,3 +103,8 @@ than a port: orbital-organism renders frames from a viewpoint the
 cambrioid steers, served to it like any other source. Not scheduled; its
 design (what it controls, how motion is priced, how frames reach it) goes
 past a panel first.
+
+The same motor cortex would carry over to hardware: a camera on a servo
+(pan/tilt) or a moving mount gives a real ecohost the body a virtual world
+gives first -- evolve its motor control where moving is free and safe, then
+let it drive a real servo, its outputs the same.
