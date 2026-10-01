@@ -1642,6 +1642,8 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             # (swapped in place, its old brain met the new one mid-look: the live body failed)
             genome = genome.clone()
             genome.brain = MosquitoBrain.random(random.Random(time.time_ns()))
+            from tools import seed as _seed  # and its stacked layers, as a founder's brain is born with
+            print(f"Its new brain: {genome.brain.n_hidden} units, {_seed.seed_layers(genome.brain, random.Random(time.time_ns()))}.")
             if life is not None:
                 life.adopt(genome)
             print(f"Randomized: a founder's brain, drawn afresh (backup: {backup.name}).")

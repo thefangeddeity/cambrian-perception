@@ -767,6 +767,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   /* the organism's actions, a row of their own below the caption, each boxed like the page's buttons
      (watch this, back to camera) together with its own lists and notes */
   .orgrow { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+  #tree-panel { align-self: start; }  /* the tree's card ends where the tree does: the grid doesn't stretch it to its row's tallest */
   .grp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; vertical-align: middle; }  /* a button and its own list, close together; groups further apart */
   #brain-panel .orgrow .grp a, #brain-panel .orgrow .orgsel { font: inherit; background: var(--bg); color: var(--cyan); border: 1px solid var(--line); padding: 3px 6px; text-decoration: none; display: inline-block; }  /* as the page's buttons */
   #brain-panel .orgrow .grp a:hover, #brain-panel .orgrow .orgsel:hover { border-color: var(--cyan); }
@@ -2500,12 +2501,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const outAt = [];
     for (let o = 0; o < nOut; o++) { const a = 2 * Math.PI * o / nOut; pts.push({ kind: 'out', x: 1.2, y: 0.55 * Math.cos(a), z: 0.55 * Math.sin(a) }); outAt.push(pts.length - 1); }
     const yaw = 0.65, pitch = -0.28, F = 3.2, cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
-    let R3 = 0.1; pts.forEach(q => { R3 = Math.max(R3, Math.hypot(q.x, q.y, q.z)); });
-    const scale = Math.min(W / 2 - 60, H / 2 - 40) / reach3D(R3, F);
+    // one fixed angle: fitted to what it actually spans from there, centred
+    let x0 = Infinity, x1m = -Infinity, y0 = Infinity, y1m = -Infinity;
     pts.forEach(q => {
       const x1 = q.x * cy + q.z * sy, z1 = -q.x * sy + q.z * cy, y2 = q.y * cp - z1 * sp, z2 = q.y * sp + z1 * cp, w = F / (F + z2);
-      q.sx = W / 2 + x1 * scale * w; q.sy = H / 2 + y2 * scale * w; q.w = w; q.depth = z2; q.fog = Math.max(0.25, Math.min(1, 0.65 - 0.45 * z2));
+      q.ux = x1 * w; q.uy = y2 * w; q.w = w; q.depth = z2; q.fog = Math.max(0.25, Math.min(1, 0.65 - 0.45 * z2));
+      x0 = Math.min(x0, q.ux); x1m = Math.max(x1m, q.ux); y0 = Math.min(y0, q.uy); y1m = Math.max(y1m, q.uy);
     });
+    const scale = 0.88 * Math.min(W / Math.max(1e-6, x1m - x0), H / Math.max(1e-6, y1m - y0)), cx0 = (x0 + x1m) / 2, cy0 = (y0 + y1m) / 2;
+    pts.forEach(q => { q.sx = W / 2 + (q.ux - cx0) * scale; q.sy = H / 2 + (q.uy - cy0) * scale; });
     const edges = [];  // every wire: [from, to, weight, recurrent]
     for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edges.push([i, hidAt[0][h], br.weights_ih[h][i], 0]);
     for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) if (r !== q) edges.push([hidAt[0][q], hidAt[0][r], br.weights_hh[r][q], 1]);
@@ -2723,23 +2727,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       c.addEventListener('pointerleave', () => { if (T.hover != null) { T.hover = null; touch(); } });
       drawTree3D(name); treeKick(name);
     }
-    requestAnimationFrame(fillTreeCard);
-  }
-  // Its card is as tall as the tallest card in its row (the grid stretches it):
-  // its canvases grow into that height, so no empty band sits under them. It
-  // only ever fills what the row already gives (it never makes the row taller).
-  function fillTreeCard() {
-    const panel = $('tree-panel'), box = $('trees'); if (!panel || !box) return;
-    const cs = [...box.querySelectorAll('canvas')]; if (!cs.length) return;
-    const pr = panel.getBoundingClientRect(), last = panel.lastElementChild.getBoundingClientRect();
-    const free = pr.bottom - parseFloat(getComputedStyle(panel).paddingBottom) - last.bottom;
-    if (free < 6) return;
-    cs.forEach(c => {
-      const cssH = c.getBoundingClientRect().height, k = c.width / Math.max(1, c.clientWidth);
-      c.height = Math.round((cssH + free / cs.length) * k);
-    });
-    Object.values(TREE3).forEach(T => { if (cs.includes(T.canvas)) { T.dirty = true; } });
-    Object.keys(TREE3).forEach(n => { if (cs.includes(TREE3[n].canvas)) { drawTree3D(n); treeKick(n); } });
   }
 
   // History charts.
