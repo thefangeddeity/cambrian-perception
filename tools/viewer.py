@@ -1690,7 +1690,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         if ((p[0][0] < 0 && q[0][0] < 0) || (p[0][0] > W && q[0][0] > W) || (p[0][1] > H && q[0][1] > H)) return;  // off its view
         const t = Math.min(1, Math.abs(p[1] + q[1]) / 2 / big);
         const fade = SP3.pov ? Math.min(1, W * TS / (1.6 * p[0][2]) / 6) : 1;  // squares under ~6 px fade out, not into a solid band
-        if (fade < 0.4) return;  // under ~2.5 px they aren't drawn at all: hundreds of faint far lines summed into a glowing band (a fill in all but name)
         ctx.strokeStyle = `rgba(${Math.round(156 + 99 * t)}, ${Math.round(207 - 96 * t)}, ${Math.round(122 + 16 * t)}, ${(0.3 + 0.3 * t) * fade})`;
         ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(q[0][0], q[0][1]); ctx.stroke();
       };
