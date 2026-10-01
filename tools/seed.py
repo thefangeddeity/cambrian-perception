@@ -185,7 +185,8 @@ def random_draws(g, rng: random.Random) -> list[str]:
     g.archetype_classes = [rng.choice(classes) for _ in range(MAX_HEADS)]
     g.scenes = 1 + sum(rng.random() < 0.5 for _ in range(3))  # three of its +1 / -1 mutation steps from 1, reflected at 1
     layers = seed_layers(g.brain, rng)
-    return [f"apical {g.brain.apical:.2f}", f"plasticity {g.plasticity:.3f}",
+    g.host_arousal = rng.random()  # how far a host in view holds off its sleep: uniform over its whole range
+    return [f"host arousal {g.host_arousal:.2f}", f"apical {g.brain.apical:.2f}", f"plasticity {g.plasticity:.3f}",
             f"{g.archetypes} archetype heads {g.archetype_classes[:g.archetypes]}", f"{g.scenes} scenes", layers]
 
 

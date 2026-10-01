@@ -55,7 +55,7 @@ TASK_OPS = ("mutate_const", "mutate_op", "grow", "shrink", "reroll_subtree", "mu
             "mutate_colour", "grow_channel", "add_prediction", "shrink_channel", "mutate_stabilizer",
             "mutate_prey_sense", "grow_unit", "shrink_unit", "duplicate_layer", "remove_layer", "mutate_cones",
             "grow_kc", "shrink_kc", "mutate_learning", "mutate_zoom", "mutate_metabolism", "mutate_host",
-            "mutate_replay", "mutate_vigilance", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
+            "mutate_replay", "mutate_vigilance", "mutate_host_arousal", "mutate_pump", "mutate_aversive", "mutate_receptor_speed", "mutate_plant_sense",
             "mutate_imagery", "mutate_recall", "mutate_scenes", "mutate_pool", "mutate_sleep_set",
             "mutate_setpoints", "mutate_bore", "mutate_archetypes", "mutate_apical", "mutate_plasticity", "mutate_colliculus", "mutate_maturation", "mutate_felt_terrain", "mutate_lookahead", "mutate_extrapolation", "mutate_compass", "mutate_entorhinal", "mutate_flow_teacher",
             "mutate_colour_constancy", "mutate_texture", "mutate_texture_teacher")
@@ -361,6 +361,11 @@ class Genome:
         self.dream_steps = int(np.clip(dream_steps, 0, MAX_REPLAYS))
         # Vigilance: how easily a change in the field wakes it (state.big_change).
         self.vigilance = float(np.clip(vigilance, MIN_VIGILANCE, MAX_VIGILANCE))
+        # Host arousal (2026-10-01): how far a host in view (jing) holds off its
+        # sleep, 0 (not at all: Aedes rests at night by hosts) to 1 (not until
+        # it nearly collapses). Inherited, mutated; a founder draws it at random
+        # (tools/seed.py); a lineage born before it has 0.
+        self.host_arousal = 0.0
         # Its feeding pump (state.py): how fast blood flows in while a host is
         # at its mouth. Born where the old per-look meal fed it at its own
         # resting tempo, so no lineage jumps.
@@ -384,7 +389,7 @@ class Genome:
         return tuple(self.trees.keys())
 
     def clone(self) -> "Genome":
-        return Genome(
+        g = Genome(
             {name: copy.deepcopy(tree) for name, tree in self.trees.items()},
             dict(self.mutation_weights),
             self.meta_mutation_rate,
@@ -436,6 +441,8 @@ class Genome:
             self.mobilize,
             self.store,
         )
+        g.host_arousal = self.host_arousal
+        return g
 
     def laid_egg(self, rng: random.Random) -> "Genome":
         """The genome an egg carries: this one, its kappa stepped once -- the
@@ -827,6 +834,10 @@ class Genome:
             old = self.pump
             self.pump = float(np.clip(old * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), PUMP_GUARD[0] * PUMP_REF, PUMP_GUARD[1] * PUMP_REF))
             return "pump", (choice if self.pump != old else "noop_inapplicable")
+        if choice == "mutate_host_arousal":
+            old = self.host_arousal
+            self.host_arousal = float(np.clip(old + rng.gauss(0.0, TRAIT_SIGMA), 0.0, 1.0))
+            return "host_arousal", (choice if self.host_arousal != old else "noop_inapplicable")
         if choice == "mutate_vigilance":
             old = self.vigilance
             self.vigilance = float(np.clip(old * math.exp(rng.gauss(0.0, TRAIT_SIGMA)), MIN_VIGILANCE, MAX_VIGILANCE))
@@ -959,6 +970,7 @@ class Genome:
             "replay_backup": self.replay_backup,
             "dream_steps": self.dream_steps,
             "vigilance": self.vigilance,
+            "host_arousal": self.host_arousal,
             "pump": self.pump,
             "aversive_rate": self.aversive_rate,
             "receptor_slowness": self.receptor_slowness,
@@ -1020,7 +1032,7 @@ class Genome:
                 for tree in trees.values():
                     _migrate_flat_inputs(tree, n_vars, scale)
                 n_vars -= 4 * _OLD_CELLS
-        return Genome(
+        g = Genome(
             trees=trees,
             mutation_weights=weights,
             meta_mutation_rate=float(data["meta_mutation_rate"]),
@@ -1072,6 +1084,8 @@ class Genome:
             mobilize=float(data.get("mobilize", MOBILIZE_BELOW)),
             store=float(data.get("store", STORE_ABOVE)),
         )
+        g.host_arousal = float(np.clip(data.get("host_arousal", 0.0), 0.0, 1.0))
+        return g
 
 
 PERSON = 0  # COCO's person class: the prey every lineage must be able to track

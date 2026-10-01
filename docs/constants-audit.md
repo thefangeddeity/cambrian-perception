@@ -433,6 +433,13 @@ yardsticks are found.
 | brain scaling | heading x2, tanh(curve x20), tanh(crest x50), offset / 2, sure | H | each about +-1 on a real road |
 | `max_roll_deg` (cambrian.json organs) | 20 by default | H | a banking camera's ecohost raises the horizon organ's roll bound |
 
+### Host arousal and the layers' price (2026-10-01)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| `host_arousal` (genome) | 0..1, a founder's uniform; mutated by TRAIT_SIGMA | D | a host in view raises its night sleep onset by host_arousal x (COLLAPSE_S - onset), and wakes it below that; no new thresholds (Nesse's smoke detector vs Borbely's debt, settled by evolution) |
+| a layer's energy price | its arithmetic x abs(gate) | S | energy follows signalling (Laughlin & Sejnowski 2003); its time and the size bound stay arithmetic |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

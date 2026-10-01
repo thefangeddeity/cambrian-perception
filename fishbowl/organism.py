@@ -848,6 +848,7 @@ class Organism:
         self.chain = None  # the replayed path it is walking back along: (next episode index, sequence id)
         self.seq = 0
         self.vigilance = float(getattr(g, "vigilance", 1.0))
+        self.host_arousal = float(getattr(g, "host_arousal", 0.0))  # how far a host in view holds off its sleep (state.set_sleep)
         self.body.pump = float(getattr(g, "pump", self.body.pump))
         self.body.bore = float(getattr(g, "bore", 1.0))
         # Place map and the people-expectation maps (day, night): memory,
@@ -1137,7 +1138,8 @@ class Organism:
         self.last_alarm = alarm
         # Sleep is its own choice (its sleep output); the body adds only the
         # physiological overrides -- collapse, hunger, a big change (state.py).
-        body.set_sleep(out.sleep > 0.0, loom, periph_motion, self.vigilance, mismatch)
+        body.set_sleep(out.sleep > 0.0, loom, periph_motion, self.vigilance, mismatch,
+                       host=bool(boxes), host_arousal=self.host_arousal)
         asleep = body.asleep >= 0.5
         # An empty body runs on less (soft floor): colour off, slower gazing.
         # Asleep, the eye is shut: no colour either.
@@ -2199,7 +2201,7 @@ class Organism:
         # only living receptors cost; a slow receptor costs less (1 / (1 + slowness))
         gaze_cost = 0.0 if asleep else _receptor_cost(self.live_n, self.quota_pct) / (1.0 + self.slowness)
         body.update(p["periph_motion"], p["loom"], p["effort"],
-                    gaze_cost + (THINK_COST * brain.think_factor() + CONE_COST * self.cones * self.cones * p["colour_on"] * (2 if self.v4_colour is not None else 1)
+                    gaze_cost + (THINK_COST * brain.energy_factor() + CONE_COST * self.cones * self.cones * p["colour_on"] * (2 if self.v4_colour is not None else 1)
                                  + CHANNEL_COST * brain.loop_synapses()
                                  + (0.0 if asleep else STABILIZER_COST * self.stab)
                                  + (THINK_COST * (kc_macs(self.live_kc) + (self.live_kc if self.aversive_rate > 0.0 else 0))

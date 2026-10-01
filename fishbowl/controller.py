@@ -410,6 +410,16 @@ class MosquitoBrain:
         apical = 2 * h if self.apical else 0
         return (_macs(h, self.weights_ih.shape[1] + extra_io, self.weights_ho.shape[0] + extra_io) + stacked + apical) / REFERENCE_MACS
 
+    def energy_factor(self) -> float:
+        """What thinking costs in energy, relative to the reference brain: as
+        think_factor, but each open stacked layer priced by what it passes on,
+        its arithmetic x |gate| (energy follows signalling: Laughlin &
+        Sejnowski 2003) -- a near-silent layer costs nearly nothing. Its time
+        (the deadline) and the size bound stay arithmetic: the work is done."""
+        h = self.n_hidden if self.live_units is None else max(0, min(self.n_hidden, self.live_units))
+        unused = sum((1.0 - min(1.0, abs(float(l["gate"][0])))) * (2 * h * h + h) for l in self.layers if float(l["gate"][0]) != 0.0)
+        return self.think_factor() - unused / REFERENCE_MACS
+
     def think_factor(self) -> float:
         """This brain's arithmetic per step relative to the original 16-unit
         brain (a stacked layer counts only while its gate is open; units lost

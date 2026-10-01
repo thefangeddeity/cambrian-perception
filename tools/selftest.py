@@ -620,6 +620,31 @@ def _():
     assert organs.road(np.full((H, W), 80, np.uint8), {"y": 0.4, "roll": 0.0}, None, np.random.default_rng(0)) is None
 
 
+@check("host arousal: a host in view holds off sleep as far as the trait says; a layer costs energy by its gate")
+def _():
+    import random as _r
+    from fishbowl import controller as C
+    from fishbowl.state import MosquitoState as BodyState
+    def tried(arousal, host, asleep=False, pressure=0.5):
+        b = BodyState()
+        b.sleep_pressure, b.asleep = pressure, 1.0 if asleep else 0.0
+        b.circ_phase = np.pi  # its clock at midnight
+        b.set_sleep(True, host=host, host_arousal=arousal)
+        return b.asleep >= 0.5
+    assert tried(0.0, True)                # no arousal: the night gate as ever
+    assert not tried(1.0, True)            # full arousal, a host in view: stays up
+    assert tried(1.0, False)               # no host: sleeps
+    assert not tried(1.0, True, asleep=True)  # asleep, a host comes: wakes
+    assert tried(1.0, True, pressure=0.99)    # but collapse wins
+    g = founder()
+    g.host_arousal = 0.37
+    assert G.Genome.from_dict(g.to_dict()).host_arousal == 0.37 and g.clone().host_arousal == 0.37
+    b = C.MosquitoBrain.random(_r.Random(0), hidden=8)
+    b.layers = [{"W": np.zeros((8, 8)), "U": np.zeros((8, 8)), "b": np.zeros(8), "gate": np.array([gt])} for gt in (1.0, 0.1)]
+    b.reset_hidden()
+    assert b.energy_factor() < b.think_factor() and abs(b.think_factor() - b.energy_factor() - 0.9 * (2 * 64 + 8) / C.REFERENCE_MACS) < 1e-9
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")

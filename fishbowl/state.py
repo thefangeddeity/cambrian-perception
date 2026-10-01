@@ -351,7 +351,7 @@ class MosquitoState:
         return loom > WAKE_LOOM / v or field_motion > WAKE_MOTION / v
 
     def set_sleep(self, wants_sleep: bool, loom: float = 0.0, field_motion: float = 0.0,
-                  vigilance: float = 1.0, mismatch: float = 0.0) -> None:
+                  vigilance: float = 1.0, mismatch: float = 0.0, host: bool = False, host_arousal: float = 0.0) -> None:
         """The brain's choice, with the body's override (collapse) and a raised
         arousal threshold while asleep (only a big change wakes it -- or the
         room no longer being the room it fell asleep in)."""
@@ -360,12 +360,19 @@ class MosquitoState:
         cause = "choice"
         day = self.circ_day  # the clock's day, not the moment's light (Process C)
         onset = SLEEP_ONSET_DARK + (SLEEP_ONSET_DAY - SLEEP_ONSET_DARK) * day
+        # a host in view (jing) holds sleep off as far as its inherited host
+        # arousal says: the onset rises toward the pressure that collapses it
+        # (0: no change; 1: not until it nearly collapses) -- and wakes it below that
+        if host and host_arousal > 0.0:
+            onset = onset + host_arousal * (COLLAPSE_S - onset)
+            if asleep and self.sleep_pressure < onset and self.sleep_pressure <= COLLAPSE_RELEASE_S:
+                want, cause = False, "host"
         if want and not asleep and self.sleep_pressure < onset:
             want = False  # not tired enough to fall asleep
         v = max(1e-6, vigilance)
         if not asleep and day < 0.5 and self.sleep_pressure >= onset and loom <= WAKE_LOOM / v and field_motion <= WAKE_MOTION / v:
             want = True  # its night, tired enough, a quiet moment: the gate
-        if asleep and day < 0.5:
+        if asleep and day < 0.5 and cause != "host":
             want = True  # and it holds: in its night it wakes rested or disturbed, not by choice
         if asleep and self.sleep_pressure < SLEEP_END_DARK + (SLEEP_END_DAY - SLEEP_END_DARK) * day:
             want, cause = False, "rested"  # slept enough: wakes by itself
