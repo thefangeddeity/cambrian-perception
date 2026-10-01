@@ -347,35 +347,40 @@ model teaches ("taught") and the nearness its own terrain head feels ("felt").
 has integrated it (speed x heading), with a tick for where it faces now. Grey
 shade is what rides with it (a cab's dashboard): it learns this while moving
 (what stays put while the world slides past) and remembers it when stopped;
-tau and its gaze ignore it.
+tau and its gaze ignore it. The HUD reads like a fighter's: heading tape on
+top, speed (SPD) on the left, nearness (NR: T taught, F felt) on the right,
+the flight-path marker where it is going, and a data block; ODD is how strange
+the look is to its model, and LEARNING HELD means it failed its model's test,
+so it isn't learning from that look. Each host, plant and thing standing on
+its ground carries, inside its top left corner, what it could give: 精 jīng,
+氣 qì or 神 shén (a thing only feeds what is new in it). Below it, the senses
+strip lists its newer senses: pace, uncertainty, camera motion, horizon
+("seen" by its horizon organ or "learned" from where things stand), how many
+new places its place print has noticed, what it looks at and how near, how
+near it feels it is, contact, turning, tilting, heading, its speed
+(eye-heights per second), starting or stopping, what the place it is at has
+been worth, how much of its view rides with it, and the texture at its gaze
+(contrast, fineness, grain).
 
 **Gaze.** Its eye rebuilt from the frame on screen (a reconstruction): the
 receptor grid, the cone patch in the middle (the only colour), where it looks
 and how much of the frame its gaze covers.
+
+**Visual field.** Its wide-field eyes: where things move, as heat. The box is
+its gaze; dashed boxes are hosts, dotted ones plants; a red frame means
+something is looming. Layers add its food places, where it expects people,
+what still surprises it and its collicular priority.
 
 **Perception tree.** Its evolved program that guesses "a host in my gaze?",
 graded by YOLO, drawn as a cone tree growing down onto its retina: leaves plug
 in where they read (receptors, pooled patches, oriented edges; a curved line is
 an edge that bends, its V4's curvature).
 
-**Visual field.** Its wide-field eyes: where things move, as heat. The box is
-its gaze; dashed boxes are hosts, dotted ones plants; a red frame means
-something is looming. Layers add its food places, where it expects people,
-what still surprises it and its collicular priority. The senses strip lists
-its newer senses: pace, uncertainty, camera motion, horizon ("seen" by its
-horizon organ or "learned" from where things stand), how many new places its
-place print has noticed, what it looks at
-and how near, how near it feels it is, contact, turning, tilting, heading,
-its speed (eye-heights per second), starting or stopping, what the place it
-is at has been worth, how much of its view rides with it, and the texture at
-its gaze (contrast, fineness, grain). The navigation card's HUD reads like a
-fighter's: heading tape on top, speed (SPD) on the left, nearness (NR: T
-taught, F felt) on the right, the flight-path marker where it is going, and
-a data block. Each host, plant and thing standing on its ground carries, inside its top left corner, what it could give: 精 jīng, 氣 qì or 神 shén (a thing only feeds what is new in it). ODD is how strange the look is to its model, and LEARNING HELD
-means it failed its model's test, so it isn't learning from that look.
-
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
-orange inhibits. New random brain (two clicks) draws its brain afresh as a founder's at its
+orange inhibits. Stacked layers stand beside the units, a column each: a cell
+is what that layer adds to that unit now (gate x its activity), so a faint
+column is one that changes nothing; a dashed outline is a silent copy
+waiting. New random brain (two clicks) draws its brain afresh as a founder's at its
 next generation, keeping everything else; New random founder (two clicks) replaces it with a new
 random founder, as a fresh install has: eye, body, memories and traits included. Reset to founder
 (two clicks) returns to its founder exactly as it was at birth -- the same

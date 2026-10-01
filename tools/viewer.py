@@ -746,6 +746,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
      HUD): uppercase monospace, colour by meaning -- green normal, amber
      caution, red warning, white data -- and a dark outline on every character
      instead of a backing, so it reads over any cell it crosses. */
+  /* a control and its own dropdowns, boxed together: which list belongs to which link */
+  .grp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; border: 1px solid #4a3530; border-radius: 6px; padding: 1px 6px; margin: 2px 0; vertical-align: middle; }
   #mb-hud { position: absolute; inset: 0; pointer-events: none; font: bold 12px monospace; padding: 8px 10px; text-transform: uppercase; }
   #mb-hud .q { position: absolute; line-height: 15px; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px #000; }
   #mb-hud .g { color: #7cffa0; } #mb-hud .b { color: #ffb000; } #mb-hud .w { color: #ff4040; } #mb-hud .n { color: #e8e8e8; }
@@ -812,21 +814,13 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <canvas id="space"></canvas>
     <div class="cap" id="space-cap">--</div>
     <div class="cap" id="cortex-cap"></div>
+    <div class="cap" id="senses-strip"></div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
     <canvas id="look" class="px"></canvas>
     <div class="cap"><span id="look-px">--</span></div>
     <div class="cap" style="margin-top:8px" id="look-scale"></div>
-  </div>
-  <div class="panel" id="tree-panel">
-    <h2>its perception tree</h2>
-    <div id="trees"></div>
-  </div>
-  <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
-    <h2>its brain</h2>
-    <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked (a column each beside its units: what it adds to each unit now; faint adds nothing). <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span> &middot; <select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span> &middot; Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span> &middot; <a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span> &middot; <a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -839,7 +833,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
 </div>
     <div class="cap"><span id="field-px">--</span> &middot; box: gaze &middot; <b style="color:#ff6f8a">dashed</b>: host &middot; <b style="color:#9ccf7a">dotted</b>: plant &middot; red frame: looming</div>
     <div class="cap" id="replay-clock">--</div>
-    <div class="cap" id="senses-strip"></div>
+  </div>
+  <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
+    <h2>its brain</h2>
+    <canvas id="brain" height="520"></canvas>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked (a column each beside its units: what it adds to each unit now; faint adds nothing). <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span> &middot; <span class="grp"><select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span></span> &middot; <span class="grp">Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span></span> &middot; <a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span> &middot; <a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></div>
+  </div>
+  <div class="panel" id="tree-panel">
+    <h2>its perception tree</h2>
+    <div id="trees"></div>
   </div>
   <div class="panel" id="mb-panel">
     <h2>its mushroom body</h2>
@@ -2122,15 +2124,16 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         const g = L.gate ? L.gate[0] : 0, x = x0 + k * step, row = lc[k];
         for (let h = 0; h < nH; h++) {
           const y = yAt(h, nH) - sq / 2;
-          if (!g) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#4a5866'; ctx.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1); ctx.restore(); continue; }
+          if (!g) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#8a9aaa'; ctx.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1); ctx.restore(); continue; }
           const v = row && row[h] != null ? row[h] : 0, a = Math.min(1, Math.abs(v) / 0.25);
           ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${0.06 + 0.94 * a})` : `rgba(255,153,0,${0.06 + 0.94 * a})`;
           ctx.fillRect(x, y, sq, sq); ctx.strokeStyle = '#345'; ctx.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1);
         }
-        ctx.fillStyle = g ? '#9a6f67' : '#4a5866';
-        const yl = yAt(nH - 1, nH) + sq / 2 + 3;  // under the column: a lone unit sits at the top edge
-        ctx.fillText(g ? `L${k + 1}` : 'wait', x + sq / 2, yl);
-        ctx.fillText(g ? g.toFixed(2) : '', x + sq / 2, yl + 10);
+        ctx.fillStyle = g ? '#9a6f67' : '#8a9aaa';
+        // its name along the canvas's top edge, its gate along the bottom: the units
+        // reach both edges (24 px in), so nothing written beside them fits
+        ctx.fillText(g ? `L${k + 1}` : 'wait', x + sq / 2, 3);
+        if (g) ctx.fillText(g.toFixed(2).replace(/^(-?)0\./, '$1.'), x + sq / 2, H - 13);
       });
       ctx.textBaseline = 'middle';
     }
