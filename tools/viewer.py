@@ -826,7 +826,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="brain-panel" style="grid-column: 1 / -1">
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
-    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked. <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span> &middot; <select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span> &middot; Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span> &middot; <a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span> &middot; <a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></div>
+    <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked (a column each beside its units: what it adds to each unit now; faint adds nothing). <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span> &middot; <a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span> &middot; <a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span> &middot; <a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span> &middot; <a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span> &middot; <select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span> &middot; Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span> &middot; <a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span> &middot; <a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></div>
   </div>
   <div class="panel" id="field-panel">
     <h2>visual field</h2>
@@ -2109,6 +2109,31 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     for (let i = 0; i < nIn; i++) { ctx.fillStyle = '#2a1512'; ctx.beginPath(); ctx.arc(xin, yAt(i, nIn), 6, 0, 7); ctx.fill(); ctx.fillStyle = '#b88a80'; ctx.textAlign = 'right'; ctx.fillText(i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in'), xin - 10, yAt(i, nIn)); }
     const hid = d.brain_hidden || [];
     for (let h = 0; h < nH; h++) { const a = hid[h] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.arc(xh, yAt(h, nH), 9, 0, 7); ctx.fill(); ctx.stroke(); }
+    // Its stacked layers, a column each just right of its units: each layer adds
+    // gate x its own activity to every unit's signal on the way out (controller.step),
+    // so a cell shows what that layer adds to that unit now -- cyan up, orange down,
+    // solid at 0.25 or more (gates are small); a faint column changes nothing. A
+    // silent layer (gate 0, a waiting copy) is an empty dashed outline.
+    const ls = br.layers || [], lc = d.brain_layers || [];
+    if (ls.length) {
+      const sq = Math.max(4, Math.min(12, (H - 48) / Math.max(1, nH) - 2)), step = sq + 6, x0 = xh + 18;
+      ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ls.forEach((L, k) => {
+        const g = L.gate ? L.gate[0] : 0, x = x0 + k * step, row = lc[k];
+        for (let h = 0; h < nH; h++) {
+          const y = yAt(h, nH) - sq / 2;
+          if (!g) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#4a5866'; ctx.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1); ctx.restore(); continue; }
+          const v = row && row[h] != null ? row[h] : 0, a = Math.min(1, Math.abs(v) / 0.25);
+          ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${0.06 + 0.94 * a})` : `rgba(255,153,0,${0.06 + 0.94 * a})`;
+          ctx.fillRect(x, y, sq, sq); ctx.strokeStyle = '#345'; ctx.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1);
+        }
+        ctx.fillStyle = g ? '#9a6f67' : '#4a5866';
+        const yl = yAt(nH - 1, nH) + sq / 2 + 3;  // under the column: a lone unit sits at the top edge
+        ctx.fillText(g ? `L${k + 1}` : 'wait', x + sq / 2, yl);
+        ctx.fillText(g ? g.toFixed(2) : '', x + sq / 2, yl + 10);
+      });
+      ctx.textBaseline = 'middle';
+    }
     for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#ffe2d6'; ctx.textAlign = 'left'; ctx.fillText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out'), xout + 16, yAt(o, nOut)); }
     const hx = W - hm - 10, hy = 30, cell = hm / nH;
     let mh = 1e-9; br.weights_hh.forEach(r => r.forEach(v => mh = Math.max(mh, Math.abs(v))));

@@ -604,6 +604,9 @@ def evaluate_genome(
         "pace": round(float(iv.mean()), 2),  # mean gaze interval actually used this run
         "tempo_series": [round(float(np.mean(intervals[k:k + step_n])), 2) for k in range(0, len(intervals), step_n)],
         "brain_hidden": [round(h, 3) for h in brain.hidden],
+        # what each stacked layer adds to the units' signal (gate x its activity), None while silent
+        "brain_layers": [None if float(L["gate"][0]) == 0.0 else [round(float(L["gate"][0]) * float(v), 4) for v in lh]
+                         for L, lh in zip(brain.layers, brain.layer_hidden)],
         # (cx, cy, gaze side as a fraction of the frame's height, frame index): gazes are unevenly spaced now,
         # so the viewer replays each at its real moment.
         "trajectory": [[round(float(x), 4), round(float(y), 4), round(float(f), 4), i] for i, (x, y, f) in enumerate(fp)],
@@ -2145,6 +2148,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             # candidate's hidden state at the end of its run.
             "brain": genome.brain.to_dict(),
             "brain_hidden": live_info.get("brain_hidden"),
+            "brain_layers": live_info.get("brain_layers"),
             # Real source frame shape. Lets the viewer draw the box at the REAL aspect
             # ratio instead of a hardcoded one.
             "frame_w": frame_w,
