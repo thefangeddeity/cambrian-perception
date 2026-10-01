@@ -771,15 +771,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   #brain-panel .orgrow .grp a, #brain-panel .orgrow .orgsel { font: inherit; background: var(--bg); color: var(--cyan); border: 1px solid var(--line); padding: 3px 6px; text-decoration: none; display: inline-block; }  /* as the page's buttons */
   #brain-panel .orgrow .grp a:hover, #brain-panel .orgrow .orgsel:hover { border-color: var(--cyan); }
   #brain-panel .orgrow [hidden] { display: none !important; }  /* the button style must not unhide what waits (Copy here, a peer's saves) */
-  #mb-hud { position: absolute; inset: 0; pointer-events: none; font: bold 12px monospace; padding: 8px 10px; text-transform: uppercase; }
-  #mb-hud .q { position: absolute; line-height: 15px; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px #000; }
+  /* its life's tally, under the navigation card: four blocks side by side, wrapping */
+  #mb-hud { margin-top: 10px; font: bold 12px monospace; text-transform: uppercase; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 18px; }
+  #mb-hud .q { position: static !important; text-align: left !important; line-height: 15px; }
   #mb-hud .g { color: #7cffa0; } #mb-hud .b { color: #ffb000; } #mb-hud .w { color: #ff4040; } #mb-hud .n { color: #e8e8e8; }
   #mb-hud .h { color: #c8c8c8; }
-  /* a phone: the tally leaves the picture -- four corner blocks can't share a
-     narrow canvas without running into each other -- and flows below it, one
-     block under another, wrapping like a caption */
-  @media (max-width: 600px) { #mb-hud { position: static; inset: auto; padding: 8px 0 0; font-size: 11px; }
-    #mb-hud .q { position: static; text-align: left !important; line-height: 15px; margin-bottom: 6px; overflow-wrap: anywhere; } }
   #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder, #save-organism, #save-here, #load-organism, #copy-here, #upload-organism { color: #b88a80; } .orgsel { font: inherit; font-size: 12px; max-width: 16em; background: #10161c; color: #e8d8d0; border: 1px solid #3a2a26; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
@@ -838,6 +834,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <div class="cap" id="space-cap">--</div>
     <div class="cap" id="cortex-cap"></div>
     <div class="cap" id="senses-strip"></div>
+    <div id="mb-hud"></div>
   </div>
   <div class="panel" id="look-panel">
     <h2>gaze</h2>
@@ -866,14 +863,6 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   <div class="panel" id="tree-panel">
     <h2>its perception tree</h2>
     <div id="trees"></div>
-  </div>
-  <div class="panel" id="mb-panel">
-    <h2>its mushroom body</h2>
-    <div style="position:relative">
-      <canvas id="mb"></canvas>
-      <div id="mb-hud"></div>
-    </div>
-    <div class="cap" id="mb-cap"></div>
   </div>
   <div class="stack" id="left-stack">
     <div class="panel" id="dream-panel">
@@ -2121,6 +2110,250 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       r.dataset.jsLast = `${fn.name || 'card'}: ${String(e && e.message).slice(0, 160)} @${String(e && e.stack || '').split(/\n/)[1] || ''}`.slice(0, 300);
     }
   }
+  // Its nervous system as one flatmap (a 2026-09-30 panel -- Shneiderman,
+  // Holten, Tufte & Bertin, Swanson): its sense organs on the left, each a
+  // block with a port for every input it gives the brain (the mushroom body
+  // among them, its Kenyon cells drawn); their wires bundled per organ and
+  // unit (thickness: the summed weight; colour: the net sign; hover an organ
+  // for its real wires, one per input); its units and their recurrence; the
+  // stream through its stacked layers -- each layer its own units, reading
+  // the lanes below through W, keeping U, adding back through its gate --
+  // then its outputs, read from the top of the stack, and what they drive.
+  // Dashed: what closes through the world or the body (its eye muscles move
+  // what its eye sees; its eye feeds the perception tree and the mushroom
+  // body; what it eats or suffers teaches the mushroom body; a grown channel
+  // comes back as an input). Nothing that exists is left off; an input no
+  // organ claims goes in "other". Matte: one colour per sign, alpha by
+  // strength. 3D is the same map with depth, turned.
+  const NS_ORGANS = [
+    ['eye & V4', ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'field light', 'light trend', 'texture contrast', 'texture fineness', 'texture grain']],
+    ['perception tree', ['tree']],
+    ['mushroom body', ['food value', 'danger', 'archetype 1', 'archetype 2', 'archetype 3', 'archetype 4', 'felt nearness', 'uncertainty']],
+    ['detector (the frame)', ['prey scent', 'prey dir x', 'prey dir y', 'plant scent', 'plant dir x', 'plant dir y', 'intruder', 'host vx', 'host vy']],
+    ['colliculus & surprise', ['collicular dx', 'collicular dy', 'collicular strength', 'mismatch', 'mismatch dx', 'mismatch dy']],
+    ['memory & place', ['recalled value', 'recalled dx', 'recalled dy', 'place dx', 'place dy', 'place value', 'map value']],
+    ['geometry organs', ['horizon', 'ground near', 'parallax', 'camera moving', 'terrain', 'nearness', 'contact', 'turning', 'tilting', 'heading sin', 'heading cos', 'speed', 'acceleration', 'riding']],
+    ['body', ['sugar', 'arousal', 'threat', 'search', 'hunger', 'curiosity', 'gut', 'reserve', 'sleep pressure', 'asleep', 'protein']],
+    ['self-monitoring', ['own pace', 'missed', 'strangeness']],
+  ];
+  const nsIn = (br, i) => i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in');
+  const nsOut = (br, o) => o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out');
+  function nsGroups(br) {
+    const nIn = br.weights_ih[0].length, used = new Set(), groups = [];
+    NS_ORGANS.forEach(([name, names]) => {
+      const idx = names.map(n => INPUT_NAMES.indexOf(n)).filter(i => i >= 0 && i < nIn);
+      idx.forEach(i => used.add(i));
+      if (idx.length) groups.push({ name, idx, mb: name === 'mushroom body', eye: name === 'eye & V4', tree: name === 'perception tree', body: name === 'body' });
+    });
+    const loops = [], other = [];
+    for (let i = 0; i < nIn; i++) if (!used.has(i)) (i >= INPUT_NAMES.length ? loops : other).push(i);
+    if (other.length) groups.push({ name: 'other', idx: other });
+    if (loops.length) groups.push({ name: 'its loops (back in)', idx: loops, loops: true });
+    return groups;
+  }
+  function nsLayout(d, W, H) {
+    const br = d.brain, groups = nsGroups(br), nH = br.weights_ih.length, nOut = br.weights_ho.length, ls = br.layers || [];
+    const top = 34, bot = H - 26, gap = 6, ox = 14;
+    const ow = Math.max(104, Math.min(190, W * 0.17));
+    const hasMB = !!(d.mb && d.mb.n);
+    const weight = g => 1 + Math.sqrt(g.idx.length) + (g.mb && hasMB ? 3 : 0);
+    const tot = groups.reduce((t, g) => t + weight(g), 0), avail = bot - top - gap * (groups.length - 1);
+    let y = top;
+    groups.forEach(g => {
+      g.h = Math.max(18, avail * weight(g) / tot); g.x = ox; g.y = y; g.w = ow; y += g.h + gap;
+      g.ports = g.idx.map((i, k) => ({ i, x: ox + ow, y: g.y + 15 + (g.h - 19) * (k + 0.5) / g.idx.length }));
+    });
+    const xo = W - Math.max(92, Math.min(170, W * 0.15));
+    const xu = ox + ow + Math.max(70, (xo - ox - ow) * 0.24);
+    const xend = xo - Math.max(46, (xo - xu) * 0.16);
+    const yAt = (k, n) => n === 1 ? (top + bot) / 2 : top + 12 + k * (bot - top - 24) / (n - 1);
+    const units = Array.from({ length: nH }, (_, h) => ({ x: xu, y: yAt(h, nH) }));
+    const layers = ls.map((L, k) => units.map(u => ({ x: xu + (k + 1) * (xend - xu) / (ls.length + 1), y: u.y })));
+    const outs = Array.from({ length: nOut }, (_, o) => ({ x: xo, y: yAt(o, nOut) }));
+    return { groups, units, layers, outs, xu, xo, xend, top, bot, ox, ow };
+  }
+  function drawNervous(d, three) {
+    const c = $('brain'), br = d && d.brain; if (!c || !br) return;
+    const W = c.width, H = c.height, ctx = c.getContext('2d');
+    const { groups, units, layers, outs, xu, xo, xend, top, bot, ox, ow } = nsLayout(d, W, H);
+    const nH = units.length, nOut = outs.length, ls = br.layers || [], lc = d.brain_layers || [], hid = d.brain_hidden || [];
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    // where a point of the map lands: 2D, the map zoomed and panned; 3D, the map
+    // given depth (units and their lanes fanned in depth, organs a little), turned
+    const Dz = Math.min(W, H) * 0.55;
+    const zu = h => nH > 1 ? (h / (nH - 1) - 0.5) * Dz : 0, zo = o => nOut > 1 ? (o / (nOut - 1) - 0.5) * Dz * 0.6 : 0;
+    const zg = gi => groups.length > 1 ? (gi / (groups.length - 1) - 0.5) * Dz * 0.35 : 0;
+    let P;
+    if (three) {
+      const cy = Math.cos(B3.yaw), sy = Math.sin(B3.yaw), cp = Math.cos(B3.pitch), sp = Math.sin(B3.pitch), F = 2.2 * Math.max(W, H), s = 0.82 * B3.zoom;
+      P = (x, y, z) => {
+        const X = (x - W / 2) * s, Y = (y - H / 2) * s, Z = (z || 0) * s;
+        const x1 = X * cy + Z * sy, z1 = -X * sy + Z * cy, y2 = Y * cp - z1 * sp, z2 = Y * sp + z1 * cp, w = F / (F + z2);
+        return [W / 2 + x1 * w, H / 2 + y2 * w, w, z2];
+      };
+    } else P = (x, y) => [x * BZ.k + BZ.x, y * BZ.k + BZ.y, BZ.k, 0];
+    const hov = B3.hover, pts = [];
+    const sgn = (w, a) => (w >= 0 ? `rgba(127,212,255,${a})` : `rgba(255,153,0,${a})`);
+    const curve = (A, B, w, rel, dim, width) => {
+      const a = P(...A), b = P(...B), s = Math.min(1, rel), mx = (a[0] + b[0]) / 2;
+      ctx.strokeStyle = sgn(w, (0.05 + 0.6 * s) * (dim ? 0.18 : 1)); ctx.lineWidth = Math.max(0.5, (width || 0.5 + 2 * s) * Math.min(2, (a[2] + b[2]) / 2));
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.bezierCurveTo(mx, a[1], mx, b[1], b[0], b[1]); ctx.stroke();
+    };
+    const arc = (A, B, w, rel, side, dim) => {
+      const a = P(...A), b = P(...B), s = Math.min(1, rel), off = side * (10 + 0.22 * Math.hypot(a[0] - b[0], a[1] - b[1]));
+      ctx.strokeStyle = sgn(w, (0.05 + 0.5 * s) * (dim ? 0.18 : 1)); ctx.lineWidth = Math.max(0.5, (0.5 + 1.6 * s) * Math.min(2, a[2]));
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo((a[0] + b[0]) / 2 + off, (a[1] + b[1]) / 2, b[0], b[1]); ctx.stroke();
+    };
+    const dashed = (pathPts, label, lx, ly) => {
+      const q = pathPts.map(p => P(...p));
+      ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(200,190,180,0.45)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]); q.slice(1).forEach(p => ctx.lineTo(p[0], p[1])); ctx.stroke();
+      const e = q[q.length - 1], f = q[q.length - 2], an = Math.atan2(e[1] - f[1], e[0] - f[0]);  // an arrowhead: which way it flows
+      ctx.setLineDash([]); ctx.fillStyle = 'rgba(200,190,180,0.6)'; ctx.beginPath(); ctx.moveTo(e[0], e[1]);
+      ctx.lineTo(e[0] - 6 * Math.cos(an - 0.45), e[1] - 6 * Math.sin(an - 0.45)); ctx.lineTo(e[0] - 6 * Math.cos(an + 0.45), e[1] - 6 * Math.sin(an + 0.45)); ctx.fill();
+      if (label) { const L = P(lx, ly, 0); ctx.font = '9px monospace'; ctx.fillStyle = 'rgba(200,190,180,0.7)'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(label, L[0], L[1]); }
+      ctx.restore();
+    };
+    const node = (A, r, fill, stroke, lw, dash) => {
+      const a = P(...A), rr = Math.max(1.5, r * Math.min(2, a[2]));
+      ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = lw || 1;
+      if (dash) ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.arc(a[0], a[1], rr, 0, 7); if (fill) ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+      return a;
+    };
+    const quad = (x, y, w, h, z, fill, stroke) => {
+      const q = [P(x, y, z), P(x + w, y, z), P(x + w, y + h, z), P(x, y + h, z)];
+      ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]); q.slice(1).forEach(p => ctx.lineTo(p[0], p[1])); ctx.closePath(); ctx.fill(); ctx.stroke();
+    };
+    const text = (s, x, y, z, font, col, align, base) => { const a = P(x, y, z); ctx.font = font; ctx.fillStyle = col; ctx.textAlign = align || 'left'; ctx.textBaseline = base || 'middle'; ctx.fillText(s, a[0], a[1]); return a; };
+
+    // what closes through the world or the body, behind everything
+    const eye = groups.find(g => g.eye), mbG = groups.find(g => g.mb), treeG = groups.find(g => g.tree), bodyG = groups.find(g => g.body);
+    const yTop = top - 16, xl = ox - 8;
+    if (eye && nOut >= 3) dashed([[xo, outs[0].y, zo(0)], [xo + 0, yTop, 0], [eye.x + eye.w / 2, yTop, 0], [eye.x + eye.w / 2, eye.y, zg(groups.indexOf(eye))]],
+                                 'pan, tilt, zoom move its gaze: what its eye sees next', eye.x + eye.w / 2 + 6, yTop - 1);
+    if (eye && treeG) dashed([[eye.x, eye.y + eye.h * 0.7, zg(groups.indexOf(eye))], [xl, eye.y + eye.h * 0.7, 0], [xl, treeG.y + treeG.h / 2, 0], [treeG.x, treeG.y + treeG.h / 2, zg(groups.indexOf(treeG))]]);
+    if (eye && mbG) dashed([[eye.x, eye.y + eye.h * 0.85, zg(groups.indexOf(eye))], [xl - 4, eye.y + eye.h * 0.85, 0], [xl - 4, mbG.y + mbG.h * 0.3, 0], [mbG.x, mbG.y + mbG.h * 0.3, zg(groups.indexOf(mbG))]]);
+    if (bodyG && mbG) dashed([[bodyG.x, bodyG.y + bodyG.h / 2, zg(groups.indexOf(bodyG))], [xl - 8, bodyG.y + bodyG.h / 2, 0], [xl - 8, mbG.y + mbG.h * 0.7, 0], [mbG.x, mbG.y + mbG.h * 0.7, zg(groups.indexOf(mbG))]]);
+    const loopsG = groups.find(g => g.loops);
+    if (loopsG) (br.channels || []).forEach((ch, k) => {
+      const o = OUTPUT_NAMES.length + k, port = loopsG.ports.find(p => p.i === INPUT_NAMES.length + k); if (!outs[o] || !port) return;
+      const yb = bot + 8 + 4 * k;
+      dashed([[xo, outs[o].y, zo(o)], [xo + 12, outs[o].y, zo(o)], [xo + 12, yb, 0], [port.x + 10, yb, 0], [port.x + 10, port.y, 0], [port.x, port.y, zg(groups.indexOf(loopsG))]]);
+    });
+
+    // organs to units: bundled (open: its real wires)
+    const wih = br.weights_ih;
+    let bmax = 1e-9, wmax = 1e-9;
+    wih.forEach(r => r.forEach(v => { wmax = Math.max(wmax, Math.abs(v)); }));
+    const bund = groups.map(g => units.map((u, h) => { let s = 0, a = 0; g.idx.forEach(i => { s += wih[h][i]; a += Math.abs(wih[h][i]); }); bmax = Math.max(bmax, a); return [s, a]; }));
+    groups.forEach((g, gi) => {
+      const open = hov === 'g' + gi;
+      units.forEach((u, h) => {
+        const dim = hov != null && hov !== 'g' + gi && hov !== 'u' + h;
+        if (open) g.ports.forEach(p => curve([p.x, p.y, zg(gi)], [u.x, u.y, zu(h)], wih[h][p.i], Math.abs(wih[h][p.i]) / wmax, false));
+        else { const [s, a] = bund[gi][h]; curve([g.x + g.w, g.y + g.h / 2, zg(gi)], [u.x, u.y, zu(h)], s, a / bmax, dim, 0.6 + 4 * a / bmax); }
+      });
+    });
+    // its units' recurrence (arcs, bowing left; a unit's own weight is its ring)
+    const whh = br.weights_hh;
+    let hmax = 1e-9; whh.forEach(r => r.forEach(v => { hmax = Math.max(hmax, Math.abs(v)); }));
+    for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) if (r !== q) {
+      const dim = hov != null && hov !== 'u' + r && hov !== 'u' + q;
+      arc([units[q].x, units[q].y, zu(q)], [units[r].x, units[r].y, zu(r)], whh[r][q], Math.abs(whh[r][q]) / hmax, -1, dim);
+    }
+    // the stream: a lane per unit, through its layers to the top of the stack
+    units.forEach((u, h) => { const a = P(u.x, u.y, zu(h)), b = P(xend, u.y, zu(h)); ctx.strokeStyle = 'rgba(150,170,190,0.16)'; ctx.lineWidth = 2 * Math.min(2, a[2]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); });
+    let lmax = 1e-9; ls.forEach(L => { (L.W || []).forEach(r => r.forEach(v => { lmax = Math.max(lmax, Math.abs(v)); })); (L.U || []).forEach(r => r.forEach(v => { lmax = Math.max(lmax, Math.abs(v)); })); });
+    const gmax = Math.max(1e-9, ...ls.map(L => Math.abs(L.gate ? L.gate[0] : 0)));
+    ls.forEach((L, k) => {
+      const src = k === 0 ? units : layers[k - 1], col = layers[k], Wk = L.W || [], Uk = L.U || [], g = L.gate ? L.gate[0] : 0;
+      for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) {
+        const dim = hov != null && hov !== `l${k}:${r}` && hov !== (k === 0 ? 'u' + q : `l${k - 1}:${q}`);
+        if (Wk[r] && Wk[r][q]) curve([src[q].x, src[q].y, zu(q)], [col[r].x, col[r].y, zu(r)], Wk[r][q], Math.abs(Wk[r][q]) / lmax, dim, null);
+        if (r !== q && Uk[r] && Uk[r][q]) arc([col[q].x, col[q].y, zu(q)], [col[r].x, col[r].y, zu(r)], Uk[r][q], Math.abs(Uk[r][q]) / lmax, 1, dim);
+      }
+    });
+    // its outputs, read from the top of the stack
+    const topCol = ls.length ? layers[ls.length - 1] : units;
+    const who_ = h => (ls.length ? `l${ls.length - 1}:${h}` : 'u' + h);
+    const who2 = br.weights_ho;
+    let omax = 1e-9; who2.forEach(r => r.forEach(v => { omax = Math.max(omax, Math.abs(v)); }));
+    for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) {
+      const dim = hov != null && hov !== 'o' + o && hov !== who_(h);
+      curve([topCol[h].x, topCol[h].y, zu(h)], [outs[o].x, outs[o].y, zo(o)], who2[o][h], Math.abs(who2[o][h]) / omax, dim, null);
+    }
+
+    // the organs themselves
+    const mb = d.mb || {}, firing = new Set(mb.active || []);
+    groups.forEach((g, gi) => {
+      const z = zg(gi), dim = hov != null && hov !== 'g' + gi;
+      quad(g.x, g.y, g.w, g.h, z, dim ? 'rgba(18,26,34,0.85)' : '#121a22', hov === 'g' + gi ? '#7fd4ff' : '#2e4050');
+      const title = text(g.name, g.x + 6, g.y + 8, z, 'bold 10px monospace', g.mb ? '#e6c8ff' : '#c9b8b0', 'left', 'middle');
+      pts.push({ sx: title[0] + 30, sy: title[1] + 4, key: 'g' + gi });
+      // the mushroom body's Kenyon cells: lit while firing, coloured by what each learned
+      if (g.mb && mb.n && g.h > 34) {
+        const food = mb.food || [], danger = mb.danger || [];
+        let fmax = 1e-6, dmax = 1e-6;
+        for (let k = 0; k < mb.n; k++) { fmax = Math.max(fmax, Math.abs(food[k] || 0)); dmax = Math.max(dmax, Math.max(0, danger[k] || 0)); }
+        const ax = g.x + 6, ay = g.y + 16, aw = g.w - 26, ah = g.h - 22, cols = Math.max(1, Math.ceil(Math.sqrt(mb.n * aw / ah))), rows = Math.ceil(mb.n / cols);
+        const cs = Math.max(1, Math.min(aw / cols, ah / rows) - 0.5);
+        for (let k = 0; k < mb.n; k++) {
+          const f = (food[k] || 0) / fmax, dg = Math.max(0, danger[k] || 0) / dmax, on = firing.has(k), dead = mb.live != null && k >= mb.live;
+          const rC = Math.round(45 + 210 * Math.max(dg, f < 0 ? -f : 0)), gC = Math.round(45 + 210 * Math.max(0, f) + (f < 0 ? 110 * -f : 0));
+          const a = P(ax + (k % cols) * (aw / cols), ay + Math.floor(k / cols) * (ah / rows), z);
+          ctx.fillStyle = dead ? 'rgba(60,60,60,0.4)' : `rgba(${rC},${gC},45,${on ? 1 : 0.35})`;
+          ctx.fillRect(a[0], a[1], Math.max(1, cs * Math.min(2, a[2])), Math.max(1, cs * Math.min(2, a[2])));
+        }
+      }
+      g.ports.forEach(p => {
+        node([p.x, p.y, z], 2.2, '#2a1512', '#b88a80', 1);
+        if (hov === 'g' + gi) text(nsIn(br, p.i), p.x - 5, p.y, z, '9px monospace', '#e8d8d0', 'right');
+      });
+    });
+    // the units
+    units.forEach((u, h) => {
+      const a = hid[h] || 0, self = whh[h][h] || 0, dim = hov != null && hov !== 'u' + h;
+      const s = node([u.x, u.y, zu(h)], 8, sgn(a, (0.15 + 0.85 * Math.abs(a)) * (dim ? 0.4 : 1)), sgn(self, 0.25 + 0.6 * Math.abs(self) / hmax), 1 + 2 * Math.abs(self) / hmax);
+      pts.push({ sx: s[0], sy: s[1], key: 'u' + h });
+      text(`h${h + 1} ${a.toFixed(2)}`, u.x + 2, u.y - 13, zu(h), '9px monospace', '#a9bcc8', 'center', 'middle');
+    });
+    // the layers' units: filled by what each adds to its lane now, ringed by its gate (dashed: silent)
+    const spacing = ls.length ? (xend - xu) / (ls.length + 1) : 0, lr = Math.max(2, Math.min(6, spacing / 3));
+    ls.forEach((L, k) => {
+      const g = L.gate ? L.gate[0] : 0, row = lc[k], Uk = L.U || [];
+      layers[k].forEach((p, h) => {
+        const v = row && row[h] != null ? row[h] : 0, av = Math.min(1, Math.abs(v) / 0.25), self = Uk[h] ? Uk[h][h] || 0 : 0;
+        const s = g ? node([p.x, p.y, zu(h)], lr, sgn(v, 0.08 + 0.92 * av), `rgba(232,216,208,${0.25 + 0.75 * Math.abs(g) / gmax})`, 1 + Math.abs(self) / lmax)
+                    : node([p.x, p.y, zu(h)], lr, null, '#8a9aaa', 1, true);
+        pts.push({ sx: s[0], sy: s[1], key: `l${k}:${h}` });
+      });
+      if (spacing >= 22) {
+        text(g ? `L${k + 1}` : 'wait', layers[k][0].x, top - 4, zu(0), '9px monospace', g ? '#9a6f67' : '#8a9aaa', 'center', 'bottom');
+        if (g) text(g.toFixed(2).replace(/^(-?)0\./, '$1.'), layers[k][0].x, bot + 4, zu(nH - 1), '9px monospace', '#9a6f67', 'center', 'top');
+      }
+    });
+    if (ls.length && spacing < 22) text(layerSummary(ls), xu + 14, top - 4, 0, '9px monospace', '#9a6f67', 'left', 'bottom');
+    // the outputs and what they drive
+    outs.forEach((p, o) => {
+      const dim = hov != null && hov !== 'o' + o;
+      const s = node([p.x, p.y, zo(o)], 9, dim ? 'rgba(10,42,26,0.5)' : '#0a2a1a', '#ffe2d6', 1);
+      pts.push({ sx: s[0], sy: s[1], key: 'o' + o });
+      const eff = o < 3 ? ' (eye muscles)' : '';
+      text(nsOut(br, o) + eff, p.x + 13, p.y, zo(o), '10px monospace', '#ffe2d6', 'left');
+    });
+    // a hovered thing, named
+    if (hov != null) {
+      const lab = hov[0] === 'g' ? groups[+hov.slice(1)].name + ': ' + groups[+hov.slice(1)].idx.length + ' inputs, its real wires shown'
+        : hov[0] === 'u' ? `unit h${+hov.slice(1) + 1}` : hov[0] === 'o' ? nsOut(br, +hov.slice(1))
+        : (() => { const [k, h] = hov.slice(1).split(':').map(Number), L = ls[k], g = L && L.gate ? L.gate[0] : 0, v = lc[k] && lc[k][h] != null ? lc[k][h] : 0;
+                   return `layer ${k + 1}, its unit ${h + 1}: gate ${g.toFixed(3)}, adds ${v.toFixed(3)} now`; })();
+      ctx.font = '11px monospace'; ctx.fillStyle = '#ffe2d6'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(lab, W - 8, H - 6);
+    }
+    B3.pts = pts;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
   // Its stacked layers in a line: how many, how many waiting, their gates' range.
   function layerSummary(ls) {
     const on = ls.filter(l => l.gate && l.gate[0]), gs = on.map(l => l.gate[0]), f = v => v.toFixed(2).replace(/^(-?)0\./, '$1.');
@@ -2129,96 +2362,27 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
-    drawMB(d);
+    drawMBHud(d);  // its life's tally (under the navigation card); the mushroom body is drawn on the flatmap
     drawReplayEye(d);
     if ($('brain-mb')) $('brain-mb').textContent = d.kc ? '' : 'No mushroom body yet (lifetime learning evolves). ';
     if ($('brain-layers')) { const ls = br.layers || [], on = ls.filter(l => l.gate && l.gate[0] !== 0); $('brain-layers').textContent = `${on.length} layer${on.length === 1 ? '' : 's'}` + (ls.length > on.length ? ` (+${ls.length - on.length} silent)` : '') + (on.length ? ` -- gates ${on.map(l => l.gate[0].toFixed(2)).join(', ')}` : ''); }
     const c = $('brain'), W = Math.max(200, fitWidth($('brain').closest('.panel'), quadAspect()));
-    // Same shape as the other three; a narrow phone screen gets extra height
-    // so its 19 input labels stay legible.
-    const H = Math.round(W < 600 ? Math.max(320, W * quadAspect()) : W * quadAspect());
+    // tall enough for its organs' blocks: a phone gets more height than width
+    const H = Math.round(W < 600 ? Math.max(480, W * 1.35) : Math.max(520, W * quadAspect() * 1.05));
     if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-    const ctx = c.getContext('2d');
     BZ.d = d;
     if (B3.on) { drawBrain3D(); return; }
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H); ctx.setTransform(BZ.k, 0, 0, BZ.k, BZ.x, BZ.y);
-    const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
-    const hm = Math.min(220, W * 0.25, H - 50), netW = W - hm - 40;
-    const xin = 90, xh = xin + (netW - 90) * 0.5, xout = netW - 50;
-    const yAt = (k, n) => 24 + k * (H - 48) / Math.max(1, n - 1);
-    let maxW = 1e-9; br.weights_ih.forEach(r => r.forEach(v => maxW = Math.max(maxW, Math.abs(v)))); br.weights_ho.forEach(r => r.forEach(v => maxW = Math.max(maxW, Math.abs(v))));
-    const edge = (x1, y1, x2, y2, w) => { const a = Math.min(1, Math.abs(w) / maxW); ctx.strokeStyle = w >= 0 ? `rgba(127,212,255,${0.08 + 0.8 * a})` : `rgba(255,153,0,${0.08 + 0.8 * a})`; ctx.lineWidth = 0.5 + 2 * a; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
-    for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edge(xin, yAt(i, nIn), xh, yAt(h, nH), br.weights_ih[h][i]);
-    for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edge(xh, yAt(h, nH), xout, yAt(o, nOut) , br.weights_ho[o][h]);
-    ctx.font = (nIn > 26 ? '10px' : '11px') + ' monospace'; ctx.textBaseline = 'middle';
-    for (let i = 0; i < nIn; i++) { ctx.fillStyle = '#2a1512'; ctx.beginPath(); ctx.arc(xin, yAt(i, nIn), 6, 0, 7); ctx.fill(); ctx.fillStyle = '#b88a80'; ctx.textAlign = 'right'; ctx.fillText(i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in'), xin - 10, yAt(i, nIn)); }
-    const hid = d.brain_hidden || [];
-    for (let h = 0; h < nH; h++) { const a = hid[h] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; ctx.beginPath(); ctx.arc(xh, yAt(h, nH), 9, 0, 7); ctx.fill(); ctx.stroke(); }
-    // Its stacked layers, a column each just right of its units: each layer adds
-    // gate x its own activity to every unit's signal on the way out (controller.step),
-    // so a cell shows what that layer adds to that unit now -- cyan up, orange down,
-    // solid at 0.25 or more (gates are small); a faint column changes nothing. A
-    // silent layer (gate 0, a waiting copy) is an empty dashed outline.
-    const ls = br.layers || [], lc = d.brain_layers || [];
-    if (ls.length) {
-      // fitted into the gap before the outputs: a founder may carry dozens (it can't run past its outputs)
-      const room = Math.max(20, xout - xh - 40), step = Math.min(Math.max(4, Math.min(12, (H - 48) / Math.max(1, nH) - 2)) + 6, room / ls.length);
-      const sq = Math.max(2, Math.min(step - (step > 8 ? 4 : 1), Math.max(4, Math.min(12, (H - 48) / Math.max(1, nH) - 2)))), x0 = xh + 18, named = step >= 22;
-      ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ls.forEach((L, k) => {
-        const g = L.gate ? L.gate[0] : 0, x = x0 + k * step, row = lc[k];
-        for (let h = 0; h < nH; h++) {
-          const y = yAt(h, nH) - sq / 2;
-          if (!g) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#8a9aaa'; ctx.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1); ctx.restore(); continue; }
-          const v = row && row[h] != null ? row[h] : 0, a = Math.min(1, Math.abs(v) / 0.25);
-          ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${0.06 + 0.94 * a})` : `rgba(255,153,0,${0.06 + 0.94 * a})`;
-          ctx.fillRect(x, y, sq, sq); ctx.strokeStyle = '#345'; ctx.strokeRect(x + 0.5, y + 0.5, sq - 1, sq - 1);
-        }
-        ctx.fillStyle = g ? '#9a6f67' : '#8a9aaa';
-        // its name along the canvas's top edge, its gate along the bottom: the units
-        // reach both edges (24 px in), so nothing written beside them fits
-        if (named) {  // each column named where there's room; else one summary line
-          ctx.fillText(g ? `L${k + 1}` : 'wait', x + sq / 2, 3);
-          if (g) ctx.fillText(g.toFixed(2).replace(/^(-?)0\./, '$1.'), x + sq / 2, H - 13);
-        }
-      });
-      if (!named) { ctx.textAlign = 'left'; ctx.fillStyle = '#9a6f67'; ctx.fillText(layerSummary(ls), x0, 3); }
-      ctx.textBaseline = 'middle';
-    }
-    for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#ffe2d6'; ctx.textAlign = 'left'; ctx.fillText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out'), xout + 16, yAt(o, nOut)); }
-    const hx = W - hm - 10, hy = 30, cell = hm / nH;
-    let mh = 1e-9; br.weights_hh.forEach(r => r.forEach(v => mh = Math.max(mh, Math.abs(v))));
-    for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) { const v = br.weights_hh[r][q], a = Math.abs(v) / mh; ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${a})` : `rgba(255,153,0,${a})`; ctx.fillRect(hx + q * cell, hy + r * cell, cell - 1, cell - 1); }
-    ctx.fillStyle = '#9a6f67'; ctx.textAlign = 'left'; ctx.fillText('recurrent weights', hx, hy - 12);
-    ctx.fillText('from unit ->  (rows: to unit)', hx, hy + hm + 14);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (BZ.k > 1.01) { ctx.fillStyle = '#6a5550'; ctx.textAlign = 'right'; ctx.fillText(`${BZ.k.toFixed(1)}x  (double-click: fit)`, W - 8, H - 10); }
+    drawNervous(d, false);
+    const ctx = c.getContext('2d');
+    if (BZ.k > 1.01) { ctx.font = '10px monospace'; ctx.fillStyle = '#6a5550'; ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText(`${BZ.k.toFixed(1)}x  (double-click: fit)`, W - 8, 6); }
   }
-  // Its brain in 3D: inputs on a plane at the left, hidden units on a sphere,
-  // outputs on a ring at the right; every wire drawn, faded by depth; every
-  // unit named. Drag to orbit, wheel or pinch to zoom, double-click to reset;
-  // hovering a unit lights its links and dims the rest; idle, it drifts.
-  const B3 = { on: false, yaw: 2.69, pitch: -0.08, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
+  // Its nervous system, 2D or 3D (drawNervous): drag to orbit (3D) or pan
+  // (2D, zoomed), wheel or pinch to zoom, double-click to reset; hover an
+  // organ, unit or output to light its wires; in 3D, idle, it drifts.
+  const B3 = { on: false, yaw: 0.35, pitch: 0.2, zoom: 1, vyaw: 0, touched: 0, hover: null, pts: [], dirty: false };
   B3.on = false;  // 2D by default; 3D is the option
   const BRAIN_VIEW_KEY = MOBILE ? 'brain-view-phone' : 'brain-view';
   try { B3.on = localStorage.getItem(BRAIN_VIEW_KEY) === '3d'; } catch (e) {}
-  function brain3DLayout(nIn, nH, nOut) {
-    const pts = [], rows = Math.ceil(nIn / 3);  // three columns, each a run of senses in order
-    for (let i = 0; i < nIn; i++) {
-      const col = Math.floor(i / rows), r = i % rows;
-      pts.push({ kind: 'in', k: i, x: -1.2, y: -0.92 + 1.84 * r / Math.max(1, rows - 1), z: (col - 1) * 0.42 });
-    }
-    const ga = Math.PI * (3 - Math.sqrt(5));  // a Fibonacci sphere: even spacing for any count
-    for (let h = 0; h < nH; h++) {
-      const y = nH > 1 ? 1 - 2 * (h + 0.5) / nH : 0, rad = Math.sqrt(1 - y * y), th = ga * h;
-      pts.push({ kind: 'hid', k: h, x: 0.42 * rad * Math.cos(th), y: 0.55 * y, z: 0.55 * rad * Math.sin(th) });
-    }
-    for (let o = 0; o < nOut; o++) {
-      const a = 2 * Math.PI * o / nOut;
-      pts.push({ kind: 'out', k: o, x: 1.2, y: 0.55 * Math.cos(a), z: 0.55 * Math.sin(a) });
-    }
-    return pts;
-  }
   // The largest on-screen distance from the centre a point within radius R
   // of it can reach under perspective F, at any rotation (per unit of scale).
   function reach3D(R, F) {
@@ -2226,118 +2390,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     for (let i = 0; i <= 60; i++) { const z = -R + 2 * R * i / 60; m = Math.max(m, Math.sqrt(Math.max(0, R * R - z * z)) * F / (F - z)); }
     return m;
   }
-  function drawBrain3D() {
-    const d = BZ.d, br = d && d.brain, c = $('brain'); if (!br || !c) return;
-    const W = c.width, H = c.height, ctx = c.getContext('2d');
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
-    const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length;
-    const P = brain3DLayout(nIn, nH, nOut), hid = d.brain_hidden || [];
-    const cy = Math.cos(B3.yaw), sy = Math.sin(B3.yaw), cp = Math.cos(B3.pitch), sp = Math.sin(B3.pitch);
-    const F = 3.2;
-    // Fit, whatever the rotation: its farthest unit's distance from the
-    // centre (and the nearest a unit can come, for perspective), with room
-    // for the widest label on either side.
-    let R3 = 0.1; P.forEach(q => { R3 = Math.max(R3, Math.hypot(q.x, q.y, q.z)); });
-    ctx.font = '11px monospace';
-    let Lw = 0;
-    for (let i = 0; i < nIn; i++) Lw = Math.max(Lw, ctx.measureText(i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in')).width);
-    for (let o = 0; o < nOut; o++) Lw = Math.max(Lw, ctx.measureText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out')).width);
-    const reach = reach3D(R3, F), fit = Math.min((W / 2 - Lw - 24) / reach, (H / 2 - 14) / reach);
-    const scale = Math.max(20, fit) * B3.zoom;
-    P.forEach(q => {
-      const x1 = q.x * cy + q.z * sy, z1 = -q.x * sy + q.z * cy;
-      const y2 = q.y * cp - z1 * sp, z2 = q.y * sp + z1 * cp;
-      const w = F / (F + z2);
-      q.sx = W / 2 + x1 * scale * w; q.sy = H / 2 + y2 * scale * w; q.depth = z2; q.w = w;
-      q.fog = Math.max(0.25, Math.min(1, 0.65 - 0.45 * z2));
-    });
-    const edges = [];
-    for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edges.push([i, nIn + h, br.weights_ih[h][i], 0]);
-    for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edges.push([nIn + h, nIn + nH + o, br.weights_ho[o][h], 0]);
-    for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) if (r !== q) edges.push([nIn + q, nIn + r, br.weights_hh[r][q], 1]);
-    let maxW = 1e-9; edges.forEach(e => { maxW = Math.max(maxW, Math.abs(e[2])); });
-    const hov = B3.hover;
-    // Every wire, faint to bright by strength, added light on light (additive
-    // blending: bundles glow where they overlap, like the connectome renders);
-    // each one bowed a little, its own way. A budget only for huge brains.
-    const shown = edges.length > 6000 ? edges.slice().sort((x, y) => Math.abs(y[2]) - Math.abs(x[2])).slice(0, 6000) : edges;
-    const hash = (x, y) => { const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); };
-    ctx.globalCompositeOperation = 'lighter';
-    shown.forEach(([a, b, w, rec]) => {
-      const A = P[a], B = P[b], s = Math.min(1, Math.abs(w) / maxW), fog = (A.fog + B.fog) / 2;
-      const mine = hov == null || a === hov || b === hov;
-      const alpha = (0.05 + 0.55 * s) * fog * (mine ? (hov != null ? 1.6 : 1) : 0.2);
-      const mx = (A.sx + B.sx) / 2, my = (A.sy + B.sy) / 2;
-      let cx, cy;
-      if (rec) {  // a recurrent wire bows outward from the sphere
-        const ox = mx - W / 2, oy = my - H / 2, n = Math.hypot(ox, oy) || 1;
-        cx = mx + ox / n * 30 * B3.zoom; cy = my + oy / n * 30 * B3.zoom;
-      } else {    // the rest bow slightly, each its own way
-        const dx = B.sx - A.sx, dy = B.sy - A.sy, bend = (hash(a, b) - 0.5) * 0.35;
-        cx = mx - dy * bend; cy = my + dx * bend;
-      }
-      const col = w >= 0 ? '127,212,255' : '255,153,0';
-      ctx.strokeStyle = `rgba(${col},${Math.min(1, alpha)})`;
-      ctx.lineWidth = (0.5 + 1.8 * s) * (A.w + B.w) / 2;
-      ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.quadraticCurveTo(cx, cy, B.sx, B.sy); ctx.stroke();
-    });
-    // a soft glow behind each hidden unit, as bright as it is active
-    P.forEach(q => {
-      if (q.kind !== 'hid') return;
-      const a = hid[q.k] || 0, rr = 26 * q.w * Math.sqrt(B3.zoom) * (0.4 + Math.abs(a)), col = a >= 0 ? '127,212,255' : '255,153,0';
-      const g = ctx.createRadialGradient(q.sx, q.sy, 0, q.sx, q.sy, rr);
-      g.addColorStop(0, `rgba(${col},${0.35 * Math.abs(a) * q.fog})`); g.addColorStop(1, `rgba(${col},0)`);
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.sx, q.sy, rr, 0, 7); ctx.fill();
-    });
-    ctx.globalCompositeOperation = 'source-over';
-    const lit = new Set(hov != null ? shown.filter(e => e[0] === hov || e[1] === hov).flatMap(e => [e[0], e[1]]) : []);
-    const label = q => q.kind === 'in' ? (q.k < INPUT_NAMES.length ? INPUT_NAMES[q.k] : channelName(br, q.k - INPUT_NAMES.length, 'in'))
-      : q.kind === 'out' ? (q.k < OUTPUT_NAMES.length ? OUTPUT_NAMES[q.k] : channelName(br, q.k - OUTPUT_NAMES.length, 'out'))
-      : `h${q.k + 1} ${(hid[q.k] || 0).toFixed(2)}`;
-    ctx.textBaseline = 'middle';
-    const LS = br.layers || [], LC = d.brain_layers || [];
-    P.map((q, idx) => [q, idx]).sort((a, b) => b[0].depth - a[0].depth).forEach(([q, idx]) => {
-      const dim = hov != null && !lit.has(idx) && idx !== hov;
-      const r = (q.kind === 'hid' ? 8 : q.kind === 'out' ? 10 : 5) * q.w * Math.sqrt(B3.zoom) * (MOBILE ? SMALL(W) : 1);
-      ctx.globalAlpha = q.fog * (dim ? 0.3 : 1);
-      if (q.kind === 'hid') { const a = hid[q.k] || 0; ctx.fillStyle = a >= 0 ? `rgba(127,212,255,${0.15 + 0.85 * Math.abs(a)})` : `rgba(255,153,0,${0.15 + 0.85 * Math.abs(a)})`; ctx.strokeStyle = '#345'; }
-      else if (q.kind === 'out') { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; }
-      else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
-      ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
-      if (q.kind === 'hid' && LS.length) {  // its stacked layers, a row of cells under the unit (2D: a column beside it), riding with it
-        const per = Math.ceil(Math.sqrt(LS.length)), big = Math.max(5, 10 * q.w * Math.sqrt(B3.zoom));  // a square grid: dozens stay compact
-        const sq = LS.length > 9 ? Math.max(2, big * 3 / per) : big, gap = Math.max(1, sq / 4), y00 = q.sy + Math.max(2, r) + 3;
-        const cols = Math.min(LS.length, per), x0 = q.sx - (cols * (sq + gap) - gap) / 2;
-        LS.forEach((L, k) => {
-          const g = L.gate ? L.gate[0] : 0, x = x0 + (k % per) * (sq + gap), y0 = y00 + Math.floor(k / per) * (sq + gap);
-          if (!g) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#8a9aaa'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y0 + 0.5, sq - 1, sq - 1); ctx.restore(); return; }
-          const row = LC[k], v = row && row[q.k] != null ? row[q.k] : 0, a = Math.min(1, Math.abs(v) / 0.25);
-          ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${0.06 + 0.94 * a})` : `rgba(255,153,0,${0.06 + 0.94 * a})`;
-          ctx.fillRect(x, y0, sq, sq); ctx.strokeStyle = '#345'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y0 + 0.5, sq - 1, sq - 1);
-        });
-      }
-      if (!MOBILE || q.kind === 'out' || idx === hov || (hov != null && lit.has(idx))) {  // every unit named (on a phone: outputs, and the tapped unit's neighbourhood); a hovered unit's neighbours stay bright, the rest dim with their wires
-        ctx.font = (idx === hov ? 'bold 12px' : q.kind === 'out' ? '11px' : q.kind === 'hid' ? '9px' : '10px') + ' monospace';
-        ctx.fillStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'hid' ? '#a9bcc8' : '#b88a80';
-        const text = label(q), tw = ctx.measureText(text).width;
-        let right = q.sx >= W / 2;
-        if (!right && q.sx - r - 5 - tw < 2) right = true; else if (right && q.sx + r + 5 + tw > W - 2) right = false;  // never off the edge
-        ctx.textAlign = right ? 'left' : 'right';
-        ctx.fillText(text, q.sx + (right ? 1 : -1) * (r + 5), q.sy);
-      }
-    });
-    ctx.globalAlpha = 1;
-    if (LS.length) {  // the key to the rows under its units, in their order: each layer's gate (2D writes these above and below its columns)
-      ctx.font = '9px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-      const key = LS.length > 8 ? 'under each unit: ' + layerSummary(LS) + ' (row by row)'
-        : 'layers under each unit: ' + LS.map((L, k) => L.gate && L.gate[0] ? `L${k + 1} ${L.gate[0].toFixed(2).replace(/^(-?)0\./, '$1.')}` : 'wait').join(' · ');
-      ctx.fillStyle = '#9a6f67'; ctx.fillText(key, 8, H - 6);
-    }
-    B3.pts = P;
-  }
+  function drawBrain3D() { if (BZ.d) drawNervous(BZ.d, true); }  // the same flatmap, given depth and turned
   function brain3DAt(x, y) {
     let best = null, bd = 14;
-    B3.pts.forEach((q, i) => { const dd = Math.hypot(q.sx - x, q.sy - y); if (dd < bd) { bd = dd; best = i; } });
+    B3.pts.forEach(q => { const dd = Math.hypot(q.sx - x, q.sy - y); if (dd < bd) { bd = dd; best = q.key; } });
     return best;
   }
   // It draws when something changes (new data, a touch) and drifts a while
@@ -2386,14 +2442,15 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     }, { passive: false });
     c.addEventListener('dblclick', () => {
       if (!active()) return;
-      if (B3.on) { B3.yaw = 2.69; B3.pitch = -0.08; B3.zoom = 1; drawBrain3D(); return; }
+      if (B3.on) { B3.yaw = 0.35; B3.pitch = 0.2; B3.zoom = 1; drawBrain3D(); return; }
       BZ.k = 1; BZ.x = BZ.y = 0; if (BZ.d) drawBrain(BZ.d);
     });
-    c.addEventListener('pointerleave', () => { if (B3.hover != null) { B3.hover = null; B3.dirty = true; brain3DKick(); } });
+    c.addEventListener('pointerleave', () => { if (B3.hover != null) { B3.hover = null; B3.dirty = true; if (B3.on) brain3DKick(); else if (BZ.d) drawBrain(BZ.d); } });
     c.addEventListener('pointerdown', e => { if (!active()) { steerOn(c); return; } c.setPointerCapture(e.pointerId); BZ.pts.set(e.pointerId, brainPoint(e)); BZ.pinch = null; B3.touched = performance.now(); brain3DKick(); if (B3.on) c.style.cursor = 'grabbing'; });
     c.addEventListener('pointermove', e => {
       if (!BZ.pts.has(e.pointerId)) {
-        if (B3.on) { const [x, y] = brainPoint(e), h = brain3DAt(x, y); if (h !== B3.hover) { B3.hover = h; B3.dirty = true; brain3DKick(); } }
+        const [x, y] = brainPoint(e), h = brain3DAt(x, y);
+        if (h !== B3.hover) { B3.hover = h; if (B3.on) { B3.dirty = true; brain3DKick(); } else if (BZ.d) drawBrain(BZ.d); }
         return;
       }
       const prev = BZ.pts.get(e.pointerId), now = brainPoint(e); BZ.pts.set(e.pointerId, now);
@@ -2719,7 +2776,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     picture.after(row);
   }
   document.querySelectorAll('.video16x9').forEach(v => fsButton(v, () => videoFull(v)));
-  ['space-panel', 'look-panel', 'field-panel', 'brain-panel', 'mb-panel'].forEach(id => {
+  ['space-panel', 'look-panel', 'field-panel', 'brain-panel'].forEach(id => {
     const p = $(id), c = p && p.querySelector('canvas');
     if (c) fsButton(c.parentElement === p ? c : c.parentElement, () => setMax(p));  // after its picture's own box (the mushroom body's holds its HUD too)
   });
