@@ -1127,6 +1127,30 @@ def _default_brain(genome) -> None:
     print("A default brain: a random founder, every seed set applied.")
 
 
+LAST_CHANGE = "last_change.json"  # what last took its place (load, new brain, new founder, reset), for the viewer's banner
+
+
+def _announce(kind: str, what: str, ok: bool = True) -> None:
+    """Records, the moment it is applied, what took (or failed to take) this
+    organism's place -- the viewer announces it, so whoever asked knows it
+    happened, not only that it was asked."""
+    try:
+        sandbox.STATE_DIR.mkdir(parents=True, exist_ok=True)
+        p = sandbox.STATE_DIR / LAST_CHANGE
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"kind": kind, "what": what, "ok": ok, "t": round(time.time(), 1)}), encoding="utf-8")
+        tmp.replace(p)
+    except OSError:
+        pass
+
+
+def _last_change() -> dict | None:
+    try:
+        return json.loads((sandbox.STATE_DIR / LAST_CHANGE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def utf8_stdio() -> None:
     """Its output in UTF-8, line by line, whatever the platform's default:
     on Windows a supervisor's log file is cp1252, which has no jīng or 精 --
@@ -1600,6 +1624,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
                 _AMNESIA["founder"] = True
                 break
             print("Reset to founder: no founder was kept for this lineage (born before founders were kept).")
+            _announce("reset", "no founder was kept for this lineage (born before founders were kept)", ok=False)
         if sandbox.LOAD_REQUEST_PATH.exists():
             # The owner's Load organism (the viewer, `cambrian --load`): the
             # staged file checked now (tools/organism_file.py -- a refused one
@@ -1647,6 +1672,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             if life is not None:
                 life.adopt(genome)
             print(f"Randomized: a founder's brain, drawn afresh (backup: {backup.name}).")
+            _announce("brain", f"a new brain: {genome.brain.n_hidden} units, {len(genome.brain.layers)} stacked layers (the old one is in {backup.name})")
             sandbox.log_event({"t": round(time.time(), 1), "event": "randomized", "backup": backup.name})
         # Dessert over (deadline passed, or cleared in the viewer): stop
         # this run so systemd brings it back on its home camera.
@@ -2074,6 +2100,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             # Where its frames are, for the viewer's replay of this run.
             "world_first_index": world.first_index,
             "world_epoch": feed_epoch,
+            "last_change": _last_change(),
             "fovea_fraction_accepted": round(genome.fovea_fraction, 4),
             # The eye of the run shown (its grid and path): a child's, when it differs.
             "receptors": live_info.get("receptors", genome.receptors),
@@ -2564,6 +2591,7 @@ def main() -> int:
         try:
             m, backup = organism_file.install(blob, sandbox.STATE_DIR)
             print(f"Loaded {m.get('name')}; the lineage it replaced is in {backup.name}.")
+            _announce("load", f"{m.get('name')} (from {m.get('ecohost', '?')}) took its place; the one it replaced is in {backup.name}")
         except Exception as e:
             print(f"Load failed ({e}); this lineage goes on.")
         return sandbox.EXIT_RESTART_ME
@@ -2579,11 +2607,13 @@ def main() -> int:
                 for target in into:
                     shutil.copy2(backup / name, sandbox.STATE_DIR / target)
         print(f"Reset to founder: {len(moved)} files moved to {backup.name}; its founder, as it was at birth, starts again.")
+        _announce("reset", f"its founder, as it was at birth, starts again (the lineage is in {backup.name})")
         return sandbox.EXIT_RESTART_ME
     if _AMNESIA["now"]:
         from tools.reset_founder import reset
         backup, moved = reset(sandbox.STATE_DIR)
         print(f"Amnesia: {len(moved)} files moved to {backup.name}; starting again as a founder.")
+        _announce("founder", f"a new random founder (everything it was is in {backup.name})")
         return sandbox.EXIT_RESTART_ME
     return 0
 

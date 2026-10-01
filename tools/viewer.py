@@ -768,6 +768,20 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
      (watch this, back to camera) together with its own lists and notes */
   .orgrow { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
   #tree-panel { align-self: start; }  /* the tree's card ends where the tree does: the grid doesn't stretch it to its row's tallest */
+  /* the banner: what took its place (or is about to), loud, until dismissed or two minutes on */
+  #announce { position: sticky; top: 0; z-index: 50; margin: 0 0 10px; padding: 10px 14px; font: bold 14px monospace; color: #0a0e14; background: #7cffa0; border: 1px solid #7cffa0; }
+  #announce.wait { background: #ffb000; border-color: #ffb000; } #announce.bad { background: #ff6f6f; border-color: #ff6f6f; }
+  #announce a { float: right; color: inherit; text-decoration: none; font-size: 18px; line-height: 14px; }
+  /* the organisms library */
+  #org-dialog { background: #10161c; color: #e8d8d0; border: 1px solid var(--line); padding: 14px 16px; width: min(640px, 94vw); max-height: 86vh; font: 13px monospace; }
+  #org-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  #org-dialog h3 { margin: 14px 0 6px; font: bold 12px monospace; text-transform: uppercase; color: #c8c8c8; }
+  #org-dialog button { margin-right: 6px; }
+  .od-head { display: flex; justify-content: space-between; font-size: 15px; } .od-head a { color: #e8d8d0; text-decoration: none; font-size: 20px; }
+  .od-row { margin: 8px 0; } .od-foot { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .od-note { color: #9a8f8a; } .od-list .od-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid #1c2630; }
+  .od-item .od-name { flex: 1 1 220px; } .od-item.fresh { background: rgba(124, 255, 160, 0.08); }
+  .od-peer > summary { cursor: pointer; padding: 4px 0; color: #e8d8d0; }
   .grp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; vertical-align: middle; }  /* a button and its own list, close together; groups further apart */
   #brain-panel .orgrow .grp a, #brain-panel .orgrow .orgsel { font: inherit; background: var(--bg); color: var(--cyan); border: 1px solid var(--line); padding: 3px 6px; text-decoration: none; display: inline-block; }  /* as the page's buttons */
   #brain-panel .orgrow .grp a:hover, #brain-panel .orgrow .orgsel:hover { border-color: var(--cyan); }
@@ -799,6 +813,18 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
 </style>
 </head>
 <body>
+<div id="announce" role="status" aria-live="assertive" hidden><span id="announce-text"></span> <a href="#" id="announce-close" title="Dismiss">&times;</a></div>
+<dialog id="org-dialog">
+  <div class="od-head"><b>Organisms</b> <a href="#" id="od-close" title="Close">&times;</a></div>
+  <div class="od-row"><button id="od-save">Save this one</button> <span id="od-save-note" class="od-note"></span></div>
+  <h3>On this ecohost</h3>
+  <div id="od-local" class="od-list">--</div>
+  <h3>From the hive</h3>
+  <div id="od-peers" class="od-list">--</div>
+  <div class="od-row od-foot"><button id="od-upload">Upload a file&hellip;</button> <button id="od-download">Download this one</button> <input type="file" id="od-file" accept=".cambrioid" hidden> <span id="od-foot-note" class="od-note"></span></div>
+  <div class="od-note">Loading replaces this organism at its next generation; the one it replaces is kept in a backup. You'll see it announced at the top when it happens.</div>
+</dialog>
+
 <header>
   <h1>cambrian-perception</h1>
   <span class="chip">generation <b id="h-gen">--</b></span>
@@ -859,7 +885,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
     <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked (a column each beside its units: what it adds to each unit now; faint adds nothing). <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
-    <div class="cap orgrow"><span class="grp"><a href="#" id="brain-portrait" title="Its brain as a picture: every wire, from an oblique angle, saved to the device you are viewing on">Get 3D image</a> <span id="brain-portrait-note"></span></span> <span class="grp"><a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span></span> <span class="grp"><a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span></span> <span class="grp"><a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></span> <span class="grp"><a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span></span> <span class="grp"><select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span></span> <span class="grp">Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span></span> <span class="grp"><a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span></span> <span class="grp"><a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></span></div>
+    <div class="cap orgrow"><span class="grp"><a href="#" id="brain-portrait" title="Its brain as a picture: every wire, from an oblique angle, saved to the device you are viewing on">Get 3D image</a> <span id="brain-portrait-note"></span></span> <span class="grp"><a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span></span> <span class="grp"><a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span></span> <span class="grp"><a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></span> <span class="grp"><a href="#" id="org-open" title="Save it, load another, copy one from the hive, download or upload">Organisms&hellip;</a></span></div>
   </div>
   <div class="panel" id="tree-panel">
     <h2>its perception tree</h2>
@@ -2042,96 +2068,123 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       if (Date.now() - armed > 4000) { armed = Date.now(); note.textContent = arm; return; }
       armed = 0; note.textContent = 'asking...';
       fetch('/' + id, { method: 'POST', headers: { 'X-Cambrian': '1' } })
-        .then(r => r.ok ? (note.textContent = done) : r.json().then(j => { note.textContent = j.error || 'refused'; }, () => { note.textContent = 'refused'; }))
+        .then(r => r.ok ? (note.textContent = done, expectChange({ randomize: 'brain', amnesia: 'founder', 'reset-founder': 'reset' }[id], { randomize: 'a new random brain', amnesia: 'a new random founder', 'reset-founder': 'its founder, as it was at birth' }[id])) : r.json().then(j => { note.textContent = j.error || 'refused'; }, () => { note.textContent = 'refused'; }))
         .catch(() => { note.textContent = 'no answer'; });
     });
   });
-  // Its organism files (tools/organism_file.py), all in THIS ecohost's
-  // Games/Lifeforms/Cambrioids folder: Save puts it there; Load (a list of
-  // them, two clicks) takes one in its place at its next generation, this one
-  // kept in a backup; Copy from pulls one of a hive peer's there; Download and
-  // Upload move one between that folder and the device you are viewing on.
-  (() => {
-    const H = { 'X-Cambrian': '1' }, say = (id, t) => { const e = $(id); if (e) e.textContent = t; };
-    const when = t => t ? new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + new Date(t * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
-    const label = e => e.damaged ? `${e.file} (damaged)` : `${e.ecohost || '?'} gen ${e.generation ?? '?'} · ${when(e.saved_at)}`;
-    const fill = (sel, list, empty) => {
-      sel.innerHTML = list.length ? '' : `<option value="">${empty}</option>`;
-      list.forEach(e => { const o = document.createElement('option'); o.value = e.file; o.textContent = label(e); o.title = e.file; sel.appendChild(o); });
-    };
-    const ll = $('load-list');
-    const refresh = () => ll && fetch('/organism/saves', { headers: H }).then(r => r.json()).then(l => fill(ll, l, 'no saves yet')).catch(() => {});
-    refresh();
-    const post = (url, body) => fetch(url, { method: 'POST', headers: H, body }).then(r => r.json());
-    // Save
-    const sh = $('save-here');
-    if (sh) sh.addEventListener('click', ev => {
-      ev.preventDefault(); say('save-here-note', 'saving...');
-      post('/save-here').then(j => { say('save-here-note', j.ok ? 'saved' : `refused: ${j.error}`); refresh(); }, () => say('save-here-note', 'no answer'));
-    });
-    // Load (from the list)
-    let armed = 0;
-    const lo = $('load-organism');
-    if (lo) lo.addEventListener('click', ev => {
-      ev.preventDefault();
-      const f = ll && ll.value;
-      if (!f) { say('load-organism-note', 'choose one of its saves first'); return; }
-      if (Date.now() - armed > 4000) { armed = Date.now(); say('load-organism-note', 'click again: it takes this one’s place (a backup is kept)'); return; }
-      armed = 0; say('load-organism-note', 'checking...');
-      post('/load-saved?file=' + encodeURIComponent(f)).then(j => say('load-organism-note', j.ok ? `${j.name}: at its next generation` : `refused: ${j.error}`), () => say('load-organism-note', 'no answer'));
-    });
-    // Copy from (a hive peer)
-    const pl = $('peer-list'), ps = $('peer-saves'), ch = $('copy-here');
-    let asked = false;
-    const askPeers = () => {
-      if (asked) return;
-      asked = true; say('copy-note', 'finding ecohosts...');
-      fetch('/organism/peers', { headers: H }).then(r => r.json()).then(j => {
-        say('copy-note', !j.hive ? 'solo: this ecohost is not in the hive' : j.peers.length ? '' : 'no other ecohost answers');
-        j.peers.forEach(h => { const o = document.createElement('option'); o.value = h; o.textContent = h; pl.appendChild(o); });
-      }, () => { asked = false; say('copy-note', 'no answer'); });
-    };
-    if (pl) { pl.addEventListener('pointerdown', askPeers); pl.addEventListener('focus', askPeers); }
-    if (pl) pl.addEventListener('change', () => {
-      ps.hidden = ch.hidden = !pl.value;
-      if (!pl.value) return;
-      say('copy-note', 'asking...');
-      fetch('/organism/peer-saves?host=' + encodeURIComponent(pl.value), { headers: H }).then(r => r.json())
-        .then(j => { if (j.error) { say('copy-note', j.error); return; } fill(ps, j.saves, 'no saves there'); say('copy-note', ''); }, () => say('copy-note', 'no answer'));
-    });
-    if (ch) ch.addEventListener('click', ev => {
-      ev.preventDefault();
-      if (!ps.value) return;
-      say('copy-note', 'copying...');
-      post('/copy-from?host=' + encodeURIComponent(pl.value) + '&file=' + encodeURIComponent(ps.value))
-        .then(j => { say('copy-note', j.ok ? `copied: ${j.file} (now under Load)` : `refused: ${j.error}`); refresh(); }, () => say('copy-note', 'no answer'));
-    });
-    // Download (to the device you are viewing on)
-    const dl = $('save-organism');
-    if (dl) dl.addEventListener('click', ev => {
-      ev.preventDefault(); say('save-organism-note', 'saving...');
-      fetch('/organism/save', { headers: H }).then(r => {
-        if (!r.ok) return r.json().then(j => say('save-organism-note', j.error || 'refused'), () => say('save-organism-note', 'refused'));
-        const m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || ''), name = m ? m[1] : 'organism.cambrioid';
-        return r.blob().then(b => {
-          const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
-          document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-          say('save-organism-note', 'downloaded');
-        });
-      }).catch(() => say('save-organism-note', 'no answer'));
-    });
-    // Upload (from the device you are viewing on, into its saves)
-    const up = $('upload-organism'), fi = $('load-file');
-    if (up && fi) {
-      up.addEventListener('click', ev => { ev.preventDefault(); fi.value = ''; fi.click(); });
-      fi.addEventListener('change', () => {
-        const f = fi.files && fi.files[0];
-        if (!f) return;
-        say('upload-note', 'checking...');
-        f.arrayBuffer().then(buf => post('/upload?name=' + encodeURIComponent(f.name), buf))
-          .then(j => { say('upload-note', j.ok ? `kept: ${j.file} (now under Load)` : `refused: ${j.error}`); refresh(); }, () => say('upload-note', 'no answer'));
-      });
+  // What took its place, announced (a 2026-10-01 mini-sprint: a load, a new
+  // brain, a new founder or a reset happens at its next generation -- the
+  // request alone told nobody whether it did). The organism records each
+  // change as it applies it (run_vision._announce -> status "last_change");
+  // the banner shows it loudly for two minutes. While a request of this page
+  // waits, the banner says so; three minutes without the change, it says that.
+  let PENDING = null;
+  try { PENDING = JSON.parse(sessionStorage.getItem('pending-change') || 'null'); } catch (e) {}
+  let SEEN_CHANGE = null;
+  function expectChange(kind, label) {
+    PENDING = { kind, label, t: Date.now() };
+    try { sessionStorage.setItem('pending-change', JSON.stringify(PENDING)); } catch (e) {}
+    if (BZ.d) announce(BZ.d);
+  }
+  function announce(d) {
+    const el = $('announce'), tx = $('announce-text'); if (!el || !tx) return;
+    const lc = d && d.last_change, now = Date.now(), at = t => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    if (PENDING && lc && lc.t * 1000 >= PENDING.t - 2000) { PENDING = null; try { sessionStorage.removeItem('pending-change'); } catch (e) {} }
+    let text = '', cls = '';
+    if (PENDING) {
+      const s = Math.round((now - PENDING.t) / 1000);
+      text = s < 180 ? `Waiting for ${PENDING.label} to take its place at its next generation... (${s} s)`
+                     : `${PENDING.label}: not applied yet after ${Math.round(s / 60)} min -- is the organism running? (its status: generation ${d.generation ?? '?'})`;
+      cls = s < 180 ? 'wait' : 'bad';
+    } else if (lc && now - lc.t * 1000 < 120000 && SEEN_CHANGE !== lc.t) {
+      const title = { load: 'LOADED', brain: 'NEW BRAIN', founder: 'NEW FOUNDER', reset: 'RESET TO FOUNDER' }[lc.kind] || 'CHANGED';
+      text = lc.ok === false ? `${title} FAILED: ${lc.what}` : `${title} at ${at(lc.t * 1000)}: ${lc.what}`;
+      cls = lc.ok === false ? 'bad' : '';
     }
+    el.hidden = !text; el.className = cls; tx.textContent = text;
+  }
+  (() => {
+    const c = $('announce-close'); if (c) c.addEventListener('click', e => { e.preventDefault(); const d = BZ.d; if (d && d.last_change) SEEN_CHANGE = d.last_change.t; PENDING = null; try { sessionStorage.removeItem('pending-change'); } catch (er) {} $('announce').hidden = true; });
+  })();
+
+  // Its organisms library (tools/organism_file.py; all in THIS ecohost's
+  // Games/Lifeforms/Cambrioids folder): one place to save this one, load one
+  // of its saves (two clicks, in its row), copy one from a hive peer (or copy
+  // and load), and download or upload a file -- every action answered in
+  // place, and a load announced at the top when it takes effect.
+  (() => {
+    const dlg = $('org-dialog'), open = $('org-open'); if (!dlg || !open) return;
+    const H = { 'X-Cambrian': '1' }, post = (url, body) => fetch(url, { method: 'POST', headers: H, body }).then(r => r.json());
+    const when = t => t ? new Date(t * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '?';
+    const label = e => e.damaged ? `${e.file} (damaged)` : `${e.ecohost || '?'} · gen ${e.generation ?? '?'} · ${when(e.saved_at)}`;
+    const btn = (text, fn) => { const b = document.createElement('button'); b.textContent = text; b.addEventListener('click', fn); return b; };
+    const confirmTwice = (b, text, act) => { let armed = 0; b.addEventListener('click', () => {
+      if (Date.now() - armed > 4000) { armed = Date.now(); b.textContent = 'Click again: ' + text; setTimeout(() => { if (armed && Date.now() - armed >= 4000) b.textContent = b.dataset.label; }, 4100); return; }
+      armed = 0; b.textContent = b.dataset.label; act(); }); };
+    const loadFile = (file, name, note) => {
+      note.textContent = 'checking...';
+      post('/load-saved?file=' + encodeURIComponent(file)).then(j => {
+        if (!j.ok) { note.textContent = 'refused: ' + j.error; return; }
+        note.textContent = 'accepted'; dlg.close(); expectChange('load', name || j.name || file);
+      }, () => { note.textContent = 'no answer'; });
+    };
+    let fresh = null;
+    const renderLocal = () => {
+      const box = $('od-local'); box.textContent = 'reading...';
+      fetch('/organism/saves', { headers: H }).then(r => r.json()).then(list => {
+        box.textContent = list.length ? '' : 'No saves yet -- Save this one, upload a file, or copy one from the hive.';
+        list.forEach(e => {
+          const row = document.createElement('div'), note = document.createElement('span');
+          row.className = 'od-item' + (e.file === fresh ? ' fresh' : ''); note.className = 'od-note';
+          const nm = document.createElement('span'); nm.className = 'od-name'; nm.textContent = label(e) + (e.file === fresh ? '  (just now)' : ''); nm.title = e.file;
+          const lb = document.createElement('button'); lb.textContent = lb.dataset.label = 'Load'; lb.disabled = !!e.damaged;
+          confirmTwice(lb, 'replace this organism', () => loadFile(e.file, label(e), note));
+          const dl = btn('Download', () => { const a = document.createElement('a'); a.href = '/organism/saves/' + encodeURIComponent(e.file); a.download = e.file; document.body.appendChild(a); a.click(); a.remove(); });
+          row.append(nm, lb, dl, note); box.appendChild(row);
+        });
+      }, () => { box.textContent = 'no answer from this ecohost'; });
+    };
+    const renderPeers = () => {
+      const box = $('od-peers'); box.textContent = 'finding ecohosts...';
+      fetch('/organism/peers', { headers: H }).then(r => r.json()).then(j => {
+        if (!j.hive) { box.textContent = 'Solo: this ecohost is not in the hive.'; return; }
+        const peers = (j.peers || []).filter(h => h !== location.hostname);
+        box.textContent = peers.length ? '' : 'No other ecohost answers.';
+        peers.forEach(h => {
+          const det = document.createElement('details'), sum = document.createElement('summary'), list = document.createElement('div');
+          det.className = 'od-peer'; sum.textContent = h; det.append(sum, list); box.appendChild(det);
+          det.addEventListener('toggle', () => { if (!det.open || list.dataset.done) return; list.dataset.done = 1; list.textContent = 'asking...';
+            fetch('/organism/peer-saves?host=' + encodeURIComponent(h), { headers: H }).then(r => r.json()).then(r => {
+              if (r.error) { list.textContent = r.error; return; }
+              list.textContent = r.saves.length ? '' : 'no saves there';
+              r.saves.forEach(e => {
+                const row = document.createElement('div'), note = document.createElement('span'), nm = document.createElement('span');
+                row.className = 'od-item'; note.className = 'od-note'; nm.className = 'od-name'; nm.textContent = label(e);
+                const copy = then => { note.textContent = 'copying...'; return post('/copy-from?host=' + encodeURIComponent(h) + '&file=' + encodeURIComponent(e.file)).then(c => {
+                  if (!c.ok) { note.textContent = 'refused: ' + c.error; return null; } fresh = c.file; note.textContent = 'copied here'; renderLocal(); return c.file; }, () => { note.textContent = 'no answer'; return null; }); };
+                const cl = document.createElement('button'); cl.textContent = cl.dataset.label = 'Copy & load';
+                confirmTwice(cl, 'replace this organism', () => copy().then(f => f && loadFile(f, label(e), note)));
+                row.append(nm, btn('Copy here', () => copy()), cl, note); list.appendChild(row);
+              });
+            }, () => { list.textContent = 'no answer'; });
+          });
+        });
+      }, () => { box.textContent = 'no answer'; });
+    };
+    open.addEventListener('click', ev => { ev.preventDefault(); fresh = null; dlg.showModal(); renderLocal(); renderPeers(); });
+    $('od-close').addEventListener('click', ev => { ev.preventDefault(); dlg.close(); });
+    $('od-save').addEventListener('click', () => { const n = $('od-save-note'); n.textContent = 'saving...';
+      post('/save-here').then(j => { n.textContent = j.ok ? 'saved' : 'refused: ' + j.error; if (j.ok) { fresh = j.file; renderLocal(); } }, () => { n.textContent = 'no answer'; }); });
+    $('od-download').addEventListener('click', () => { const n = $('od-foot-note'); n.textContent = 'preparing...';
+      fetch('/organism/save', { headers: H }).then(r => { if (!r.ok) return r.json().then(j => { n.textContent = j.error || 'refused'; });
+        const m = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || ''); return r.blob().then(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = m ? m[1] : 'organism.cambrioid'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); n.textContent = 'downloaded'; }); }).catch(() => { n.textContent = 'no answer'; }); });
+    const fi = $('od-file');
+    const upload = f => { const n = $('od-foot-note'); if (!f) return; n.textContent = 'checking...';
+      f.arrayBuffer().then(buf => post('/upload?name=' + encodeURIComponent(f.name), buf)).then(j => { n.textContent = j.ok ? 'kept: ' + j.file + ' (listed above)' : 'refused: ' + j.error; if (j.ok) { fresh = j.file; renderLocal(); } }, () => { n.textContent = 'no answer'; }); };
+    $('od-upload').addEventListener('click', () => { fi.value = ''; fi.click(); });
+    fi.addEventListener('change', () => upload(fi.files && fi.files[0]));
+    dlg.addEventListener('dragover', e => e.preventDefault());
+    dlg.addEventListener('drop', e => { e.preventDefault(); upload(e.dataTransfer.files && e.dataTransfer.files[0]); });  // or drop a .cambrioid on it
   })();
   // A card's drawing, guarded: an error is recorded on <html data-js-errors / data-js-last>
   // (as an uncaught one is) with where it came from, and the other cards still draw.
@@ -2396,6 +2449,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
+    announce(d);  // what took its place, loudly (the banner)
     drawMBHud(d);  // its life's tally (under the navigation card); the mushroom body is drawn on the flatmap
     drawReplayEye(d);
     if ($('brain-mb')) $('brain-mb').textContent = d.kc ? '' : 'No mushroom body yet (lifetime learning evolves). ';

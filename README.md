@@ -401,7 +401,7 @@ channel comes back as an input. 3D is the same map with depth, turned (it
 drifts a while after a touch). Get 3D image saves a picture of it the old
 way: every wire, glowing where they cross, from an oblique angle, no labels.
 
-Its actions sit below in a row of buttons. New random brain (two clicks) draws
+Its actions sit below in a row of buttons. Organisms... opens its library: save this one, load one of this ecohost's saves (two clicks, in its row), copy one from a hive peer (or copy and load), download or upload a file (or drop one on it). Whatever takes its place -- a load, a new brain, a new founder, a reset -- is announced in a banner across the top when it actually happens (amber while it waits; red if it hasn't after three minutes). New random brain (two clicks) draws
 its brain afresh as a founder's at its next generation, keeping everything
 else; New random founder (two clicks) replaces it with a new random founder,
 as a fresh install has: eye, body, memories and traits included -- a founder
