@@ -342,7 +342,7 @@ is at has been worth, how much of its view rides with it, and the texture at
 its gaze (contrast, fineness, grain). The navigation card's HUD reads like a
 fighter's: heading tape on top, speed (SPD) on the left, nearness (NR: T
 taught, F felt) on the right, the flight-path marker where it is going, and
-a data block; ODD is how strange the look is to its model, and LEARNING HELD
+a data block. Each host, plant and thing standing on its ground carries, inside its top left corner, what it could give: 精 jīng, 氣 qì or 神 shén (a thing only feeds what is new in it). ODD is how strange the look is to its model, and LEARNING HELD
 means it failed its model's test, so it isn't learning from that look.
 
 **Brain.** Inputs, hidden units and outputs with every weight; cyan excites,

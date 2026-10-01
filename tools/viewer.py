@@ -1541,14 +1541,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
                   sn.riding ? `RIDE ${Math.round(100 * sn.riding)}%` : '', sn.ram != null && sn.ram > 1.01 ? `RAM x${sn.ram.toFixed(1)}` : '',sn.texture && sn.texture[0] ? `TEX c${sn.texture[0].toFixed(2)} f${sn.texture[1].toFixed(2)} g${sn.texture[2].toFixed(2)}` : '',
                   sn.place_value != null && Math.abs(sn.place_value) > 0.01 ? `PLACE ${sn.place_value >= 0 ? '+' : ''}${sn.place_value.toFixed(2)}` : '',
                   sn.heading != null ? `HDG ${String(Math.round((sn.heading + 360) % 360)).padStart(3, '0')}` : ''].filter(Boolean);
-    // what it is taking in now, top left: 精 jīng while it absorbs from a host,
-    // 氣 qì while it sips, 神 shén otherwise (awake, anything new feeds it);
-    // nothing asleep -- in its food's colour, outlined as the rest of the HUD
-    const lastOf = k => (d[k] && d[k].length ? d[k][d[k].length - 1] : 0) || 0;
-    const han = d.live_actor && !lastOf('asleep_frames')
-      ? (lastOf('eating') > 0.01 ? ['精', 'rgb(255, 95, 162)'] : lastOf('snacks') > 0.01 ? ['氣', 'rgb(156, 207, 122)'] : ['神', 'rgb(200, 136, 255)']) : null;
-    const hanH = han ? px(30) : 0;
-    const TOP = Math.max(px(70), px(8) + hanH + rows.length * px(13) + px(22));
+    const TOP = Math.max(px(70), px(8) + rows.length * px(13) + px(22));
     // a tape with its value boxed at the middle
     const tape = (x, v, lo, hi, side, label, marks) => {
       const y0 = TOP, th = Math.max(px(30), H - Math.min(110, H * 0.3) - px(34) - y0), yv = t => y0 + th * (1 - (t - lo) / (hi - lo));
@@ -1567,12 +1560,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const nr = v => v == null ? '--' : v.toFixed(2);
     tape(W - px(12), null, 0, 1, -1, `NR T${nr(sn.nearness)} F${nr(sn.felt_nearness)}`, [[sn.nearness, 'rgb(156, 207, 122)', 'T'], [sn.felt_nearness, 'rgb(127, 212, 255)', 'F']]);
     ctx.fillStyle = G(0.85); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    if (han) {
-      ctx.font = `bold ${px(26)}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif`;
-      ctx.fillStyle = han[1]; ctx.fillText(han[0], px(8), px(6));
-      ctx.font = `${px(11)}px monospace`; ctx.fillStyle = G(0.85);
-    }
-    rows.forEach((t, i) => ctx.fillText(t, px(8), px(8) + hanH + i * px(13)));
+    rows.forEach((t, i) => ctx.fillText(t, px(8), px(8) + i * px(13)));
     ctx.restore();
   }
   function drawSpace(d) {
@@ -1681,6 +1669,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         const edge = (i, j) => { ctx.beginPath(); ctx.moveTo(c4[i][0], c4[i][1]); ctx.lineTo(c4[j][0], c4[j][1]); ctx.stroke(); };
         if (!q.cutBase) edge(0, 1); edge(1, 2); if (!q.cutTop) edge(2, 3); edge(3, 0);
         ctx.setLineDash([]);
+        // what it could give, inside its top left corner: 精 jīng (a host), 氣 qì
+        // (a plant), 神 shén (a thing: only what is new in it); sized to the box
+        const bh = Math.abs(c4[0][1] - c4[3][1]), bw = Math.abs(c4[1][0] - c4[0][0]), hs = Math.min(18, Math.round(Math.min(bh, bw) * 0.3));
+        if (hs >= 9) {
+          ctx.font = `bold ${hs}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif`;
+          ctx.fillStyle = `rgb(${rgb})`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText(q.kind === 'plant' ? '氣' : q.kind === 'thing' ? '神' : '精', Math.min(c4[3][0], c4[0][0]) + 3, Math.min(c4[3][1], c4[2][1]) + 3);
+        }
         const tr = ((d.cortex && d.cortex.tracks) || []).find(k => k.who != null && Math.abs(k.box[0] - q.x0) < 1e-3 && Math.abs(k.box[3] - q.y1) < 1e-3);
         if (tr) { const m = at((g0[0] + g1[0]) / 2, top, (g0[1] + g1[1]) / 2); ctx.fillStyle = `rgb(${rgb})`; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('#' + tr.who, m[0], m[1] - 3); }
       });

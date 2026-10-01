@@ -210,7 +210,10 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
                     r, c = divmod(k, gc)
                     x, y = fx((c + 0.5) / gc), fy((r + 0.5) / gr)
                     cv.line(x, y, x, y - 6 * v, CYAN)
-    # the things, where the stream shows them (cut by the frame: dashed)
+    # the things, where the stream shows them (cut by the frame: dashed); each
+    # marked inside its top left corner with what it could give: jīng (a
+    # host), qì (a plant), shén (a thing: only what is new in it)
+    marks = []
     for kind, key in ((THING, "thing_boxes"), (PLANT, "plant_boxes"), (HOST, "prey_boxes")):
         for b in last(d, key):
             try:
@@ -218,6 +221,7 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
             except (TypeError, ValueError):
                 continue
             cv.rect(fx(x0), fy(y0), fx(x1), fy(y1), kind, dashed=(y1 >= 0.999 or y0 <= 0.001))
+            marks.append((kind, fx(x0), fy(y0), fx(x1), fy(y1)))
     # its target lock: the gaze reticle (viewer.py's), tightening and red on contact
     if d.get("fovea_cx") is not None and d.get("fovea_cy") is not None:
         gx, gy = fx(d["fovea_cx"]), fy(d["fovea_cy"])
@@ -256,6 +260,13 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
             y = ty1 - (ty1 - ty0) * max(0.0, min(1.0, v))
             cv.line(W - 6, y, W - 9, y - 1, col); cv.line(W - 6, y, W - 9, y + 1, col)
     cv.blit(scr, top, left, colour)
+    for kind, x0, y0, x1, y1 in marks:
+        c0, r0 = int(x0 * cols / cv.w) + 1, int(y0 * rows / cv.h) + 1  # the cell just inside its corner
+        c1, r1 = int(x1 * cols / cv.w), int(y1 * rows / cv.h)
+        if 0 <= c0 and 0 <= r0 < rows and c1 - c0 >= 3 and r1 - r0 >= 1:
+            han, letter = {HOST: ("精", "J"), PLANT: ("氣", "Q")}.get(kind, ("神", "S"))
+            put(scr, top + r0, left + c0, letter if blocks else han,  # a console's font has no Chinese: the initial
+                (curses.color_pair(kind) if colour else 0) | curses.A_BOLD)
     # its text: heading tape, tape labels, data block
     g = curses.color_pair(GREEN) | curses.A_BOLD if colour else curses.A_BOLD
     hd = sn.get("heading")
@@ -279,14 +290,6 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
     nr = lambda v: "--" if v is None else f"{v:.2f}"
     lab = f"NR T{nr(sn.get('nearness'))} F{nr(sn.get('felt_nearness'))}"
     put(scr, top + 3, left + cols - len(lab) - 1, lab, g)
-    # what it is taking in now, top left (the web viewer's character): jīng
-    # while it absorbs from a host, qì while it sips, shén otherwise (awake,
-    # anything new feeds it); nothing asleep. A console's font has no Chinese:
-    # there, the word.
-    eat, sip, slept = (d.get("eating") or [0])[-1] or 0, (d.get("snacks") or [0])[-1] or 0, (d.get("asleep_frames") or [0])[-1] or 0
-    if not slept and d.get("live_actor"):
-        han, word, col = ("精", "JĪNG", HOST) if eat > 0.01 else ("氣", "QÌ", PLANT) if sip > 0.01 else ("神", "SHÉN", SHEN)
-        put(scr, top + 4, left + 1, word if blocks else f"{han} {word}", (curses.color_pair(col) if colour else 0) | curses.A_BOLD)
     tex = sn.get("texture")
     rows_ = [r for r in (
         "LEARNING HELD" if sn.get("out_of_model") else "",
@@ -297,7 +300,7 @@ def draw_nav(scr, d: dict, top: int, left: int, cols: int, rows: int, colour: bo
         f"PLACE {sn['place_value']:+.2f}" if sn.get("place_value") is not None and abs(sn["place_value"]) > 0.01 else "",
     ) if r]
     for i, r in enumerate(rows_):
-        put(scr, top + 6 + i, left + 1, r, g)
+        put(scr, top + 4 + i, left + 1, r, g)
     if hz is None:
         put(scr, top + rows // 2, left + max(0, cols // 2 - 7), "no horizon yet", curses.A_DIM)
 
