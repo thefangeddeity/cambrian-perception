@@ -2106,6 +2106,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     }
     el.hidden = !text; el.className = cls; tx.textContent = text;
   }
+  // the change itself, every 3 s, not only when a status arrives
+  setInterval(() => { fetch('/last-change').then(r => r.json()).then(lc => { const d = BZ.d || {}; if (lc) d.last_change = lc; announce(d); }, () => {}); }, 3000);
   (() => {
     const c = $('announce-close'); if (c) c.addEventListener('click', e => { e.preventDefault(); const d = BZ.d; if (d && d.last_change) SEEN_CHANGE = d.last_change.t; PENDING = null; try { sessionStorage.removeItem('pending-change'); } catch (er) {} $('announce').hidden = true; });
   })();
@@ -3174,6 +3176,20 @@ class Handler(BaseHTTPRequestHandler):
             body = LIVE_PAGE.replace("__HOST__", HOST_NAME, 1).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/last-change":
+            # what last took its place, straight from its state folder: the
+            # organism writes it the moment it applies a change, while the
+            # status that carries it can be a whole generation away (a new
+            # founder's first is the slowest) -- the banner reads this
+            try:
+                body = (STATE_DIR / "last_change.json").read_bytes()
+            except OSError:
+                body = b"null"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
