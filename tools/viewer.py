@@ -2153,7 +2153,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   }
   function nsLayout(d, W, H) {
     const br = d.brain, groups = nsGroups(br), nH = br.weights_ih.length, nOut = br.weights_ho.length, ls = br.layers || [];
-    const top = 34, bot = H - 26, gap = 6, ox = 14;
+    const top = 34, bot = H - 30, gap = 6, ox = 30;
     const ow = Math.max(104, Math.min(190, W * 0.17));
     const hasMB = !!(d.mb && d.mb.n);
     const weight = g => 1 + Math.sqrt(g.idx.length) + (g.mb && hasMB ? 3 : 0);
@@ -2230,16 +2230,16 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
 
     // what closes through the world or the body, behind everything
     const eye = groups.find(g => g.eye), mbG = groups.find(g => g.mb), treeG = groups.find(g => g.tree), bodyG = groups.find(g => g.body);
-    const yTop = top - 16, xl = ox - 8;
+    const yTop = top - 16, xl = ox - 10;
     if (eye && nOut >= 3) dashed([[xo, outs[0].y, zo(0)], [xo + 0, yTop, 0], [eye.x + eye.w / 2, yTop, 0], [eye.x + eye.w / 2, eye.y, zg(groups.indexOf(eye))]],
                                  'pan, tilt, zoom move its gaze: what its eye sees next', eye.x + eye.w / 2 + 6, yTop - 1);
     if (eye && treeG) dashed([[eye.x, eye.y + eye.h * 0.7, zg(groups.indexOf(eye))], [xl, eye.y + eye.h * 0.7, 0], [xl, treeG.y + treeG.h / 2, 0], [treeG.x, treeG.y + treeG.h / 2, zg(groups.indexOf(treeG))]]);
-    if (eye && mbG) dashed([[eye.x, eye.y + eye.h * 0.85, zg(groups.indexOf(eye))], [xl - 4, eye.y + eye.h * 0.85, 0], [xl - 4, mbG.y + mbG.h * 0.3, 0], [mbG.x, mbG.y + mbG.h * 0.3, zg(groups.indexOf(mbG))]]);
-    if (bodyG && mbG) dashed([[bodyG.x, bodyG.y + bodyG.h / 2, zg(groups.indexOf(bodyG))], [xl - 8, bodyG.y + bodyG.h / 2, 0], [xl - 8, mbG.y + mbG.h * 0.7, 0], [mbG.x, mbG.y + mbG.h * 0.7, zg(groups.indexOf(mbG))]]);
+    if (eye && mbG) dashed([[eye.x, eye.y + eye.h * 0.85, zg(groups.indexOf(eye))], [xl - 7, eye.y + eye.h * 0.85, 0], [xl - 7, mbG.y + mbG.h * 0.3, 0], [mbG.x, mbG.y + mbG.h * 0.3, zg(groups.indexOf(mbG))]]);
+    if (bodyG && mbG) dashed([[bodyG.x, bodyG.y + bodyG.h / 2, zg(groups.indexOf(bodyG))], [xl - 14, bodyG.y + bodyG.h / 2, 0], [xl - 14, mbG.y + mbG.h * 0.7, 0], [mbG.x, mbG.y + mbG.h * 0.7, zg(groups.indexOf(mbG))]]);
     const loopsG = groups.find(g => g.loops);
     if (loopsG) (br.channels || []).forEach((ch, k) => {
       const o = OUTPUT_NAMES.length + k, port = loopsG.ports.find(p => p.i === INPUT_NAMES.length + k); if (!outs[o] || !port) return;
-      const yb = bot + 8 + 4 * k;
+      const yb = H - 4 - 4 * k;
       dashed([[xo, outs[o].y, zo(o)], [xo + 12, outs[o].y, zo(o)], [xo + 12, yb, 0], [port.x + 10, yb, 0], [port.x + 10, port.y, 0], [port.x, port.y, zg(groups.indexOf(loopsG))]]);
     });
 
@@ -2294,7 +2294,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       pts.push({ sx: title[0] + 30, sy: title[1] + 4, key: 'g' + gi });
       // the mushroom body's Kenyon cells: lit while firing, coloured by what each learned
       if (g.mb && mb.n && g.h > 34) {
-        const food = mb.food || [], danger = mb.danger || [];
+        const food = int8s(mb.food) || [], danger = int8s(mb.danger) || [];  // packed as bytes (livelife)
         let fmax = 1e-6, dmax = 1e-6;
         for (let k = 0; k < mb.n; k++) { fmax = Math.max(fmax, Math.abs(food[k] || 0)); dmax = Math.max(dmax, Math.max(0, danger[k] || 0)); }
         const ax = g.x + 6, ay = g.y + 16, aw = g.w - 26, ah = g.h - 22, cols = Math.max(1, Math.ceil(Math.sqrt(mb.n * aw / ah))), rows = Math.ceil(mb.n / cols);
