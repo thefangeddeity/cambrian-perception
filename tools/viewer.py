@@ -141,11 +141,25 @@ HISTORY_MAX_BYTES = 12_000_000  # real tail, not a full-file read -- the
 SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
 
 
+def _held(fn, tries: int = 30):
+    """fn(), retried while Windows holds the file (WinError 32: another
+    process -- the organism reading it, a virus scanner on a file just
+    written -- has it open; it can't be deleted or replaced until it lets
+    go, a few ms to a second later). Raises the last error if it never does."""
+    for k in range(tries):
+        try:
+            return fn()
+        except PermissionError:
+            if k == tries - 1:
+                raise
+            time.sleep(0.05 * (1 + k))
+
+
 def _write_json_atomic(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp")
     temp.write_text(json.dumps(data), encoding="utf-8")
-    temp.replace(path)
+    _held(lambda: temp.replace(path))
 
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
@@ -3136,12 +3150,17 @@ class Handler(BaseHTTPRequestHandler):
         valid_names = {n for n, _ in LIVE_SOURCES}
         ok, error = False, None
         if name == "auto":
-            if SELECTED_SOURCE_PATH.exists():
-                SELECTED_SOURCE_PATH.unlink()
-            ok = True
+            try:
+                _held(lambda: SELECTED_SOURCE_PATH.unlink(missing_ok=True))
+                ok = True
+            except OSError as e:
+                error = f"couldn't switch back to the camera ({e.strerror or e}); try again"
         elif name in valid_names:
-            _write_json_atomic(SELECTED_SOURCE_PATH, {"name": name})
-            ok = True
+            try:
+                _write_json_atomic(SELECTED_SOURCE_PATH, {"name": name})
+                ok = True
+            except OSError as e:
+                error = f"couldn't save the choice ({e.strerror or e}); try again"
         elif url:
             ok, error = _check_live_url(url)
             try:
@@ -3151,7 +3170,10 @@ class Handler(BaseHTTPRequestHandler):
             if ok:
                 # Dessert: a deadline after which the organism goes
                 # back to its camera by itself (run_vision.py _dessert).
-                _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url, **({"until": until} if until else {})})
+                try:
+                    _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url, **({"until": until} if until else {})})
+                except OSError as e:
+                    ok, error = False, f"couldn't save the choice ({e.strerror or e}); try again"
         if ok:
             # Submitting restarts cambrian-perception.service --
             # without this the

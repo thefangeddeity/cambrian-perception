@@ -331,7 +331,13 @@ def clear_selected_source(url: str | None = None) -> None:
             current = _read_json(SELECTED_SOURCE_PATH, None) if SELECTED_SOURCE_PATH.exists() else None
             if not current or current.get("url") != url:
                 return
-        SELECTED_SOURCE_PATH.unlink()
+        for k in range(30):
+            try:
+                SELECTED_SOURCE_PATH.unlink()
+                return
+            except PermissionError:  # Windows: the viewer or a scanner has it open for a moment
+                time.sleep(0.05 * (1 + k))
+        print("Couldn't clear the video choice (the file stayed in use); it stands.", flush=True)
     except FileNotFoundError:
         pass
 

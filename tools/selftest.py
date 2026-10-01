@@ -536,6 +536,19 @@ def _():
     organs._RUNNING = None
 
 
+@check("back to the camera works while another process holds the choice file open (Windows)")
+def _():
+    import tempfile
+    import threading
+    from tools import viewer
+    p = pathlib.Path(tempfile.mkdtemp()) / "selected_source.json"
+    p.write_text("{}")
+    f = open(p)  # held, as the organism reading it or a virus scanner would
+    threading.Timer(0.4, f.close).start()
+    viewer._held(lambda: p.unlink())
+    assert not p.exists()
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")
