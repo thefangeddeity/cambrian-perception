@@ -2121,6 +2121,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       r.dataset.jsLast = `${fn.name || 'card'}: ${String(e && e.message).slice(0, 160)} @${String(e && e.stack || '').split(/\n/)[1] || ''}`.slice(0, 300);
     }
   }
+  // Its stacked layers in a line: how many, how many waiting, their gates' range.
+  function layerSummary(ls) {
+    const on = ls.filter(l => l.gate && l.gate[0]), gs = on.map(l => l.gate[0]), f = v => v.toFixed(2).replace(/^(-?)0\./, '$1.');
+    return `${on.length} layer${on.length === 1 ? '' : 's'}${ls.length > on.length ? ` +${ls.length - on.length} waiting` : ''}${gs.length ? `, gates ${f(Math.min(...gs))} to ${f(Math.max(...gs))}` : ''}`;
+  }
   function drawBrain(d) {
     const br = d.brain; if (!br) return;
     if ($('brain-units')) $('brain-units').textContent = br.bias_h ? br.bias_h.length : '--';
@@ -2156,7 +2161,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     // silent layer (gate 0, a waiting copy) is an empty dashed outline.
     const ls = br.layers || [], lc = d.brain_layers || [];
     if (ls.length) {
-      const sq = Math.max(4, Math.min(12, (H - 48) / Math.max(1, nH) - 2)), step = sq + 6, x0 = xh + 18;
+      // fitted into the gap before the outputs: a founder may carry dozens (it can't run past its outputs)
+      const room = Math.max(20, xout - xh - 40), step = Math.min(Math.max(4, Math.min(12, (H - 48) / Math.max(1, nH) - 2)) + 6, room / ls.length);
+      const sq = Math.max(2, Math.min(step - (step > 8 ? 4 : 1), Math.max(4, Math.min(12, (H - 48) / Math.max(1, nH) - 2)))), x0 = xh + 18, named = step >= 22;
       ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       ls.forEach((L, k) => {
         const g = L.gate ? L.gate[0] : 0, x = x0 + k * step, row = lc[k];
@@ -2170,9 +2177,12 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         ctx.fillStyle = g ? '#9a6f67' : '#8a9aaa';
         // its name along the canvas's top edge, its gate along the bottom: the units
         // reach both edges (24 px in), so nothing written beside them fits
-        ctx.fillText(g ? `L${k + 1}` : 'wait', x + sq / 2, 3);
-        if (g) ctx.fillText(g.toFixed(2).replace(/^(-?)0\./, '$1.'), x + sq / 2, H - 13);
+        if (named) {  // each column named where there's room; else one summary line
+          ctx.fillText(g ? `L${k + 1}` : 'wait', x + sq / 2, 3);
+          if (g) ctx.fillText(g.toFixed(2).replace(/^(-?)0\./, '$1.'), x + sq / 2, H - 13);
+        }
       });
+      if (!named) { ctx.textAlign = 'left'; ctx.fillStyle = '#9a6f67'; ctx.fillText(layerSummary(ls), x0, 3); }
       ctx.textBaseline = 'middle';
     }
     for (let o = 0; o < nOut; o++) { ctx.fillStyle = '#0a2a1a'; ctx.strokeStyle = '#ffe2d6'; ctx.beginPath(); ctx.arc(xout, yAt(o, nOut), 11, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#ffe2d6'; ctx.textAlign = 'left'; ctx.fillText(o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out'), xout + 16, yAt(o, nOut)); }
@@ -2295,10 +2305,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
       ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
       if (q.kind === 'hid' && LS.length) {  // its stacked layers, a row of cells under the unit (2D: a column beside it), riding with it
-        const sq = Math.max(5, 10 * q.w * Math.sqrt(B3.zoom)), gap = Math.max(1, sq / 4), y0 = q.sy + Math.max(2, r) + 3;
-        let x0 = q.sx - (LS.length * (sq + gap) - gap) / 2;
+        const per = Math.ceil(Math.sqrt(LS.length)), big = Math.max(5, 10 * q.w * Math.sqrt(B3.zoom));  // a square grid: dozens stay compact
+        const sq = LS.length > 9 ? Math.max(2, big * 3 / per) : big, gap = Math.max(1, sq / 4), y00 = q.sy + Math.max(2, r) + 3;
+        const cols = Math.min(LS.length, per), x0 = q.sx - (cols * (sq + gap) - gap) / 2;
         LS.forEach((L, k) => {
-          const g = L.gate ? L.gate[0] : 0, x = x0 + k * (sq + gap);
+          const g = L.gate ? L.gate[0] : 0, x = x0 + (k % per) * (sq + gap), y0 = y00 + Math.floor(k / per) * (sq + gap);
           if (!g) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#8a9aaa'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y0 + 0.5, sq - 1, sq - 1); ctx.restore(); return; }
           const row = LC[k], v = row && row[q.k] != null ? row[q.k] : 0, a = Math.min(1, Math.abs(v) / 0.25);
           ctx.fillStyle = v >= 0 ? `rgba(127,212,255,${0.06 + 0.94 * a})` : `rgba(255,153,0,${0.06 + 0.94 * a})`;
@@ -2318,7 +2329,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     ctx.globalAlpha = 1;
     if (LS.length) {  // the key to the rows under its units, in their order: each layer's gate (2D writes these above and below its columns)
       ctx.font = '9px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-      const key = 'layers under each unit: ' + LS.map((L, k) => L.gate && L.gate[0] ? `L${k + 1} ${L.gate[0].toFixed(2).replace(/^(-?)0\./, '$1.')}` : 'wait').join(' · ');
+      const key = LS.length > 8 ? 'under each unit: ' + layerSummary(LS) + ' (row by row)'
+        : 'layers under each unit: ' + LS.map((L, k) => L.gate && L.gate[0] ? `L${k + 1} ${L.gate[0].toFixed(2).replace(/^(-?)0\./, '$1.')}` : 'wait').join(' · ');
       ctx.fillStyle = '#9a6f67'; ctx.fillText(key, 8, H - 6);
     }
     B3.pts = P;
