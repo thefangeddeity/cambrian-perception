@@ -945,7 +945,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   const $ = id => document.getElementById(id);
   const INPUT_NAMES = ['light', 'motion', 'flow x', 'flow y', 'loom', 'gaze x', 'gaze y', 'eye size', 'sugar', 'arousal', 'threat', 'search', 'motion dx', 'motion dy', 'eye vx', 'eye vy', 'hunger', 'curiosity', 'tree', 'gut', 'reserve', 'sleep pressure', 'asleep', 'field light', 'light trend', 'prey scent', 'prey dir x', 'prey dir y', 'food value', 'place dx', 'place dy', 'place value', 'intruder', 'danger', 'plant scent', 'plant dir x', 'plant dir y', 'mismatch', 'mismatch dx', 'mismatch dy', 'recalled value', 'recalled dx', 'recalled dy', 'protein', 'host vx', 'host vy', 'own pace', 'missed', 'uncertainty', 'ground near', 'horizon', 'parallax', 'camera moving', 'archetype 1', 'archetype 2', 'archetype 3', 'archetype 4', 'collicular dx', 'collicular dy', 'collicular strength',
     'terrain', 'nearness', 'felt nearness', 'contact', 'turning', 'tilting', 'heading sin', 'heading cos', 'speed', 'acceleration', 'map value', 'riding',
-    'texture contrast', 'texture fineness', 'texture grain', 'strangeness'];  // controller.py's inputs, in order (76)
+    'texture contrast', 'texture fineness', 'texture grain', 'strangeness',
+    'road heading', 'road curve', 'road crest', 'road offset', 'road sure'];  // controller.py's inputs, in order (81)
   const OUTPUT_NAMES = ['pan', 'tilt', 'zoom', 'alarm', 'tempo', 'sleep'];
   // Grown channels (controller.py): a latch feeds its output back; a
   // predictor feeds back how wrong it was about one of its inputs.
@@ -1113,6 +1114,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
                    s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
                    s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down${s.horizon_from ? ` (${s.horizon_from})` : ''}` : 'no horizon yet',
                    s.new_places ? `${s.new_places} new place${s.new_places === 1 ? '' : 's'}` : '',
+                   s.road && s.road.conf > 0.05 ? `road: ${Math.abs(s.road.curve) < 0.002 ? 'straight' : 'bends ' + (s.road.curve > 0 ? 'right' : 'left')}${Math.abs(s.road.crest) > 0.003 ? (s.road.crest > 0 ? ', a crest' : ', a dip') : ''}, ${Math.round(100 * s.road.conf)}% sure` : '',
                    d.oxygen && d.oxygen.stage ? `<b style="color:#ff6f8a">short of oxygen</b>: shed ${d.oxygen.shed.join(', ')} (${d.oxygen.behind_s.toFixed(1)} s behind)` : '',
                    Math.abs(s.turning || 0) > 0.01 ? `turning ${s.turning > 0 ? 'right' : 'left'} ${Math.round(100 * Math.abs(s.turning))}%` : '',
                    Math.abs(s.tilting || 0) > 0.01 ? `tilting ${s.tilting > 0 ? 'clockwise' : 'anticlockwise'} ${Math.round(100 * Math.abs(s.tilting))}%` : '',
@@ -1581,6 +1583,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         if (big) ctx.fillText(String(((a % 360) + 360) % 360).padStart(3, '0'), x, ty + px(3));
       }
       ctx.beginPath(); ctx.moveTo(W / 2, ty + px(12)); ctx.lineTo(W / 2 - px(4), ty + px(18)); ctx.lineTo(W / 2 + px(4), ty + px(18)); ctx.closePath(); ctx.fill();
+      if (sn.road && sn.road.conf > 0.2) {  // where its road goes: an open caret under the tape (its road organ)
+        const rx = W / 2 + Math.max(-30, Math.min(30, sn.road.heading * 180 / Math.PI)) / 30 * (tw / 2);
+        ctx.save(); ctx.strokeStyle = G(0.9); ctx.beginPath(); ctx.moveTo(rx, ty + px(20)); ctx.lineTo(rx - px(4), ty + px(27)); ctx.lineTo(rx + px(4), ty + px(27)); ctx.closePath(); ctx.stroke(); ctx.restore();
+      }
       const tr = Math.max(-1, Math.min(1, sn.turning || 0));  // its turning: a caret along the tape
       if (Math.abs(tr) > 0.01) { ctx.fillRect(W / 2, ty + px(19), tr * tw / 2, 2); }
     }
@@ -1734,6 +1740,19 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       });
       ctx.restore();
       const nCut = pts.filter(q => q.cutBase || q.cutTop).length;
+      // its road organ's road, conformal: each edge laid on its ground where the
+      // frame shows it (as a HUD draws a runway) -- the HUD's green, as bright as
+      // the organ is sure; it bends with the land as its terrain map does
+      const road = sn.road;
+      if (road && road.lines && road.conf > 0.05) {
+        ctx.save(); ctx.strokeStyle = `rgba(124, 255, 160, ${0.35 + 0.6 * Math.min(1, road.conf)})`; ctx.lineWidth = 1 + 1.5 * Math.min(1, road.conf);
+        road.lines.forEach(ln => {
+          ctx.beginPath(); let started = false;
+          ln.forEach(([fx, fy]) => { const g = place(fx, fy); if (!g) return; const a = at(g[0], groundAt(g[0], g[1]), g[1]); if (started) ctx.lineTo(a[0], a[1]); else { ctx.moveTo(a[0], a[1]); started = true; } });
+          ctx.stroke();
+        });
+        ctx.restore();
+      }
       // where it expects the host it follows (its extrapolation), standing on its ground, dashed
       const ah = last('ahead_boxes');
       if (ah && ah.length === 4) {
@@ -2149,6 +2168,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     ['geometry organs', ['horizon', 'ground near', 'parallax', 'camera moving', 'terrain', 'nearness', 'contact', 'turning', 'tilting', 'heading sin', 'heading cos', 'speed', 'acceleration', 'riding']],
     ['body', ['sugar', 'arousal', 'threat', 'search', 'hunger', 'curiosity', 'gut', 'reserve', 'sleep pressure', 'asleep', 'protein']],
     ['self-monitoring', ['own pace', 'missed', 'strangeness']],
+    ['road organ', ['road heading', 'road curve', 'road crest', 'road offset', 'road sure']],
   ];
   const nsIn = (br, i) => i < INPUT_NAMES.length ? INPUT_NAMES[i] : channelName(br, i - INPUT_NAMES.length, 'in');
   const nsOut = (br, o) => o < OUTPUT_NAMES.length ? OUTPUT_NAMES[o] : channelName(br, o - OUTPUT_NAMES.length, 'out');

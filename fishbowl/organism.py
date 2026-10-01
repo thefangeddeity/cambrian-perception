@@ -730,6 +730,8 @@ class Organism:
         self._cv_hz: list = []     # the horizon organ's last estimates (their median is its horizon)
         self.cv_horizon = None     # its horizon from the organ; None: its learned one stands
         self.new_places = 0        # places its place print has told apart
+        self.road_in = (0.0, 0.0, 0.0, 0.0, 0.0)  # its road organ, as its brain hears it
+        self.road = None           # its road organ's last estimate, for the viewer
         self.imagery = bool(getattr(g, "imagery", 0))
         # Recall (pattern completion; a 2026-09-28 panel -- Marr's CA3, which at
         # low load retrieves like a Hopfield net: the stored pattern that best
@@ -908,6 +910,7 @@ class Organism:
         # cab at night, all reflections, or a room seen steeply down scatter
         # them over half the frame -- then its learned horizon stands)
         self.hear_horizon(sig.get("cv_horizon"))
+        self.hear_road(sig)
         # a new place (its place print): the ground it learned was the old one's
         if (sig.get("new_place", 0.0) or 0.0) > 0.5:
             self.ground = np.zeros_like(self.ground)
@@ -1127,6 +1130,7 @@ class Organism:
                 own_pace, 1.0 if self.just_missed else 0.0, self.uncertainty, ground_near, horizon, parallax, camera_moving,
                 tuple(head_vals), coll, terrain, nearness, felt, contact, self.turning, self.tilting, heading,
                 ego_speed, acceleration, map_value, self.riding, texture_in, self.strangeness,
+                road=self.road_in,
             )
             self.last_out = out
         pan, tilt, alarm, tempo = out.pan, out.tilt, out.alarm, out.tempo
@@ -1720,6 +1724,23 @@ class Organism:
         self._cv_hz = (self._cv_hz + [float(hz)])[-9 * HORIZON_EVERY:]
         q1, med, q3 = np.percentile(self._cv_hz, [25, 50, 75])
         self.cv_horizon = float(med) if q3 - q1 <= HORIZON_MAX_SPREAD else None
+
+    def hear_road(self, sig) -> None:
+        """Its road organ's estimate (fishbowl/organs.py road), scaled for its
+        brain (each to about +-1 on a real road): heading x 2 (+-0.5 rad, a
+        sharp bend in view), curvature x 20 and crest x 50 through tanh (+-0.05
+        and +-0.02 per eye-height: the tightest it reads), offset / 2 (two
+        eye-heights: about half a lane), and how sure -- all 0 when it sees none."""
+        conf = sig.get("road_conf", 0.0) or 0.0
+        hd = sig.get("road_heading")
+        if hd is None or not math.isfinite(hd) or conf <= 0.0:
+            self.road_in, self.road = (0.0, 0.0, 0.0, 0.0, 0.0), None
+            return
+        cu, cr, of = (sig.get(k) or 0.0 for k in ("road_curve", "road_crest", "road_offset"))
+        self.road_in = (float(np.clip(2 * hd, -1, 1)), float(np.tanh(20 * cu)), float(np.tanh(50 * cr)), float(np.clip(of / 2, -1, 1)), float(conf))
+        lines = sig.get("road_lines")
+        self.road = {"heading": round(float(hd), 4), "curve": round(float(cu), 5), "crest": round(float(cr), 5), "offset": round(float(of), 3),
+                     "conf": round(float(conf), 3), "lines": lines if isinstance(lines, list) else (self.road or {}).get("lines")}
 
     def learned_horizon(self) -> float | None:
         """Its horizon as its ground model alone infers it (see horizon())."""

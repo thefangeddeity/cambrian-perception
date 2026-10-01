@@ -582,6 +582,44 @@ def _():
     assert not b.duplicate_layer(_r.Random(0))
 
 
+@check("its road organ reads a drawn road: which way it bends, a crest from a dip, where it is on it, rolled too")
+def _():
+    import math
+    from fishbowl import organs
+    W, H = 320, 180
+    F = (W / 2) / math.tan(math.radians(organs.PRIOR_HFOV_DEG) / 2)
+
+    def render(curve=0.0, crest=0.0, roll_deg=0.0, offset=0.0, pitch_deg=4.0):
+        img = np.full((H, W), 80, np.float32)
+        th, ro = math.radians(pitch_deg), math.radians(roll_deg)
+        ct, st, cr, sr = math.cos(th), math.sin(th), math.cos(ro), math.sin(ro)
+
+        def proj(X, Z):
+            Y = 1.0 + crest * Z * Z / 2
+            dy, dz = Y * ct - Z * st, Y * st + Z * ct
+            lu, lv = F * X / dz, F * dy / dz
+            return W / 2 + lu * cr - lv * sr, H / 2 + lu * sr + lv * cr
+        for x0, dashed in ((-1.4, False), (0.0, True), (1.4, False)):
+            Zs = np.linspace(1.2, 40, 160)
+            pts = [proj(x, z) for x, z in zip(x0 - offset + curve * Zs ** 2 / 2, Zs)]
+            for k in range(len(pts) - 1):
+                (a, b), (c, d) = pts[k], pts[k + 1]
+                if not (dashed and (k // 4) % 2) and max(abs(a), abs(b), abs(c), abs(d)) < 5000:
+                    cv2.line(img, (int(a), int(b)), (int(c), int(d)), 230, 2, cv2.LINE_AA)
+        img = np.clip(img + np.random.default_rng(0).normal(0, 3, img.shape), 0, 255).astype(np.uint8)
+        return organs.road(img, {"y": (H / 2 - F * math.tan(th)) / H, "roll": ro}, None, np.random.default_rng(0))
+    e = render(); assert e and abs(e["heading"]) < 0.08 and abs(e["curve"]) < 0.008, e
+    e = render(curve=0.01); assert e and e["curve"] > 0, e
+    e = render(curve=-0.01); assert e and e["curve"] < 0, e
+    e = render(crest=0.01); assert e and e["crest"] > 0, e
+    e = render(crest=-0.01); assert e and e["crest"] < 0, e
+    e = render(offset=0.5); assert e and 0.2 < e["offset"] < 0.8, e
+    for r in (30, 60):
+        e = render(roll_deg=r); assert e and abs(e["heading"]) < 0.08, (r, e)
+    # it needs a horizon its organism believes, and says nothing without one: no road in a blank frame
+    assert organs.road(np.full((H, W), 80, np.uint8), {"y": 0.4, "roll": 0.0}, None, np.random.default_rng(0)) is None
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")

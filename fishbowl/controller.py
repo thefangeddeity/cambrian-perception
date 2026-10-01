@@ -74,7 +74,7 @@ import numpy as np
 
 from .state import MosquitoState
 
-BASE_INPUTS = 76  # ... + how strange this look is to its model + its V4's texture at its gaze (contrast, fineness, anisotropy) + how much of its view rides with it + terrain at its gaze + how near what it looks at is + how near it feels it is + how soon it will reach it + turning, tilting, heading sin/cos + its speed, acceleration, place value; 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
+BASE_INPUTS = 81  # ... + its road organ: heading, curve, crest, offset, how sure (fishbowl/organs.py road). 76 before: ... + how strange this look is to its model + its V4's texture at its gaze (contrast, fineness, anisotropy) + how much of its view rides with it + terrain at its gaze + how near what it looks at is + how near it feels it is + how soon it will reach it + turning, tilting, heading sin/cos + its speed, acceleration, place value; 19 + gut, reserve, sleep pressure, asleep, field light, light trend + prey scent, prey dir x/y + food value + place dx/dy/value + intruder + danger + plant scent, dir x/y + mismatch, dir x/y + recalled value, dir x/y + protein + host velocity x/y + own pace, missed + uncertainty + ground near, horizon + parallax, camera moving + 4 archetypes + collicular dx, dy, strength
 PREY_INPUTS = (25, 26, 27)  # scent, direction x, direction y (run_vision.py's prey sense)
 # Its place map (fishbowl/organism.py): the direction from its gaze to the
 # spot that has fed it best, and how good that spot was; and the intruder
@@ -329,6 +329,7 @@ class MosquitoBrain:
         riding=0.0,
         texture=(0.0, 0.0, 0.0),
         strangeness=0.0,
+        road=(0.0, 0.0, 0.0, 0.0, 0.0),
     ) -> Motor:
         """Runs one tick of the brain. Returns its motor outputs (Motor)."""
         base = np.array([
@@ -365,6 +366,7 @@ class MosquitoBrain:
             riding,  # how much of its view rides with it (its local frame)
             *texture,  # its V4's texture at its gaze
             strangeness,  # how strange this look is to its model
+            *road,  # its road organ: where the road goes, how it bends and rises, where it is on it, how sure
         ], dtype=float)
         # Predictors: what comes back is how wrong last step's prediction was.
         for k, ch in enumerate(self.channels):

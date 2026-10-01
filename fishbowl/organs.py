@@ -63,6 +63,7 @@ LEVEL_EDGE = 0.1               # (H) a level line within 10% of the frame's top 
 MAX_LEVEL_LINES = 2            # (H) a horizon, perhaps with its shoreline: more long level lines than that is a square-on structure (a facade's floors)
 BAR_LEVEL = 24                 # (H) letterbox bars: rows darker than this (of 255) -- just above video black (16, BT.601 studio range), allowing compression noise
 STILL_PX = 0.2                 # (H) a frame shifted less than 0.2 px (of its 320) did not turn: odometry is skipped
+NON_SCALAR = ("road_lines",)  # outputs for drawing, not signals: a snapshot's series leaves them out
 PRINT_GRID, PRINT_BINS = 4, 8  # the place print: 4 x 4 cells x 8 orientations = 128 numbers
 
 
@@ -71,9 +72,13 @@ def settings() -> dict:
     try:
         from . import sandbox
         o = (sandbox._read_json(sandbox.SETTINGS_PATH, {}) or {}).get("organs") or {}
-        return {k: bool(o.get(k, True)) for k in ("horizon", "odometry", "place")}
+        out = {k: bool(o.get(k, True)) for k in ("horizon", "odometry", "place", "road")}
+        # a camera that banks (an aircraft's) may roll past the horizon organ's
+        # 20 degrees: its ecohost raises the bound here
+        out["max_roll_deg"] = float(o.get("max_roll_deg", math.degrees(MAX_ROLL)))
+        return out
     except Exception:
-        return {"horizon": True, "odometry": True, "place": True}
+        return {"horizon": True, "odometry": True, "place": True, "road": True, "max_roll_deg": math.degrees(MAX_ROLL)}
 
 
 def _segments(grey: np.ndarray, min_len: float) -> np.ndarray:
@@ -149,7 +154,7 @@ def _cover(seg: np.ndarray, w: float) -> float:
     return cover / w
 
 
-def _level_line(seg: np.ndarray, w: float, h: float) -> tuple[float, float] | None:
+def _level_line(seg: np.ndarray, w: float, h: float, max_roll: float = MAX_ROLL) -> tuple[float, float] | None:
     """A visible horizon: (its height at the frame's middle, its roll), or
     None. The one long level line in view -- level within MAX_ROLL, its
     collinear pieces covering at least LEVEL_COVER of the width (the sea's
@@ -161,7 +166,7 @@ def _level_line(seg: np.ndarray, w: float, h: float) -> tuple[float, float] | No
         return None
     d = seg[:, 2:] - seg[:, :2]
     ang = (np.arctan2(d[:, 1], d[:, 0]) + np.pi / 2) % np.pi - np.pi / 2
-    level = np.abs(ang) < MAX_ROLL
+    level = np.abs(ang) < max_roll
     s, a = seg[level], ang[level]
     mid = (s[:, :2] + s[:, 2:]) / 2.0
     yc = mid[:, 1] + np.tan(a) * (w / 2.0 - mid[:, 0])   # each piece's line at the frame's middle
@@ -179,7 +184,7 @@ def _level_line(seg: np.ndarray, w: float, h: float) -> tuple[float, float] | No
     return None if best is None else (best[0], best[1])
 
 
-def horizon(grey: np.ndarray, focal: float | None, rng: np.random.Generator) -> dict | None:
+def horizon(grey: np.ndarray, focal: float | None, rng: np.random.Generator, max_roll: float = MAX_ROLL) -> dict | None:
     """The horizon from the frame's lines: {"y": its height at the frame's
     middle (0 top, 1 bottom -- outside 0..1 when out of view), "roll": its
     tilt (radians), "conf": the share of the frame's line length that agrees,
@@ -193,13 +198,13 @@ def horizon(grey: np.ndarray, focal: float | None, rng: np.random.Generator) -> 
     seg = _segments(grey, min_len=h / 18.0)  # at least half a cell of its field (9 rows) long
     if len(seg) < 6:
         return None
-    est = _from_vanishing_points(seg, c, h, w, focal, rng)
+    est = _from_vanishing_points(seg, c, h, w, focal, rng, max_roll)
     if est is None or not 0.0 <= est["y"] <= h:
         # out of view, or nothing said: on the usual streams (2026-09-30) an
         # out-of-view answer was wrong wherever a level line was in view (a
         # beach's palm fronds converge on its crown; a crowded road's car
         # edges agree by chance), and the line was right or nearer
-        line = _level_line(seg, w, h)
+        line = _level_line(seg, w, h, max_roll)
         if line is not None:
             est = {"y": line[0], "roll": line[1], "conf": 0.0, "focal": None, "how": "line"}
     if est is None:
@@ -209,7 +214,7 @@ def horizon(grey: np.ndarray, focal: float | None, rng: np.random.Generator) -> 
 
 
 def _from_vanishing_points(seg: np.ndarray, c: np.ndarray, h: float, w: float, focal: float | None,
-                           rng: np.random.Generator) -> dict | None:
+                           rng: np.random.Generator, max_roll: float = MAX_ROLL) -> dict | None:
     """The horizon through the horizontal lines' vanishing points ("y" in
     pixels of the cropped frame), or None."""
     d = seg[:, 2:] - seg[:, :2]
@@ -264,9 +269,155 @@ def _from_vanishing_points(seg: np.ndarray, c: np.ndarray, h: float, w: float, f
         roll = math.atan2(-(vz[0] - c[0]), vz[1] - c[1]) if vz[1] > c[1] else math.atan2(vz[0] - c[0], c[1] - vz[1])
     else:
         return None
-    if y is None or not math.isfinite(y) or abs(roll) > MAX_ROLL:
+    if y is None or not math.isfinite(y) or abs(roll) > max_roll:
         return None
     return {"y": float(y), "roll": float(roll), "conf": min(1.0, support / max(total, 1e-9)), "focal": measured, "how": "vp"}
+
+
+
+# ---- the road organ --------------------------------------------------------
+# Where the road goes (a 2026-10-01 panel -- Dickmanns' 4D approach, Hartley &
+# Zisserman, Gibson, Gelman): the frame's line segments below its horizon,
+# levelled by its roll and laid back onto the ground through its pitch and
+# focal length (inverse perspective; camera height = 1 eye-height), then one
+# road model fitted to all of them -- each edge or marking its own lateral
+# offset, all sharing the road's shape: X(Z) = s(Z) x_k + psi Z + c0 Z^2/2 +
+# c1 Z^3/6 (a clothoid: heading psi, curvature c0, its rate c1) -- and its
+# rise and fall: on a crest the ground drops away, so a constant lane width
+# looks narrower with distance than flat ground would make it, s(Z) =
+# 1 / (1 + cv Z^2 / 2) (cv > 0 a crest, < 0 a dip; only seen with two lines or
+# more). A scalar Kalman filter carries each estimate from frame to frame. It
+# needs a horizon its organism believes, and says nothing without one.
+ROAD_MIN_SEGS = 3                     # (H) fewer road segments than this: no road
+ROAD_GAP = 0.4                        # (H) eye-heights between two edges' offsets that makes them two (a marking's own width is ~0.1)
+ROAD_ZMAX = 40.0                      # (H) eye-heights: farther than this, a pixel's error is metres of road
+ROAD_CV = np.linspace(-0.02, 0.02, 11)  # (H) the crest/dip curvatures tried (per eye-height): +-0.02 drops 16 eye-heights at 40 out
+# its Kalman filter: how far each may wander per frame (Q) and how noisy one fit is when fully sure (R)
+ROAD_Q = {"heading": 0.01 ** 2, "curve": 0.002 ** 2, "crest": 0.002 ** 2, "offset": 0.05 ** 2}   # (H)
+ROAD_R = {"heading": 0.03 ** 2, "curve": 0.004 ** 2, "crest": 0.006 ** 2, "offset": 0.15 ** 2}   # (H)
+
+
+def _ground_maps(roll: float, y_h: float, w: float, h: float, f: float):
+    """The map from a frame point to the ground (X sideways, Z ahead, in
+    eye-heights) and back, for this roll, horizon row and focal length."""
+    cx, cy = w / 2.0, h / 2.0
+    cr, sr = math.cos(roll), math.sin(roll)
+    th = math.atan2(cy - y_h, f)  # its pitch: looking down puts the horizon above the middle
+    ct, st = math.cos(th), math.sin(th)
+
+    def to_ground(x, y):
+        u, v = x - cx, y - cy
+        lu, lv = u * cr + v * sr, -u * sr + v * cr          # levelled (rotated by -roll)
+        yw, zw = lv * ct + f * st, -lv * st + f * ct
+        ok = yw > 1e-6
+        t = np.where(ok, 1.0 / np.where(ok, yw, 1.0), np.nan)
+        return t * lu, t * zw
+
+    def to_frame(X, Z):
+        dy, dz = ct - Z * st, st + Z * ct                   # the ground point (X, 1, Z) in its camera
+        lu, lv = f * X / dz, f * dy / dz
+        return cx + lu * cr - lv * sr, cy + lu * sr + lv * cr  # back unlevelled (rotated by +roll)
+    return to_ground, to_frame
+
+
+def road(grey: np.ndarray, hz: dict, focal: float | None, rng: np.random.Generator) -> dict | None:
+    """Its road this frame: {"heading" (radians, + right), "curve" (per
+    eye-height, + bends right), "crest" (per eye-height, + falls away),
+    "offset" (eye-heights right of its lane's middle), "conf" (0..1), "lines"
+    (each edge as frame points, for drawing)}; None when it sees no road."""
+    H0, W0 = grey.shape[:2]
+    f = focal or (W0 / 2.0) / math.tan(math.radians(PRIOR_HFOV_DEG) / 2.0)
+    y_h = hz["y"] * H0
+    to_ground, to_frame = _ground_maps(hz.get("roll", 0.0), y_h, W0, H0, f)
+    seg = _segments(grey, min_len=H0 / 24.0)
+    if len(seg) < ROAD_MIN_SEGS:
+        return None
+    X0, Z0 = to_ground(seg[:, 0], seg[:, 1])
+    X1, Z1 = to_ground(seg[:, 2], seg[:, 3])
+    dX, dZ = X1 - X0, Z1 - Z0
+    keep = (np.isfinite(Z0) & np.isfinite(Z1) & (np.minimum(Z0, Z1) > 0.8) & (np.maximum(Z0, Z1) < ROAD_ZMAX)
+            & (np.abs(dZ) > np.abs(dX)))  # running away from it on the ground: road edges and markings, not crossings
+    if keep.sum() < ROAD_MIN_SEGS:
+        return None
+    X0, Z0, X1, Z1 = X0[keep], Z0[keep], X1[keep], Z1[keep]
+    # a piece's weight: its length in the frame over its distance squared --
+    # how precisely it fixes a direction on the ground (a pixel far off is
+    # metres of road; its length on the ground would trust the far ones most)
+    L = np.hypot(*(seg[keep, 2:] - seg[keep, :2]).T) / ((Z0 + Z1) / 2) ** 2
+    # The road's shape from the segments' DIRECTIONS on the ground first: a
+    # piece of any edge runs at slope dX/dZ = psi + c0 Z + c1 Z^2/2 - cv Z x
+    # (x: its edge's offset; the crest term is how edges diverge or converge
+    # with distance) -- which edge it belongs to doesn't change that, so the
+    # shape needs no grouping. Then each piece's offset, the edges grouped by
+    # it, and the crest from how they spread; twice round.
+    Zm, Xm = (Z0 + Z1) / 2, (X0 + X1) / 2
+    slope = (X1 - X0) / (Z1 - Z0)
+    xk = np.zeros(len(L))
+    cv = 0.0
+    inl = np.ones(len(L), bool)  # robust: pieces whose slope disagrees by more than 3 robust sigmas (texture, a crossing) drop out
+    for it in range(4):
+        # heading and curvature (its rate, c1, can't be told from them at
+        # this range: left free, it traded against both), and the crest
+        A = np.c_[np.ones_like(Zm), Zm, -Zm * xk]
+        sw = np.sqrt(L * inl)
+        cols = 3 if np.ptp(xk) > ROAD_GAP else 2  # one edge can't tell a crest from a turn
+        sol, *_ = np.linalg.lstsq(A[:, :cols] * sw[:, None], slope * sw, rcond=None)
+        psi, c0, c1 = sol[0], sol[1], 0.0
+        cv = float(np.clip(sol[2], ROAD_CV[0], ROAD_CV[-1])) if cols == 3 else 0.0
+        shape = psi * Zm + c0 * Zm ** 2 / 2 + c1 * Zm ** 3 / 6
+        xk = (Xm - shape) * (1.0 + cv * Zm ** 2 / 2)  # each piece's offset, undone of the crest's narrowing
+        res = slope - (psi + c0 * Zm + c1 * Zm ** 2 / 2 - cv * Zm * xk)
+        mad = 1.4826 * float(np.median(np.abs(res[inl]))) if inl.any() else 0.0
+        inl = np.abs(res) <= max(0.02, 3.0 * mad)
+        if inl.sum() < ROAD_MIN_SEGS:
+            return None
+    L = L * inl  # what stays out of the fit stays out of the edges
+    order = np.argsort(xk)
+    label = np.zeros(len(L), int)
+    for a, b in zip(order[:-1], order[1:]):
+        label[b] = label[a] + (1 if xk[b] - xk[a] > ROAD_GAP else 0)
+    K = label.max() + 1
+    offs = np.array([np.average(xk[label == k], weights=L[label == k] + 1e-12) for k in range(K)])
+    support = np.array([L[label == k].sum() for k in range(K)])
+    keep_k = support >= 0.15 * support.max()  # an edge needs some length behind it: a stray piece is no edge
+    offs_e = offs[keep_k]
+    r = slope - (psi + c0 * Zm + c1 * Zm ** 2 / 2 - cv * Zm * xk)
+    rms = float(np.sqrt(np.average(r ** 2, weights=L + 1e-12)))  # in slope: 0.05 is 3 degrees on the ground
+    left, right = offs_e[offs_e < 0], offs_e[offs_e > 0]
+    offset = -(left.max() + right.min()) / 2.0 if len(left) and len(right) else 0.0
+    nE = int(keep_k.sum())
+    conf = float(min(1.0, len(L) / 12.0) * math.exp(-rms / 0.05) * (1.0 if nE >= 2 else 0.6) * (1.0 if len(left) and len(right) else 0.7))
+    lines = []
+    for k in np.flatnonzero(keep_k):
+        zk = np.r_[Z0[label == k], Z1[label == k]]
+        Zs = np.linspace(max(0.8, zk.min()), zk.max(), 12)
+        Xs = offs[k] / (1 + cv * Zs ** 2 / 2) + psi * Zs + c0 * Zs ** 2 / 2 + c1 * Zs ** 3 / 6
+        fx, fy = to_frame(Xs, Zs)
+        lines.append([[round(float(a) / W0, 4), round(float(b) / H0, 4)] for a, b in zip(fx, fy)])
+    return {"heading": float(psi), "curve": float(c0), "crest": float(cv), "offset": float(offset), "conf": conf, "lines": lines}
+
+
+class RoadFilter:
+    """A scalar Kalman filter per road estimate: it trusts a fit as much as its confidence."""
+
+    def __init__(self):
+        self.m, self.P = {}, {}
+        self.conf = 0.0  # how sure, smoothed: a few frames of no road fade it
+
+    def update(self, est: dict | None) -> dict:
+        for k in ROAD_Q:
+            if k in self.P:
+                self.P[k] += ROAD_Q[k]
+        if est is not None and est["conf"] > 0.0:
+            for k in ROAD_Q:
+                R = ROAD_R[k] / max(1e-3, est["conf"])
+                if k not in self.m:
+                    self.m[k], self.P[k] = est[k], R
+                else:
+                    g = self.P[k] / (self.P[k] + R)
+                    self.m[k] += g * (est[k] - self.m[k]); self.P[k] *= (1 - g)
+        self.conf = 0.8 * self.conf + 0.2 * (est["conf"] if est is not None else 0.0)  # (H) ~5 frames
+        return dict(self.m, conf=self.conf)
 
 
 def place_print(grey: np.ndarray) -> np.ndarray:
@@ -302,15 +453,20 @@ class Organs:
         self.print_long = None  # the place's print, slowly averaged
         self.print_short = None # the last few seconds' print
         self._sim = [0, 0.0, 0.0]  # the place similarity's own running count, mean and M2 (Welford)
+        self._hzs: list = []    # its horizon's last estimates: the road needs one its organism would believe
+        self.road_f = RoadFilter()
 
     def step(self, grey: np.ndarray, shift: tuple | None = None) -> dict:
         """shift: the frame's global shift from the last (fractions of width
         and height, organism.global_shift), already measured beside it -- a
         still frame needs no essential matrix (most of the fleet's cameras
         are still, and odometry is the dearest organ, ~10 ms a frame)."""
-        out = {"cv_horizon": None, "cv_roll": None, "cv_hconf": 0.0, "vo_yaw": None, "vo_conf": 0.0, "place_sim": None, "new_place": 0.0}
+        out = {"cv_horizon": None, "cv_roll": None, "cv_hconf": 0.0, "vo_yaw": None, "vo_conf": 0.0, "place_sim": None, "new_place": 0.0,
+               "road_heading": None, "road_curve": None, "road_crest": None, "road_offset": None, "road_conf": 0.0, "road_lines": None}
         if self.on.get("horizon") and self.t % HORIZON_EVERY == 0:
-            est = horizon(grey, self.focal, self.rng)
+            est = horizon(grey, self.focal, self.rng, math.radians(self.on.get("max_roll_deg", math.degrees(MAX_ROLL))))
+            if est is not None:
+                self._hzs = (self._hzs + [est["y"]])[-9:]
             if est is not None:
                 if est["focal"]:
                     self._focals = (self._focals + [est["focal"]])[-15:]
@@ -318,6 +474,15 @@ class Organs:
                 self.hz = est
         if self.on.get("horizon") and self.hz is not None:
             out.update(cv_horizon=self.hz["y"], cv_roll=self.hz["roll"], cv_hconf=self.hz["conf"])
+        if self.on.get("road"):
+            from .organism import HORIZON_MAX_SPREAD
+            q1, q3 = np.percentile(self._hzs, [25, 75]) if len(self._hzs) >= 3 else (0.0, 1.0)
+            believed = self.hz is not None and len(self._hzs) >= 3 and q3 - q1 <= HORIZON_MAX_SPREAD
+            est = road(grey, {"y": float(np.median(self._hzs)), "roll": self.hz["roll"]}, self.focal, self.rng) if believed else None
+            m = self.road_f.update(est)
+            if m.get("heading") is not None:
+                out.update(road_heading=m["heading"], road_curve=m["curve"], road_crest=m["crest"], road_offset=m["offset"])
+            out.update(road_conf=m["conf"], road_lines=est["lines"] if est is not None else None)
         if self.on.get("odometry") and self.prev is not None and self.prev.shape == grey.shape:
             h, w = grey.shape[:2]
             if shift is not None and math.hypot(shift[0] * w, shift[1] * h) < STILL_PX:
@@ -383,7 +548,7 @@ def series(frames: list[np.ndarray], on: dict | None = None, shifts=None) -> dic
     frame (shifts: each frame's global shift, as Organs.step takes it)."""
     o = Organs(on)
     rows = [o.step(f, None if shifts is None else shifts[k]) for k, f in enumerate(frames)]
-    return {k: np.array([r[k] if r[k] is not None else np.nan for r in rows], dtype=float) for k in rows[0]} if rows else {}
+    return {k: np.array([r[k] if r[k] is not None else np.nan for r in rows], dtype=float) for k in rows[0] if k not in NON_SCALAR} if rows else {}
 
 
 class _Running:
@@ -430,4 +595,4 @@ def series_running(frames: list[np.ndarray], first: int, shifts=None, on: dict |
         rows.append(out)
     for idx in [i for i in r.rows if i < first]:  # older than this snapshot: never asked for again
         del r.rows[idx]
-    return {k: np.array([row[k] if row[k] is not None else np.nan for row in rows], dtype=float) for k in rows[0]} if rows else {}
+    return {k: np.array([row[k] if row[k] is not None else np.nan for row in rows], dtype=float) for k in rows[0] if k not in NON_SCALAR} if rows else {}

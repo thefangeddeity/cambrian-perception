@@ -74,7 +74,12 @@ given plus what it builds. Some senses are engineered organs, as an animal is
 born with a vestibular sense rather than left to evolve one in a lifetime
 (`fishbowl/organs.py`, classic geometric vision with no trained model): its
 **horizon**, from the vanishing points of the frame's lines, or a visible
-level line such as the sea's edge; its **turning**, from the essential matrix
+level line such as the sea's edge; its **road**, where one is in view: the
+road's edges laid back onto the ground through its horizon and focal length,
+one road model fitted to them all (Dickmanns' 4D approach) -- where the road
+goes, how it bends, whether it rises to a crest or falls into a dip, where it
+is across it, and how sure; it bends with the land and keeps working when the
+camera rolls (an ecohost on a banking camera raises `max_roll_deg`); its **turning**, from the essential matrix
 of tracked corners (rotation told apart from travel); and a **place print**
 that notices when the scene becomes a different place (a stream cut, a
 lift's doors opening onto another floor) and makes it forget the ground it
@@ -172,7 +177,7 @@ organism's code; a restart (`cambrian --restart`) picks them up.
 |---|---|---|---|
 | `cambrian.json` (next to the code) | `"hive"` | `false` (solo) | the installers' `--hive` / `-Hive` set it |
 | `cambrian.json` | `"diet"` | living beings, the teddy bear and vehicles give jīng; plants give qì | see "What it eats" below |
-| `cambrian.json` | `"organs"` | `{"horizon": true, "odometry": true, "place": true}` | switch an engineered organ off on this ecohost (to compare, or to save CPU: each costs a few ms a frame) |
+| `cambrian.json` | `"organs"` | `{"horizon": true, "odometry": true, "place": true, "road": true, "max_roll_deg": 20}` | switch an engineered organ off on this ecohost (to compare, or to save CPU: each costs a few ms a frame) |
 | `cambrian.json` (macOS, Windows) | `"source"`, `"viewer_port"` | `"0"` (the camera), `8090` | the installers' `--source` / `-Source` |
 | its viewer | the video it watches | its camera | a stream you pick there (`state/selected_source.json`), with an optional end time |
 | systemd drop-in (Linux) | which camera, its priority | `/dev/video0` | `sudo systemctl edit cambrian-perception`: `[Service]` / `ExecStart=` / `ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/v4l/by-id/<your camera>` (a by-id path survives reboots), and e.g. `Nice=10` |

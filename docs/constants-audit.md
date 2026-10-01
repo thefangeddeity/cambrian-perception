@@ -418,6 +418,21 @@ yardsticks are found.
 | their weights, bias, gate | +-0.3, +-0.05, +-0.4 (gate never 0) | D | the founder's own recurrent, bias and between-layer weight scales (`MosquitoBrain.random`) |
 | a founder's units | 1 to `founder_units_max(layers=1)` | D | room left for at least one layer (66 units where it was 102) |
 
+### Its road organ (fishbowl/organs.py road; 2026-10-01)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| the road model | heading + curvature (clothoid to second order), a crest/dip curvature, an offset per edge | S | Dickmanns' 4D approach; the curvature's rate c1 left out: at a 320-px frame's range it traded against heading and curvature |
+| camera height | 1 eye-height | D | the unit everything is in |
+| a piece's weight | its frame length / its distance squared | D | how precisely it fixes a direction on the ground |
+| `ROAD_MIN_SEGS`, `ROAD_GAP`, `ROAD_ZMAX` | 3, 0.4, 40 eye-heights | H | fewer pieces is no road; edges 0.4 apart are two (a marking ~0.1 wide); farther, a pixel is metres |
+| robust fit | drop pieces 3 robust sigmas off (at least 0.02 in slope) | H | texture and crossings |
+| `ROAD_CV` | +-0.02 per eye-height | H | the crest/dip it can read: 16 eye-heights of drop at 40 out |
+| `ROAD_Q`, `ROAD_R` | per-frame wander, one sure fit's noise | H | its Kalman filter; R scaled by 1 / confidence |
+| confidence smoothing | 0.8 / 0.2 a frame | H | ~5 frames |
+| brain scaling | heading x2, tanh(curve x20), tanh(crest x50), offset / 2, sure | H | each about +-1 on a real road |
+| `max_roll_deg` (cambrian.json organs) | 20 by default | H | a banking camera's ecohost raises the horizon organ's roll bound |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px
