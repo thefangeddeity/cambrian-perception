@@ -376,41 +376,56 @@ graded by YOLO, drawn as a cone tree growing down onto its retina: leaves plug
 in where they read (receptors, pooled patches, oriented edges; a curved line is
 an edge that bends, its V4's curvature).
 
-**Brain.** Inputs, hidden units and outputs with every weight; cyan excites,
-orange inhibits. Stacked layers stand beside the units, a column each: a cell
-is what that layer adds to that unit now (gate x its activity), so a faint
-column is one that changes nothing; a dashed outline is a silent copy
-waiting. New random brain (two clicks) draws its brain afresh as a founder's at its
-next generation, keeping everything else; New random founder (two clicks) replaces it with a new
-random founder, as a fresh install has: eye, body, memories and traits included. Reset to founder
-(two clicks) returns to its founder exactly as it was at birth -- the same
-genome, a fresh body, no memories -- so a lineage can be run again from the
-same start (lineages born before founders were kept can't). The cards and the
-video each have a full-screen button (clicking them works too). Both keep a
-backup in its state folder.
+**Its nervous system** (the brain card) is one flatmap, left to right. Its
+sense organs: eye & V4, perception tree, mushroom body, detector, colliculus &
+surprise, memory & place, geometry organs, body, self-monitoring, its loops
+(and "other", should an input belong to none) -- each a block with a port for
+every input it gives. The mushroom body's block shows its Kenyon cells, each
+coloured by what it has learned (green food, red danger, amber food it learned
+to avoid, grey lost to wasting), bright while firing. Each organ's wires to
+each unit are bundled: thickness the summed weight, colour the net sign (cyan
+excites, orange inhibits); hover an organ for its real wires, one per input.
+Then its units (arcs: their recurrence; a unit's ring: its own weight), and
+the stream through its stacked layers -- a lane per unit, each layer's own
+units drawn on it, every wire from the layer below and its own recurrence,
+each node filled by what it adds now and ringed by its gate (dashed: a silent
+copy waiting). Its outputs read from the top of the stack; pan, tilt and zoom
+are its eye muscles. Dashed: what closes through the world or its body -- its
+eye muscles move what its eye sees, its eye feeds the perception tree and the
+mushroom body, what it eats or suffers teaches the mushroom body, a grown
+channel comes back as an input. 3D is the same map with depth, turned (it
+drifts a while after a touch). Get 3D image saves a picture of it the old
+way: every wire, glowing where they cross, from an oblique angle, no labels.
 
-**Mushroom body.** Its HUD is its life's tally, each per hour lived (its last
-60 minutes) and since its birth. Good: jīng 精 (separate bites of a host, in kǒu, mouthfuls), qì 氣 (sips from
-plants, in xī, breaths), shén 神 (looks that fed on something new, in niàn,
-thought-moments), eggs laid. Bad: swats, missed looks
-(still thinking when it had to act), minutes starving, and deaths on this ecohost
-(a body dies of starvation or of age; its newest egg hatches, or its lineage
-ends). Bottom right: HIVE on or SOLO (and, for a lineage that arrived by
-migration, which ecohost it came from), its age, and the lifespan its own damage
-rate so far gives. Neither: approaches (something
-began coming at its gaze; the navigation card's ring tightens as it comes). Torpor: minutes it
-hibernated because its eyes got no world (a dead camera: black, blank or frozen
-frames); torpid, it burns 5% of its usual, can't starve, and evolution waits.
-While its process isn't running at all (the machine off, its feed down) no time
-passes for it (cryptobiosis). Cyst: minutes a developed body (one that beats its own
-founder on the same frames) spent encysted, starving in a world with no food:
-nothing runs until a host comes within reach. An egg also carries its mother's
-learned parts, given to the hatchling (its upbringing).
-Its Kenyon cells, each coloured by what it has learned:
-green food, red danger, amber food it learned to avoid, grey lost to wasting.
-Firing cells glow phosphor green, brighter the more they have learned. In 3D
-the firing cells send their axons down the peduncle to the medial lobe (food
-value) and the vertical lobe (danger); in 2D the lobes are the two bars.
+Its actions sit below in a row of buttons. New random brain (two clicks) draws
+its brain afresh as a founder's at its next generation, keeping everything
+else; New random founder (two clicks) replaces it with a new random founder,
+as a fresh install has: eye, body, memories and traits included -- a founder
+is born with stacked layers, as many as it can carry, at random. Reset to
+founder (two clicks) returns to its founder exactly as it was at birth -- the
+same genome, a fresh body, no memories -- so a lineage can be run again from
+the same start (lineages born before founders were kept can't). Each keeps a
+backup in its state folder, and a second identical request within two
+minutes is refused (it would wipe the fresh one). The cards and the video
+each have a full-screen button.
+
+**Its life's tally** (under the navigation card): each count per hour lived
+(its last 60 minutes) and since its birth. Good: jīng 精 (separate bites of a
+host, in kǒu, mouthfuls), qì 氣 (sips from plants, in xī, breaths), shén 神
+(looks that fed on something new, in niàn, thought-moments), eggs laid. Bad:
+swats, missed looks (still thinking when it had to act), minutes starving, and
+deaths on this ecohost (a body dies of starvation or of age; its newest egg
+hatches, or its lineage ends). HIVE on or SOLO (and, for a lineage that
+arrived by migration, which ecohost it came from), its age, and the lifespan
+its own damage rate so far gives. Neither: approaches (something began coming
+at its gaze; the navigation card's ring tightens as it comes). Torpor: minutes
+it hibernated because its eyes got no world (a dead camera: black, blank or
+frozen frames); torpid, it burns 5% of its usual, can't starve, and evolution
+waits. While its process isn't running at all (the machine off, its feed down)
+no time passes for it (cryptobiosis). Cyst: minutes a developed body (one that
+beats its own founder on the same frames) spent encysted, starving in a world
+with no food: nothing runs until a host comes within reach. An egg also
+carries its mother's learned parts, given to the hatchling (its upbringing).
 
 **Sleep, replay and dreams.** The sleep line: awake or asleep, sleep pressure,
 its clock (day or night), replays awake/asleep and the REM share, habits it has

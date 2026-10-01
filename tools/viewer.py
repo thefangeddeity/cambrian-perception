@@ -858,7 +858,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <h2>its brain</h2>
     <canvas id="brain" height="520"></canvas>
     <div class="cap"><b id="brain-mb"></b><b id="brain-units">--</b> units, <b id="brain-layers">--</b> stacked (a column each beside its units: what it adds to each unit now; faint adds nothing). <b style="color:var(--cyan)">Cyan</b> excites, <b style="color:var(--orange)">orange</b> inhibits. <span id="brain-mode"></span></div>
-    <div class="cap orgrow"><span class="grp"><a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span></span> <span class="grp"><a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span></span> <span class="grp"><a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></span> <span class="grp"><a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span></span> <span class="grp"><select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span></span> <span class="grp">Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span></span> <span class="grp"><a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span></span> <span class="grp"><a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></span></div>
+    <div class="cap orgrow"><span class="grp"><a href="#" id="brain-portrait" title="Its brain as a picture: every wire, from an oblique angle, saved to the device you are viewing on">Get 3D image</a> <span id="brain-portrait-note"></span></span> <span class="grp"><a href="#" id="randomize">New random brain</a> <span id="randomize-note"></span></span> <span class="grp"><a href="#" id="amnesia">New random founder</a> <span id="amnesia-note"></span></span> <span class="grp"><a href="#" id="reset-founder">Reset to founder</a> <span id="reset-founder-note"></span></span> <span class="grp"><a href="#" id="save-here" title="Save the organism into this ecohost's Games/Lifeforms/Cambrioids folder">Save</a> <span id="save-here-note"></span></span> <span class="grp"><select id="load-list" class="orgsel" title="This ecohost's saved organisms"><option value="">its saves&hellip;</option></select> <a href="#" id="load-organism" title="Load the chosen one in this one's place (this one is kept in a backup)">Load</a> <span id="load-organism-note"></span></span> <span class="grp">Copy from <select id="peer-list" class="orgsel" title="The hive's other ecohosts"><option value="">ecohost&hellip;</option></select> <select id="peer-saves" class="orgsel" hidden></select> <a href="#" id="copy-here" hidden>Copy here</a> <span id="copy-note"></span></span> <span class="grp"><a href="#" id="save-organism" title="Download the organism to the device you are viewing on">Download</a> <span id="save-organism-note"></span></span> <span class="grp"><a href="#" id="upload-organism" title="Put a file from the device you are viewing on into this ecohost's saves">Upload&hellip;</a><input type="file" id="load-file" accept=".cambrioid" hidden> <span id="upload-note"></span></span></div>
   </div>
   <div class="panel" id="tree-panel">
     <h2>its perception tree</h2>
@@ -2473,6 +2473,95 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
   })();
 
+  // "Get 3D image": its brain as the old 3D view drew it -- every wire, faint
+  // to bright, added light on light (bundles glow where they cross, as the
+  // connectome renders do), each bowed a little its own way -- from an oblique
+  // angle, no labels: rendered once, offscreen, and saved as a picture on the
+  // device you view from. The flatmap is the instrument; this is its portrait.
+  // Inputs on three planes at the left, units on a sphere, its stacked layers
+  // stepping from the sphere toward the outputs' ring at the right.
+  function brainPortrait(d) {
+    const br = d && d.brain; if (!br) return null;
+    const W = 1920, H = 1080, c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
+    const nIn = br.weights_ih[0].length, nH = br.weights_ih.length, nOut = br.weights_ho.length, ls = br.layers || [];
+    const pts = [], rows = Math.ceil(nIn / 3);
+    for (let i = 0; i < nIn; i++) { const col = Math.floor(i / rows), r = i % rows; pts.push({ kind: 'in', x: -1.2, y: -0.92 + 1.84 * r / Math.max(1, rows - 1), z: (col - 1) * 0.42 }); }
+    const ga = Math.PI * (3 - Math.sqrt(5)), unit = [];
+    for (let h = 0; h < nH; h++) {
+      const y = nH > 1 ? 1 - 2 * (h + 0.5) / nH : 0, rad = Math.sqrt(1 - y * y), th = ga * h;
+      unit.push({ x: 0.42 * rad * Math.cos(th), y: 0.55 * y, z: 0.55 * rad * Math.sin(th) });
+    }
+    const hidAt = [unit.map(u => { pts.push({ kind: 'hid', x: u.x, y: u.y, z: u.z }); return pts.length - 1; })];
+    ls.forEach((L, k) => {  // each layer's units: its sphere carried a step toward the outputs, a little tighter
+      const t = (k + 1) / (ls.length + 1), sh = 0.75 * t, sc = 1 - 0.35 * t;
+      hidAt.push(unit.map(u => { pts.push({ kind: 'lay', x: u.x * sc + sh, y: u.y * sc, z: u.z * sc }); return pts.length - 1; }));
+    });
+    const outAt = [];
+    for (let o = 0; o < nOut; o++) { const a = 2 * Math.PI * o / nOut; pts.push({ kind: 'out', x: 1.2, y: 0.55 * Math.cos(a), z: 0.55 * Math.sin(a) }); outAt.push(pts.length - 1); }
+    const yaw = 0.65, pitch = -0.28, F = 3.2, cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    let R3 = 0.1; pts.forEach(q => { R3 = Math.max(R3, Math.hypot(q.x, q.y, q.z)); });
+    const scale = Math.min(W / 2 - 60, H / 2 - 40) / reach3D(R3, F);
+    pts.forEach(q => {
+      const x1 = q.x * cy + q.z * sy, z1 = -q.x * sy + q.z * cy, y2 = q.y * cp - z1 * sp, z2 = q.y * sp + z1 * cp, w = F / (F + z2);
+      q.sx = W / 2 + x1 * scale * w; q.sy = H / 2 + y2 * scale * w; q.w = w; q.depth = z2; q.fog = Math.max(0.25, Math.min(1, 0.65 - 0.45 * z2));
+    });
+    const edges = [];  // every wire: [from, to, weight, recurrent]
+    for (let h = 0; h < nH; h++) for (let i = 0; i < nIn; i++) edges.push([i, hidAt[0][h], br.weights_ih[h][i], 0]);
+    for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) if (r !== q) edges.push([hidAt[0][q], hidAt[0][r], br.weights_hh[r][q], 1]);
+    ls.forEach((L, k) => {
+      for (let r = 0; r < nH; r++) for (let q = 0; q < nH; q++) {
+        if (L.W && L.W[r]) edges.push([hidAt[k][q], hidAt[k + 1][r], L.W[r][q], 0]);
+        if (r !== q && L.U && L.U[r]) edges.push([hidAt[k + 1][q], hidAt[k + 1][r], L.U[r][q], 1]);
+      }
+    });
+    const topAt = hidAt[hidAt.length - 1];
+    for (let o = 0; o < nOut; o++) for (let h = 0; h < nH; h++) edges.push([topAt[h], outAt[o], br.weights_ho[o][h], 0]);
+    let maxW = 1e-9; edges.forEach(e => { maxW = Math.max(maxW, Math.abs(e[2])); });
+    const hash = (x, y) => { const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); };
+    ctx.globalCompositeOperation = 'lighter';
+    edges.forEach(([a, b, w, rec]) => {
+      const A = pts[a], B = pts[b], s = Math.min(1, Math.abs(w) / maxW), alpha = (0.05 + 0.55 * s) * (A.fog + B.fog) / 2;
+      const mx = (A.sx + B.sx) / 2, my = (A.sy + B.sy) / 2;
+      let cx, cyy;
+      if (rec) { const ox = mx - W / 2, oy = my - H / 2, n = Math.hypot(ox, oy) || 1; cx = mx + ox / n * 40; cyy = my + oy / n * 40; }
+      else { const dx = B.sx - A.sx, dy = B.sy - A.sy, bend = (hash(a, b) - 0.5) * 0.35; cx = mx - dy * bend; cyy = my + dx * bend; }
+      ctx.strokeStyle = 'rgba(' + (w >= 0 ? '127,212,255' : '255,153,0') + ',' + Math.min(1, alpha) + ')';
+      ctx.lineWidth = (0.6 + 2.2 * s) * (A.w + B.w) / 2;
+      ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.quadraticCurveTo(cx, cyy, B.sx, B.sy); ctx.stroke();
+    });
+    const hid = d.brain_hidden || [];
+    hidAt[0].forEach((idx, h) => {  // a soft glow behind each unit, as bright as it is active
+      const q = pts[idx], a = hid[h] || 0, rr = 34 * q.w * (0.4 + Math.abs(a)), col = a >= 0 ? '127,212,255' : '255,153,0';
+      const g = ctx.createRadialGradient(q.sx, q.sy, 0, q.sx, q.sy, rr);
+      g.addColorStop(0, 'rgba(' + col + ',' + (0.35 * Math.abs(a) * q.fog) + ')'); g.addColorStop(1, 'rgba(' + col + ',0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.sx, q.sy, rr, 0, 7); ctx.fill();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+    pts.slice().sort((a, b) => b.depth - a.depth).forEach(q => {
+      const r = (q.kind === 'hid' ? 9 : q.kind === 'out' ? 11 : q.kind === 'lay' ? 4 : 5) * q.w;
+      ctx.globalAlpha = q.fog;
+      ctx.fillStyle = q.kind === 'out' ? '#0a2a1a' : q.kind === 'in' ? '#2a1512' : 'rgba(127,212,255,0.55)';
+      ctx.strokeStyle = q.kind === 'out' ? '#ffe2d6' : q.kind === 'in' ? '#b88a80' : '#345';
+      ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(1.5, r), 0, 7); ctx.fill(); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    return { canvas: c, wires: edges.length };
+  }
+  (() => {
+    const a = $('brain-portrait'), note = $('brain-portrait-note'); if (!a) return;
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const p = brainPortrait(BZ.d); if (!p) { note.textContent = 'no brain yet'; return; }
+      p.canvas.toBlob(b => {
+        const url = URL.createObjectURL(b), link = document.createElement('a');
+        link.href = url; link.download = 'cambrioid-brain-' + location.hostname + '-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.png';
+        document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        note.textContent = 'saved: ' + p.wires + ' wires';
+      }, 'image/png');
+    });
+  })();
   // Trees (every tree the genome has).
   const PLANE_NAMES = ['now', 'prev', 'rg', 'by'];
   function nodeLabel(n) { return n.kind === 'var' ? 'x' + n.index : n.kind === 'cell' ? `${PLANE_NAMES[n.index] || 'p' + n.index}(${n.kx},${n.ky})` : n.kind === 'pool' ? `${PLANE_NAMES[n.index] || 'p' + n.index}[${n.kx},${n.ky}]±${Math.round(n.value)}` : n.kind === 'edge' ? `${PLANE_NAMES[n.index] || 'p' + n.index}/${Math.round((n.angle || 0) * 180 / Math.PI)}°[${n.kx},${n.ky}]±${Math.round(n.value)}` : n.kind === 'const' ? n.value.toFixed(2) : n.op; }
@@ -2512,17 +2601,37 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     pts.forEach(q => { q.y -= mid; });
     return { pts, links, floor: floor - mid, maxK };
   }
+  // How far a tree's layout reaches from the centre on screen (x, y, at unit
+  // scale) over a whole turn at this tilt: its nodes and its retina's corners.
+  function treeExtent(L, pitch, F) {
+    const key = Math.round(pitch * 50);
+    if (L._ext && L._ext[0] === key) return L._ext[1];
+    const cp = Math.cos(pitch), sp = Math.sin(pitch), g = 0.9;
+    const pts = L.pts.map(q => [q.x, q.y, q.z]).concat([[-g, L.floor, -g], [g, L.floor, -g], [g, L.floor, g], [-g, L.floor, g]]);
+    let mx = 0.1, my = 0.1;
+    for (let a = 0; a < 24; a++) {
+      const cy = Math.cos(a * Math.PI / 12), sy = Math.sin(a * Math.PI / 12);
+      pts.forEach(([x, y, z]) => {
+        const x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, w = F / (F + z2);
+        mx = Math.max(mx, Math.abs(x1 * w)); my = Math.max(my, Math.abs(y2 * w));
+      });
+    }
+    L._ext = [key, [mx, my]];
+    return L._ext[1];
+  }
   function drawTree3D(name) {
     const T = TREE3[name]; if (!T) return;
     const c = T.canvas, W = c.width, H = c.height, ctx = c.getContext('2d');
     ctx.fillStyle = '#0a0e14'; ctx.fillRect(0, 0, W, H);
     const cy = Math.cos(T.yaw), sy = Math.sin(T.yaw), cp = Math.cos(T.pitch), sp = Math.sin(T.pitch);
     const L = T.lay, F = 3.4;
-    let R3 = Math.hypot(0.9, L.floor, 0.9);  // the retina grid's corners
-    L.pts.forEach(q => { R3 = Math.max(R3, Math.hypot(q.x, q.y, q.z)); });
     ctx.font = '11px monospace';
     const Lw = Math.max(...L.pts.map(q => ctx.measureText(nodeLabel(q.n)).width), 20) / 2;
-    const reach = reach3D(R3, F), scale = Math.max(20, Math.min((W / 2 - Lw - 16) / reach, (H / 2 - 22) / reach)) * T.zoom;
+    // its fit: the tree and its retina as they actually reach, over a whole
+    // turn at this tilt (so the drift doesn't make it breathe) -- not a sphere
+    // around everything, which left a small tree in an empty card
+    const ext = treeExtent(L, T.pitch, F);
+    const scale = Math.max(20, Math.min((W / 2 - Lw - 10) / ext[0], (H / 2 - 18) / ext[1])) * T.zoom;
     const proj = (x, y, z) => {
       const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
       const y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, w = F / (F + z2);
@@ -2593,10 +2702,10 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       wrap.innerHTML = `<div class="cap">${name}${s && limits ? ` -- ${s.nodes} / ${limits.max_nodes} nodes, depth ${s.depth} / ${limits.max_depth}` : ''}</div>`;
       const c = document.createElement('canvas'); c.style.width = '100%'; const active = steerable(c);
       wrap.appendChild(c); box.appendChild(wrap);
-      const W = TW;
-      c.width = W; c.height = Math.round(W * quadAspect());
+      const W = TW, lay = coneLayout(trees[name], N / 2), ext = treeExtent(lay, (TREE3[name] || {}).pitch ?? 0.3, 3.4);
+      c.width = W; c.height = Math.round(W * Math.max(0.45, Math.min(quadAspect(), (ext[1] + 0.12) / (ext[0] + 0.25))));  // its own shape: no empty band
       const old = TREE3[name] || {};
-      const T = TREE3[name] = { canvas: c, lay: coneLayout(trees[name], N / 2), yaw: old.yaw ?? 0.35, pitch: old.pitch ?? 0.3, zoom: old.zoom ?? 1,
+      const T = TREE3[name] = { canvas: c, lay, yaw: old.yaw ?? 0.35, pitch: old.pitch ?? 0.3, zoom: old.zoom ?? 1,
                                 vyaw: 0, touched: performance.now() - 4000, hover: null, drag: null, loop: false, dirty: true, P: [] };
       const pt = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
       const touch = () => { T.touched = performance.now(); T.dirty = true; treeKick(name); };
@@ -2614,6 +2723,23 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       c.addEventListener('pointerleave', () => { if (T.hover != null) { T.hover = null; touch(); } });
       drawTree3D(name); treeKick(name);
     }
+    requestAnimationFrame(fillTreeCard);
+  }
+  // Its card is as tall as the tallest card in its row (the grid stretches it):
+  // its canvases grow into that height, so no empty band sits under them. It
+  // only ever fills what the row already gives (it never makes the row taller).
+  function fillTreeCard() {
+    const panel = $('tree-panel'), box = $('trees'); if (!panel || !box) return;
+    const cs = [...box.querySelectorAll('canvas')]; if (!cs.length) return;
+    const pr = panel.getBoundingClientRect(), last = panel.lastElementChild.getBoundingClientRect();
+    const free = pr.bottom - parseFloat(getComputedStyle(panel).paddingBottom) - last.bottom;
+    if (free < 6) return;
+    cs.forEach(c => {
+      const cssH = c.getBoundingClientRect().height, k = c.width / Math.max(1, c.clientWidth);
+      c.height = Math.round((cssH + free / cs.length) * k);
+    });
+    Object.values(TREE3).forEach(T => { if (cs.includes(T.canvas)) { T.dirty = true; } });
+    Object.keys(TREE3).forEach(n => { if (cs.includes(TREE3[n].canvas)) { drawTree3D(n); treeKick(n); } });
   }
 
   // History charts.
