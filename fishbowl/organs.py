@@ -32,9 +32,11 @@ cab 0.01 of the frame's height off, a canyon road 0.03, a beach 0.02 (by
 its sea line), Tina's street and 7elwe's ceiling close; a traffic camera
 over a crowded road 0.2 off; a tilted-up London street scattered over
 0.36-0.74 (its true horizon itself unclear); a room seen steeply down from
-high (a kitten room) unreliable; a bare synthetic room mostly unanswered
-(None) -- which leaves its learned horizon in charge. The organism takes the
-median of its last nine estimates. A horizon-first rewrite (each edge
+high (a kitten room) unreliable; the same tram at night, through its
+windscreen's reflections, scattered over -1..0.7; a bare synthetic room
+mostly unanswered (None). The organism takes the median of its last nine
+estimates, and only while they agree (organism.HORIZON_MAX_SPREAD) -- else
+its learned horizon stands. A horizon-first rewrite (each edge
 voting along candidate horizons, after Simon, Fond & Berger 2018) was tried
 the same day and did worse on every stream but the beach; this simpler
 design was kept.

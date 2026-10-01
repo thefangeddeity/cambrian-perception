@@ -162,6 +162,7 @@ FOOD_GAIN = 400.0
 # new and 0 once learned, a new object ~0.2 when it appears, something
 # crossing to new places ~0.10 steadily.
 SURPRISE_SIGMAS = 4.0      # change beyond ~4x a spot's usual variation counts as surprise
+HORIZON_MAX_SPREAD = 0.15  # (H) its horizon organ is believed while its recent estimates' IQR is under 15% of the frame's height: 0.01-0.07 where it reads a scene right (a tram by day, a street, a room), 0.3-0.8 where it can't (night through a cab's windscreen, a room seen steeply down)
 NOISE_FLOOR = 0.02         # smallest variation any spot is assumed to have (sensor noise)
 MEAN_RATE, VAR_RATE = 0.1, 0.05
 
@@ -902,11 +903,11 @@ class Organism:
         # wild one -- a few lines agreeing by chance -- never moves it). The
         # organ holds each estimate for HORIZON_EVERY frames, so nine
         # estimates span that many times nine looks (~2 s at 15 a second)
-        hz = sig.get("cv_horizon")
-        if hz is not None and math.isfinite(hz):
-            from .organs import HORIZON_EVERY
-            self._cv_hz = (self._cv_hz + [float(hz)])[-9 * HORIZON_EVERY:]
-            self.cv_horizon = float(np.median(self._cv_hz))
+        # It is believed only while it agrees with itself: its estimates'
+        # spread (IQR) within HORIZON_MAX_SPREAD of the frame's height (a tram
+        # cab at night, all reflections, or a room seen steeply down scatter
+        # them over half the frame -- then its learned horizon stands)
+        self.hear_horizon(sig.get("cv_horizon"))
         # a new place (its place print): the ground it learned was the old one's
         if (sig.get("new_place", 0.0) or 0.0) > 0.5:
             self.ground = np.zeros_like(self.ground)
@@ -1710,6 +1711,15 @@ class Organism:
         if self.cv_horizon is not None:
             return self.cv_horizon
         return self.learned_horizon()
+
+    def hear_horizon(self, hz) -> None:
+        """One look's estimate from its horizon organ (None: it had none)."""
+        if hz is None or not math.isfinite(hz):
+            return
+        from .organs import HORIZON_EVERY
+        self._cv_hz = (self._cv_hz + [float(hz)])[-9 * HORIZON_EVERY:]
+        q1, med, q3 = np.percentile(self._cv_hz, [25, 50, 75])
+        self.cv_horizon = float(med) if q3 - q1 <= HORIZON_MAX_SPREAD else None
 
     def learned_horizon(self) -> float | None:
         """Its horizon as its ground model alone infers it (see horizon())."""

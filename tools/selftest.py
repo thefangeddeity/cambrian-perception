@@ -506,9 +506,13 @@ def _():
     # the organism takes it as its horizon (its learned one is the fallback)
     o = O.Organism(founder(), None, None, 150.0, 15.0)
     for _k in range(5):
-        o._cv_hz = (o._cv_hz + [hy])[-9:]
-        o.cv_horizon = float(np.median(o._cv_hz))
+        o.hear_horizon(hy)
     assert o.horizon() == hy and o.learned_horizon() is None
+    # an organ that scatters its estimates over half the frame is not believed
+    o2 = O.Organism(founder(), None, None, 150.0, 15.0)
+    for v in [0.1, 0.9, -0.2, 0.7, 0.3, 1.1, 0.0, 0.6, 0.4] * 3:
+        o2.hear_horizon(v)
+    assert o2.cv_horizon is None and o2.horizon() == o2.learned_horizon()
 
 
 @check("viewer: every <script> parses (node --check), where node exists")

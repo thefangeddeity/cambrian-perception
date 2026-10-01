@@ -404,6 +404,7 @@ yardsticks are found.
 | segment length | `h / 18` | D | half a cell of its 9-row field |
 | horizon smoothing (organism) | median over its last 9 estimates (9 x `HORIZON_EVERY` looks) | H | about 2 s at 15 looks a second; one wild estimate never moves it |
 | odometry: corners, minimum, `STILL_PX` | 80, 12, 0.2 px | H | the essential matrix needs 5 points; 12 leaves RANSAC room; a frame (or its corners) shifted under 0.2 px did not turn, and is not computed |
+| `HORIZON_MAX_SPREAD` (organism) | 0.15 of the frame's height | M | the organ is believed while its recent estimates' IQR is under it: measured 0.01-0.07 where it read scenes right, 0.3-0.8 where it failed (night through a cab's windscreen, a room seen steeply down) |
 | odometry trusted (organism) | inlier share >= 0.5 | H | under half its tracked corners agreeing, the frame shift's yaw is kept |
 | place print averages | short 0.3 per frame, long 0.02 per frame | H | the last few looks against the place's slow print (~50 looks) |
 | a new place | similarity < mean - `SURPRISE_SIGMAS` x its spread, after 100 frames | D | its own surprise line (organism.SURPRISE_SIGMAS), against its own running spread |

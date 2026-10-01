@@ -80,9 +80,11 @@ that notices when the scene becomes a different place (a stream cut, a
 lift's doors opening onto another floor) and makes it forget the ground it
 learned there. What it builds on top -- its ground, terrain, maps and
 behaviour -- is still its own. The horizon organ is good on streets, roads,
-trams, coasts and rooms with visible structure, and abstains (leaving its
-learned horizon in charge) in bare rooms; a camera looking steeply down from
-high up still fools it (organs.py's docstring has the measurements).
+trams, a beach and rooms with visible structure, by day. It is believed only
+while its recent estimates agree with each other; where they scatter -- at
+night through a tram cab's windscreen, a camera looking steeply down from
+high up, a bare room -- its learned horizon stands (organs.py's docstring
+has the measurements).
 
 **The hive (opt-in, off for a new install).** Ecohosts that join it may, after an
 extinction, take a genome from a peer. It is **pull-only** (nothing is pushed
