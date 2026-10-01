@@ -273,7 +273,6 @@ def _circuits(org: Organism) -> dict:
                     "scene": org.scene + 1 if org.scenes else 1, "scenes": max(1, len(org.scenes)), "max_scenes": org.max_scenes,
                     "traits": {"awake": org.awake_replay, "asleep": org.sleep_replay, "rem": round(org.rem_share, 2),
                                "backup": round(org.replay_backup, 2), "dream_steps": org.dream_steps}}
-    fps = max(1.0, org.fps)
     out["dreams"] = [[kind, r, c, round(org.lived_s - t, 1), seq] for kind, r, c, t, seq in org.replay_log
                      if org.lived_s - t < 10.0]  # ages in the seconds it lived (the frame rate varies)
     return out

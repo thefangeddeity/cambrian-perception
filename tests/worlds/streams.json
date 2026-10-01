@@ -1,0 +1,12 @@
+{
+  "about": "Public live streams the organs have been tried on (2026-09-30). Live content changes, so a horizon is labelled per capture (bench.py label), not here; 'expect' is what the scene usually shows. Frames are captured into media/worlds/ (gitignored): they are other people's footage, not ours to republish.",
+  "streams": [
+    {"name": "tram", "url": "https://www.youtube.com/live/HpgnXXHsmfE", "expect": "a tram cab's view down the tracks; by day the organ reads it within 0.01; at night windscreen reflections scatter it"},
+    {"name": "canyon-road", "url": "https://www.youtube.com/watch?v=Hue3V65zQRQ", "expect": "driving a canyon road, letterboxed lead-in"},
+    {"name": "london", "url": "https://www.youtube.com/watch?v=WKGK_hYnlGE", "expect": "a London street, camera tilted up at a facade; its horizon itself unclear"},
+    {"name": "kitten-room", "url": "https://www.youtube.com/watch?v=gBdqOuhj2P4", "expect": "a room seen steeply down from high: horizon above the frame"},
+    {"name": "beach", "search": "beach live cam 24/7", "expect": "a beach with a sea line; a palm in a corner"},
+    {"name": "road-cam", "search": "highway traffic camera live", "expect": "a traffic camera over a crowded road"},
+    {"name": "street", "url": "https://www.youtube.com/watch?v=VDq0bA4aNfk", "expect": "the fleet's test stream"}
+  ]
+}

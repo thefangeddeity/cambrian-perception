@@ -284,6 +284,35 @@ any look at something new gives.)
 
 Its life history (`state/life_history.json`) records each of these.
 
+## Testing
+
+**The self-test** (`tools/selftest.py`) is the gate: every installer runs it
+on the ecohost before anything starts, and a failure stops the install.
+
+**The worlds bench** (`tests/worlds/`) measures its engineered horizon against
+worlds whose horizon is known, and reports; it gates nothing.
+
+- Synthetic worlds (`synthetic.py`): tiled floors, a letterboxed frame, a sea
+  under a palm and bare rooms at nine poses, drawn from a known camera, so
+  their horizon is exact.
+- Stream worlds: frames from the public streams in `streams.json`, captured
+  into `media/worlds/` (gitignored: other people's footage isn't ours to
+  republish) and labelled by a person looking at them.
+
+```
+python -m tests.worlds.bench capture tram          # frames from a stream
+python -m tests.worlds.bench sheet media/worlds/tram-....npz sheet.jpg   # look
+python -m tests.worlds.bench label media/worlds/tram-....npz 0.48        # its horizon by eye
+python -m tests.worlds.bench run                   # every world: error, and whether it'd be believed
+```
+
+What it shows today: streets, trams and roads within 0.01-0.03 of the frame's
+height; a corridor 0.13 off and not believed (its estimates disagree, so its
+learned horizon stands); a cat bed seen from straight above and bare rooms
+wrong *and* believed -- a square-on wall edge read as the horizon the same way
+every frame, which agreement between estimates can't catch. That is the
+organ's known limit.
+
 ## Reading the viewer
 
 The viewer (`tools/viewer.py`, port 8090) keeps its captions to what you need
