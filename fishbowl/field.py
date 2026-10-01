@@ -38,6 +38,8 @@ class FieldSignals:
         self.last_vector = None
         self.fps = 15.0            # the host sets its frame rate (the mismatch background adapts in seconds)
         self.structure = None      # the mismatch detector's slow model of the field's structure (mean, variance)
+        from .organs import Organs
+        self.organs = Organs()     # its engineered organs (fishbowl/organs.py), frame by frame
 
     def step(self, grey: np.ndarray) -> tuple[dict, tuple[float, float]]:
         shape = field_shape(*grey.shape[:2])
@@ -90,4 +92,5 @@ class FieldSignals:
                "field_light": float(v.mean()), "mismatch": mismatch, "mismatch_cx": mmx, "mismatch_cy": mmy,
                "structure": v - float(v.mean()), "parallax": parallax, "motion_map": motion_map, "mismatch_map": mismatch_map,
                "frame_votes": votes[0] if votes else None}
+        sig.update(self.organs.step(grey, shift[:2]))
         return sig, shift

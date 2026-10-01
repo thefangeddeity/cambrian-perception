@@ -1077,7 +1077,8 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     const bar = v => `<span style="display:inline-block;width:40px;height:6px;background:#1c2a36;vertical-align:middle"><span style="display:block;height:6px;width:${Math.round(40 * Math.max(0, Math.min(1, v)))}px;background:#7fd4ff"></span></span>`;
     const parts = [`pace ${s.pace_s.toFixed(2)} s${s.missed ? ' <b style="color:#ff6f8a">missed</b>' : ''}`, `unsure ${bar(s.uncertainty)}`,
                    s.camera_moving ? '<b style="color:#7fd4ff">camera moving</b>' : 'camera still',
-                   s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down` : 'no horizon yet',
+                   s.horizon != null ? `horizon ${Math.round(100 * s.horizon)}% down${s.horizon_from ? ` (${s.horizon_from})` : ''}` : 'no horizon yet',
+                   s.new_places ? `${s.new_places} new place${s.new_places === 1 ? '' : 's'}` : '',
                    d.oxygen && d.oxygen.stage ? `<b style="color:#ff6f8a">short of oxygen</b>: shed ${d.oxygen.shed.join(', ')} (${d.oxygen.behind_s.toFixed(1)} s behind)` : '',
                    Math.abs(s.turning || 0) > 0.01 ? `turning ${s.turning > 0 ? 'right' : 'left'} ${Math.round(100 * Math.abs(s.turning))}%` : '',
                    Math.abs(s.tilting || 0) > 0.01 ? `tilting ${s.tilting > 0 ? 'clockwise' : 'anticlockwise'} ${Math.round(100 * Math.abs(s.tilting))}%` : '',

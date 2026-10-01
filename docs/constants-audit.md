@@ -387,6 +387,27 @@ yardsticks are found.
 | a detection split by what hides it (`prey.drop_contained`) | overlap over the smaller box >= `NMS_IOU` (0.7), same class: the surer box stays | D | the detector's own NMS threshold, measured over the smaller box instead of the union (containment: the usual remedy for occlusion splits); found on Ariana, a person behind a chair back at 0.69 of the union |
 | `MAX_MEMBER_BYTES`, `MAX_TOTAL_BYTES` (tools/organism_file.py) | 16 MiB, 64 MiB | H | 20x and 80x the largest checkpoint measured in the fleet (0.83 MB); a larger .cambrioid is refused before anything is unpacked |
 
+### Its engineered organs (fishbowl/organs.py, organism.py; 2026-09-30)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| `PRIOR_HFOV_DEG` | 65 degrees | H | a typical webcam's horizontal field of view; replaced by the focal length measured from two orthogonal vanishing points once it has one (the median of its last 15) |
+| `ANGLE_TOL` | 2 degrees | H | a segment belongs to a vanishing point within 2 degrees (the RANSAC inlier band) |
+| `RANSAC_TRIES` | 150 | H | hypotheses per vanishing point |
+| `HORIZON_EVERY` | 3 frames | H | the horizon moves slowly; odometry runs every frame |
+| `MAX_ROLL` | 20 degrees | H | a mounted or carried camera is seldom tilted more |
+| `COLLINEAR_PX` | 2 px | H | two pieces of one edge are no vanishing-point hypothesis |
+| `LEVEL_COVER`, `LEVEL_BAND` | half the width, 2% of the height | H | a visible horizon (the sea's edge) spans half the frame, its pieces within 2% of one height |
+| `LEVEL_EDGE`, `MAX_LEVEL_LINES` | 10% of the height, 2 | H | a level line hugging the frame's edge is its surround; more than two long level lines is a square-on structure |
+| `BAR_LEVEL` | 24 of 255 | H | letterbox rows: just above video black (16, BT.601 studio range) |
+| out of view -> the level line | | M | on the usual streams an out-of-view vanishing-point answer was wrong wherever a level line was in view (beach, road camera, London), and the line right or nearer (docstring of organs.py) |
+| segment length | `h / 18` | D | half a cell of its 9-row field |
+| horizon smoothing (organism) | median over its last 9 estimates (9 x `HORIZON_EVERY` looks) | H | about 2 s at 15 looks a second; one wild estimate never moves it |
+| odometry: corners, minimum, `STILL_PX` | 80, 12, 0.2 px | H | the essential matrix needs 5 points; 12 leaves RANSAC room; a frame (or its corners) shifted under 0.2 px did not turn, and is not computed |
+| odometry trusted (organism) | inlier share >= 0.5 | H | under half its tracked corners agreeing, the frame shift's yaw is kept |
+| place print averages | short 0.3 per frame, long 0.02 per frame | H | the last few looks against the place's slow print (~50 looks) |
+| a new place | similarity < mean - `SURPRISE_SIGMAS` x its spread, after 100 frames | D | its own surprise line (organism.SURPRISE_SIGMAS), against its own running spread |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

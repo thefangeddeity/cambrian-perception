@@ -463,6 +463,11 @@ class _SignalsAt:
     def __getitem__(self, key: str):
         return self.ws[key][self.t]
 
+    def get(self, key: str, default=None):
+        """A signal a snapshot may lack (an organ switched off): default."""
+        a = self.ws.get(key)
+        return default if a is None or self.t >= len(a) else a[self.t]
+
 
 def evaluate_genome(
     g: G.Genome,
@@ -1007,6 +1012,9 @@ class World:
             ws["motion_map"] = np.clip(np.vstack([np.zeros((1, dv.shape[1])), dv]) * PERIPH_MOTION_GAIN, 0.0, 1.0) if len(wv) > 1 \
                 else np.zeros((len(wv), np.asarray(wv).shape[-1]))
             ws["parallax"] = parallax_series(self.frames[::pace], ws["shift_x"], ws["shift_y"], self.field_shape, ws["shift_s"])
+            # its engineered organs (fishbowl/organs.py): horizon, odometry, place print
+            from fishbowl import organs as _organs
+            ws.update(_organs.series(self.frames[::pace], shifts=np.c_[ws["shift_x"], ws["shift_y"]]))
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
 

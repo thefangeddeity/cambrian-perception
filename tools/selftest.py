@@ -468,6 +468,49 @@ def _():
         assert vs.capture_kind(stream) in ("ffmpeg", "pipe"), stream
 
 
+@check("its horizon organ finds a drawn floor's horizon (letterboxed too) and a sea's under a palm, and its organism hears it")
+def _():
+    import math
+    from fishbowl import organs
+    # a tiled floor seen by a camera turned 35 degrees: its horizon 40% down
+    h, w, hy, f = 180, 320, 0.4, 250.0
+    img = np.full((h, w), 90, np.uint8)
+    c, sn = math.cos(math.radians(35)), math.sin(math.radians(35))
+
+    def P(X, Z):
+        Xc, Zc = c * X - sn * Z, sn * X + c * Z
+        return (w / 2 + f * Xc / Zc, hy * h + f / Zc) if Zc > 0.3 else None
+    for i in range(-20, 21):
+        for a, b in [((i, z), (i, z + 0.5)) for z in np.arange(0.5, 40, 0.5)] + [((x, i), (x + 0.5, i)) for x in np.arange(-20, 20, 0.5)]:
+            p, q = P(*a), P(*b)
+            if p and q and max(abs(p[0]), abs(q[0]), abs(p[1]), abs(q[1])) < 5000:
+                cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), 200, 1, cv2.LINE_AA)
+    ests = [organs.horizon(img, None, np.random.default_rng(k)) for k in range(5)]
+    ys = [e["y"] for e in ests if e is not None]
+    assert len(ys) >= 4 and abs(float(np.median(ys)) - hy) < 0.06, ests
+    assert all(abs(math.degrees(e["roll"])) < 5 for e in ests if e is not None), ests
+    # letterboxed (a stream's black bars, whose edges look like horizons): the same answer
+    boxed = np.vstack([np.zeros((30, w), np.uint8), img, np.zeros((30, w), np.uint8)])
+    ys_boxed = [e["y"] for e in (organs.horizon(boxed, None, np.random.default_rng(k)) for k in range(5)) if e]
+    assert len(ys_boxed) >= 4 and abs(float(np.median(ys_boxed)) * (h + 60) - 30 - hy * h) < 0.06 * h, ys_boxed
+    # a sea's edge at 45% down, and a palm's fronds converging on a crown above
+    # the frame: the fronds' point is out of view, the sea line is the horizon
+    sea = np.full((h, w), 200, np.uint8)
+    sea[int(0.45 * h):] = 110
+    for k in range(14):
+        a = math.radians(35 + 2.5 * k)
+        cv2.line(sea, (330, -40), (int(330 - 150 * math.cos(a)), int(-40 + 150 * math.sin(a))), 40, 2, cv2.LINE_AA)
+    sea = np.clip(sea.astype(int) + np.random.default_rng(0).normal(0, 3, sea.shape), 0, 255).astype(np.uint8)
+    e = organs.horizon(sea, None, np.random.default_rng(0))
+    assert e is not None and abs(e["y"] - 0.45) < 0.03, e
+    # the organism takes it as its horizon (its learned one is the fallback)
+    o = O.Organism(founder(), None, None, 150.0, 15.0)
+    for _k in range(5):
+        o._cv_hz = (o._cv_hz + [hy])[-9:]
+        o.cv_horizon = float(np.median(o._cv_hz))
+    assert o.horizon() == hy and o.learned_horizon() is None
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")

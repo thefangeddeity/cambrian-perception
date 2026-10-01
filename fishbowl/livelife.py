@@ -240,7 +240,9 @@ def _circuits(org: Organism) -> dict:
             out["replay_eye"]["seen"] = {"i": int(meta[0]), "cx": round(meta[1], 4), "cy": round(meta[2], 4), "f": round(meta[3], 4)}
     # its newer senses, for the visual field card
     names = {**{int(k): v for k, v in prey_lib.PREY_CLASSES.items()}, prey_lib.PLANT_CLASS: "plant"}
-    out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3), "ground_fits": org.ground_fits(), "terrain": org.terrain_view(),
+    out["senses"] = {"horizon": None if org.horizon() is None else round(org.horizon(), 3),
+                     "horizon_from": "seen" if org.cv_horizon is not None else ("learned" if org.horizon() is not None else None),  # its horizon organ's, or inferred from where things stand
+                     "new_places": int(org.new_places), "ground_fits": org.ground_fits(), "terrain": org.terrain_view(),
                      "parallax": None if org.last_parallax is None else [round(float(x), 2) for x in org.last_parallax],
                      "pace_s": round(org.last_interval / max(1.0, org.fps), 3), "missed": bool(org.just_missed),
                      "uncertainty": round(float(org.uncertainty), 3), "nearness": round(float(org.last_nearness), 3), "felt_nearness": round(float(org.felt_nearness), 3), "contact": round(float(org.contact), 3), "turning": round(float(org.turning), 3),

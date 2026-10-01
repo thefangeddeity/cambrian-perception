@@ -69,6 +69,21 @@ start processes or run for unbounded time. Raw camera frames are never
 written to disk. Resource use is capped by the operating system (systemd,
 Job Objects), not by anything the organism reports.
 
+**What it is given, and what it builds.** Its perception is what it is
+given plus what it builds. Some senses are engineered organs, as an animal is
+born with a vestibular sense rather than left to evolve one in a lifetime
+(`fishbowl/organs.py`, classic geometric vision with no trained model): its
+**horizon**, from the vanishing points of the frame's lines, or a visible
+level line such as the sea's edge; its **turning**, from the essential matrix
+of tracked corners (rotation told apart from travel); and a **place print**
+that notices when the scene becomes a different place (a stream cut, a
+lift's doors opening onto another floor) and makes it forget the ground it
+learned there. What it builds on top -- its ground, terrain, maps and
+behaviour -- is still its own. The horizon organ is good on streets, roads,
+trams, coasts and rooms with visible structure, and abstains (leaving its
+learned horizon in charge) in bare rooms; a camera looking steeply down from
+high up still fools it (organs.py's docstring has the measurements).
+
 **The hive (opt-in, off for a new install).** Ecohosts that join it may, after an
 extinction, take a genome from a peer. It is **pull-only** (nothing is pushed
 to an ecohost), **data-only** (a genome is numbers; it is vetted against this
@@ -155,6 +170,7 @@ organism's code; a restart (`cambrian --restart`) picks them up.
 |---|---|---|---|
 | `cambrian.json` (next to the code) | `"hive"` | `false` (solo) | the installers' `--hive` / `-Hive` set it |
 | `cambrian.json` | `"diet"` | living beings, the teddy bear and vehicles give jīng; plants give qì | see "What it eats" below |
+| `cambrian.json` | `"organs"` | `{"horizon": true, "odometry": true, "place": true}` | switch an engineered organ off on this ecohost (to compare, or to save CPU: each costs a few ms a frame) |
 | `cambrian.json` (macOS, Windows) | `"source"`, `"viewer_port"` | `"0"` (the camera), `8090` | the installers' `--source` / `-Source` |
 | its viewer | the video it watches | its camera | a stream you pick there (`state/selected_source.json`), with an optional end time |
 | systemd drop-in (Linux) | which camera, its priority | `/dev/video0` | `sudo systemctl edit cambrian-perception`: `[Service]` / `ExecStart=` / `ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/v4l/by-id/<your camera>` (a by-id path survives reboots), and e.g. `Nice=10` |
@@ -315,7 +331,9 @@ an edge that bends, its V4's curvature).
 its gaze; dashed boxes are hosts, dotted ones plants; a red frame means
 something is looming. Layers add its food places, where it expects people,
 what still surprises it and its collicular priority. The senses strip lists
-its newer senses: pace, uncertainty, camera motion, horizon, what it looks at
+its newer senses: pace, uncertainty, camera motion, horizon ("seen" by its
+horizon organ or "learned" from where things stand), how many new places its
+place print has noticed, what it looks at
 and how near, how near it feels it is, contact, turning, tilting, heading,
 its speed (eye-heights per second), starting or stopping, what the place it
 is at has been worth, how much of its view rides with it, and the texture at

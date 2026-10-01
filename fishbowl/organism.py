@@ -725,6 +725,10 @@ class Organism:
         self.turning = self.tilting = 0.0
         self.cam_moving = False
         self.last_parallax = None
+        # its engineered organs (fishbowl/organs.py), as they reach it in its signals
+        self._cv_hz: list = []     # the horizon organ's last estimates (their median is its horizon)
+        self.cv_horizon = None     # its horizon from the organ; None: its learned one stands
+        self.new_places = 0        # places its place print has told apart
         self.imagery = bool(getattr(g, "imagery", 0))
         # Recall (pattern completion; a 2026-09-28 panel -- Marr's CA3, which at
         # low load retrieves like a Hopfield net: the stored pattern that best
@@ -889,6 +893,27 @@ class Organism:
         # ~ the frame's height, as its ground model assumes) and roll from the
         # ego-motion fit, summed over each look; its compass integrates the yaw
         yaw = -math.atan(self.cam_shift[0] * self.aspect)
+        # its odometry organ, when sure: turning from the essential matrix (it
+        # tells rotation from travel, which the plain shift mixes)
+        vy, vc = sig.get("vo_yaw"), sig.get("vo_conf", 0.0) or 0.0
+        if vy is not None and math.isfinite(vy) and vc >= 0.5:
+            yaw = float(vy)
+        # its horizon organ: the median over its last nine estimates (a single
+        # wild one -- a few lines agreeing by chance -- never moves it). The
+        # organ holds each estimate for HORIZON_EVERY frames, so nine
+        # estimates span that many times nine looks (~2 s at 15 a second)
+        hz = sig.get("cv_horizon")
+        if hz is not None and math.isfinite(hz):
+            from .organs import HORIZON_EVERY
+            self._cv_hz = (self._cv_hz + [float(hz)])[-9 * HORIZON_EVERY:]
+            self.cv_horizon = float(np.median(self._cv_hz))
+        # a new place (its place print): the ground it learned was the old one's
+        if (sig.get("new_place", 0.0) or 0.0) > 0.5:
+            self.ground = np.zeros_like(self.ground)
+            if self.terrain is not None:
+                self.terrain = np.zeros_like(self.terrain)
+            self._cv_hz, self.cv_horizon = [], None
+            self.new_places += 1
         roll = float(shift[3]) if len(shift) > 3 else 0.0
         self._yaw_look += yaw
         self._roll_look += roll
@@ -1679,7 +1704,15 @@ class Organism:
         classes' spread between them (random effects) -- so a class whose
         members fit their line badly counts for little, and a class that
         disagrees with the rest cannot outweigh them. None until a
-        class has spread in where its members stand and a few residuals."""
+        class has spread in where its members stand and a few residuals.
+        Its horizon ORGAN, when it has one (fishbowl/organs.py: the frame's
+        vanishing points), comes first; the learned one is its fallback."""
+        if self.cv_horizon is not None:
+            return self.cv_horizon
+        return self.learned_horizon()
+
+    def learned_horizon(self) -> float | None:
+        """Its horizon as its ground model alone infers it (see horizon())."""
         self.ground = _ground_shape(self.ground)
         est, var = [], []
         for row in self.ground:
