@@ -156,6 +156,7 @@ HISTORY_MAX_BYTES = 12_000_000  # real tail, not a full-file read -- the
 # accepting free-text URLs here would hand anyone on the LAN control
 # over what real content the organism trains against.
 SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
+LOOP_FEED_PATH = STATE_DIR / "loop_feed.json"  # "loop current internet feed": a recording starts over when it ends (read by run_vision then)
 LAST_VIDEO_PATH = STATE_DIR / "last_video.json"  # the last video it watched, for "back to video" (kept until another is watched)
 
 
@@ -851,8 +852,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         <input type="text" id="custom-url" placeholder="a YouTube URL to watch instead of the camera (frames are never saved)" style="flex:1 1 260px">
         <button id="custom-url-submit">watch this</button>
         <button id="dessert-cancel">back to camera</button>
-        <button id="back-to-video" hidden>back to video</button>
-        <button id="forget-video" hidden title="Forget the remembered video">forget video</button>
+        <button id="back-to-video" hidden>return to internet feed</button>
+        <button id="forget-video" hidden title="Forget the remembered internet feed">forget it</button>
+        <label class="cap"><input type="checkbox" id="feed-loop"> loop current internet feed (a recording starts over when it ends)</label>
       </div>
       <label class="cap" style="display:block; margin-top:6px"><input type="checkbox" id="dessert-timed"> back to the camera by itself at <input type="time" id="dessert-until" value="07:00"></label>
       <div id="submit-status" class="cap" style="margin-top:6px"></div>
@@ -3126,6 +3128,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     } catch (e) { switchStatus('NOT switched back: the viewer could not be reached', true); }
     pollDessert();
   });
+  $('feed-loop').addEventListener('change', async e => {
+    const on = e.target.checked;
+    try {
+      const j = await (await fetch('/loop-feed?on=' + (on ? 1 : 0), { method: 'POST', headers: { 'X-Cambrian': '1' } })).json();
+      switchStatus(j.ok ? (on ? 'looping: a recording starts over when it ends' : 'not looping: when a recording ends, back to the camera') : 'NOT changed: ' + (j.error || 'unknown reason'), !j.ok);
+    } catch (er) { switchStatus('NOT changed: the viewer could not be reached', true); }
+    pollDessert();
+  });
   $('forget-video').addEventListener('click', async () => {
     try {
       const j = await (await fetch('/forget-video', { method: 'POST', headers: { 'X-Cambrian': '1' } })).json();
@@ -3150,6 +3160,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       const bv = $('back-to-video');  // "back to video": on its camera, with a video remembered
       if (bv) { bv.hidden = !!r.active || !r.last_video; bv.title = r.last_video || ''; }
       const fv = $('forget-video'); if (fv) fv.hidden = !r.last_video;
+      const fl = $('feed-loop'); if (fl && document.activeElement !== fl) fl.checked = !!r.loop_feed;
       $('dessert-status').textContent = r.active
         ? `on video: ${r.selected_url}` + (r.until ? ` until ${new Date(r.until * 1000).toLocaleString()}` : ' until you switch back')
         : 'on its camera';
@@ -3404,8 +3415,12 @@ class Handler(BaseHTTPRequestHandler):
                 last_video = json.loads(LAST_VIDEO_PATH.read_text(encoding="utf-8")).get("url")
             except (OSError, ValueError):
                 last_video = None
+            try:
+                loop_feed = bool(json.loads(LOOP_FEED_PATH.read_text(encoding="utf-8")).get("on"))
+            except (OSError, ValueError):
+                loop_feed = False
             body = json.dumps({
-                "last_video": last_video,
+                "last_video": last_video, "loop_feed": loop_feed,
                 "options": [n for n, _ in LIVE_SOURCES],
                 "selected": selected_name,
                 "selected_url": selected_url,
@@ -3433,7 +3448,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/save-here", "/upload", "/load-saved", "/copy-from", "/forget-video", "/delete-save")) or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/save-here", "/upload", "/load-saved", "/copy-from", "/forget-video", "/delete-save", "/loop-feed")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -3527,6 +3542,19 @@ class Handler(BaseHTTPRequestHandler):
             print(f"{self.path.split('?')[0].lstrip('/')}: {'ok ' + json.dumps(extra) if ok else 'refused (' + str(error) + ')'}", flush=True)
             body = json.dumps({"ok": ok, "error": error, **extra}).encode("utf-8")
             self.send_response(200 if ok else 400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/loop-feed"):  # "loop current internet feed", on or off (nothing restarts)
+            on = parse_qs(urlparse(self.path).query).get("on", ["0"])[0] == "1"
+            try:
+                _write_json_atomic(LOOP_FEED_PATH, {"on": on})
+                body = json.dumps({"ok": True, "on": on}).encode("utf-8")
+            except OSError as e:
+                body = json.dumps({"ok": False, "error": str(e)}).encode("utf-8")
+            self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

@@ -1702,7 +1702,14 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
             if source == "live":
                 _stream_failed(dessert)  # a live stream's "end" can be a hiccup
             elif dessert is not None:
-                sandbox.clear_selected_source(dessert["url"])  # a recording that ended has ended
+                try:  # "loop current internet feed" (the viewer's state/loop_feed.json): a recording starts over
+                    looping = bool(json.loads((sandbox.STATE_DIR / "loop_feed.json").read_text(encoding="utf-8")).get("on"))
+                except (OSError, ValueError):
+                    looping = False
+                if looping:
+                    print("Looping it: the recording starts over.")
+                else:
+                    sandbox.clear_selected_source(dessert["url"])  # a recording that ended has ended
             break
         # The video choice, checked every generation (a small file read): any
         # change -- a video chosen, cleared, or swapped for another -- stops
