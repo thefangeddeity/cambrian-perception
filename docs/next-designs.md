@@ -81,3 +81,11 @@ viewer isn't watching. A collapse toggle of some kind belongs to a UX/UI
 sprint -- designed with the page's layout as a whole (the quad, the side
 charts, phone widths) and its military-standard HUD vocabulary, not bolted
 onto one card.
+
+## 5. The brain card's caption: a "View gates" link (parked, low priority)
+
+The caption lists every stacked layer's gate inline ("gates 0.05, 0.26,
+0.31, ..."): with a founder's dozens of layers it runs to several lines of
+numbers nobody reads there. Replace the list with a "View gates" link that
+shows them on demand (the flatmap already rings each layer's units by its
+gate). Not scheduled.
