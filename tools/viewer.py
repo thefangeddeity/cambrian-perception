@@ -2340,9 +2340,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       const dim = hov != null && hov !== 'o' + o;
       const s = node([p.x, p.y, zo(o)], 9, dim ? 'rgba(10,42,26,0.5)' : '#0a2a1a', '#ffe2d6', 1);
       pts.push({ sx: s[0], sy: s[1], key: 'o' + o });
-      const eff = o < 3 ? ' (eye muscles)' : '';
-      text(nsOut(br, o) + eff, p.x + 13, p.y, zo(o), '10px monospace', '#ffe2d6', 'left');
+      text(nsOut(br, o), p.x + 13, p.y, zo(o), '10px monospace', '#ffe2d6', 'left');
     });
+    if (nOut >= 3) text('eye muscles: pan, tilt, zoom', xo - 10, outs[0].y - 14, zo(0), '9px monospace', 'rgba(200,190,180,0.7)', 'left', 'bottom');
     // a hovered thing, named
     if (hov != null) {
       const lab = hov[0] === 'g' ? groups[+hov.slice(1)].name + ': ' + groups[+hov.slice(1)].idx.length + ' inputs, its real wires shown'
