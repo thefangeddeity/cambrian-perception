@@ -384,3 +384,50 @@ def series(frames: list[np.ndarray], on: dict | None = None, shifts=None) -> dic
     o = Organs(on)
     rows = [o.step(f, None if shifts is None else shifts[k]) for k, f in enumerate(frames)]
     return {k: np.array([r[k] if r[k] is not None else np.nan for r in rows], dtype=float) for k in rows[0]} if rows else {}
+
+
+class _Running:
+    """Its organs kept running across snapshots of one live feed: a new
+    snapshot (every ~10 s) shares nearly all its frames with the last, so
+    only the frames not seen yet are stepped -- as its live body steps each
+    frame once. Keyed by the feed's frame index, checked by a fingerprint of
+    each frame (a source switch restarts the indices: then it starts over)."""
+
+    def __init__(self, on):
+        self.organs = Organs(on)
+        self.rows: dict[int, tuple] = {}   # feed index -> (fingerprint, outputs)
+        self.next = None
+
+    @staticmethod
+    def fingerprint(f: np.ndarray) -> int:
+        return int(f[::16, ::16].astype(np.int64).sum())
+
+
+_RUNNING: _Running | None = None
+
+
+def series_running(frames: list[np.ndarray], first: int, shifts=None, on: dict | None = None) -> dict:
+    """series() for a live feed's snapshot whose first frame is the feed's
+    frame `first`: the same outputs, computing only frames not seen before."""
+    global _RUNNING
+    on = on or settings()
+    prints = [_Running.fingerprint(f) for f in frames]
+    r = _RUNNING
+    fresh = (r is None or r.organs.on != on or not r.rows or first < min(r.rows) or first > r.next
+             or any(first + k in r.rows and r.rows[first + k][0] != p for k, p in enumerate(prints)))
+    if fresh:
+        r = _RUNNING = _Running(on)
+        r.next = first
+    rows = []
+    for k, f in enumerate(frames):
+        idx = first + k
+        if idx in r.rows:
+            rows.append(r.rows[idx][1])
+            continue
+        out = r.organs.step(f, None if shifts is None else shifts[k])
+        r.rows[idx] = (prints[k], out)
+        r.next = idx + 1
+        rows.append(out)
+    for idx in [i for i in r.rows if i < first]:  # older than this snapshot: never asked for again
+        del r.rows[idx]
+    return {k: np.array([row[k] if row[k] is not None else np.nan for row in rows], dtype=float) for k in rows[0]} if rows else {}

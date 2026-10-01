@@ -763,7 +763,9 @@ def _worker_signals(meta: dict, vectors, fps: float) -> dict:
     built here so the organism's own process -- its live body's -- never
     spends its time on them (a 2026-09-30 measurement: 7 s a snapshot)."""
     _worker_attach(meta)
-    return World(_WORKER["frames"], vectors, fps, meta["prey"], _WORKER["colour"]).at_pace(1)[1]
+    world = World(_WORKER["frames"], vectors, fps, meta["prey"], _WORKER["colour"])
+    world.first_index = meta.get("first")  # its organs run on across snapshots (organs.series_running)
+    return world.at_pace(1)[1]
 
 
 def _worker_evaluate(meta: dict, genome_dict: dict, quota_pct: float, body: dict, fps: float, memory, sec_per_mac: float = 0.0):
@@ -894,7 +896,7 @@ class _Workers:
             arrays = {"grey": np.stack(world.frames)}
             if world.colour is not None:
                 arrays["colour"] = np.stack(world.colour)
-            meta = {"id": f"{os.getpid()}-{time.time_ns()}", "prey": world.prey, "colour": None}
+            meta = {"id": f"{os.getpid()}-{time.time_ns()}", "prey": world.prey, "colour": None, "first": world.first_index}
             for key, arr in arrays.items():
                 block = shared_memory.SharedMemory(create=True, size=max(1, arr.nbytes))
                 np.ndarray(arr.shape, dtype=arr.dtype, buffer=block.buf)[...] = arr
@@ -1014,7 +1016,11 @@ class World:
             ws["parallax"] = parallax_series(self.frames[::pace], ws["shift_x"], ws["shift_y"], self.field_shape, ws["shift_s"])
             # its engineered organs (fishbowl/organs.py): horizon, odometry, place print
             from fishbowl import organs as _organs
-            ws.update(_organs.series(self.frames[::pace], shifts=np.c_[ws["shift_x"], ws["shift_y"]]))
+            shifts = np.c_[ws["shift_x"], ws["shift_y"]]
+            if pace == 1 and self.first_index is not None:  # a live feed's snapshot: only its new frames
+                ws.update(_organs.series_running(self.frames, self.first_index, shifts))
+            else:
+                ws.update(_organs.series(self.frames[::pace], shifts=shifts))
             self._cache[pace] = (self.frames[::pace], ws)
         return self._cache[pace]
 

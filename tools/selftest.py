@@ -515,6 +515,27 @@ def _():
     assert o2.cv_horizon is None and o2.horizon() == o2.learned_horizon()
 
 
+@check("its organs run on across a live feed's snapshots: the same outputs, each frame stepped once")
+def _():
+    from fishbowl import organs
+    rng = np.random.default_rng(3)
+    base = cv2.GaussianBlur((rng.random((220, 400)) * 255).astype(np.uint8), (5, 5), 0)
+    frames = [np.ascontiguousarray(base[10:190, k:k + 320]) for k in range(40)]  # a slow pan
+    on = {"horizon": True, "odometry": True, "place": True}
+    whole = organs.series(frames, on)
+    organs._RUNNING = None
+    organs.series_running(frames[:30], 100, None, on)
+    steps = organs._RUNNING.organs.t
+    later = organs.series_running(frames[10:], 110, None, on)
+    assert organs._RUNNING.organs.t == steps + 10  # only the 10 new frames were stepped
+    for k in whole:
+        assert np.allclose(np.nan_to_num(later[k]), np.nan_to_num(whole[k][10:])), k
+    # a source switch restarts the feed's indices: other frames at old indices start it over
+    organs.series_running([np.ascontiguousarray(f[::-1]) for f in frames[:5]], 100, None, on)
+    assert organs._RUNNING.organs.t == 5
+    organs._RUNNING = None
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")
