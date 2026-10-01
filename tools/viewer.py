@@ -852,6 +852,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         <button id="custom-url-submit">watch this</button>
         <button id="dessert-cancel">back to camera</button>
         <button id="back-to-video" hidden>back to video</button>
+        <button id="forget-video" hidden title="Forget the remembered video">forget video</button>
       </div>
       <label class="cap" style="display:block; margin-top:6px"><input type="checkbox" id="dessert-timed"> back to the camera by itself at <input type="time" id="dessert-until" value="07:00"></label>
       <div id="submit-status" class="cap" style="margin-top:6px"></div>
@@ -3120,6 +3121,13 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     } catch (e) { switchStatus('NOT switched back: the viewer could not be reached', true); }
     pollDessert();
   });
+  $('forget-video').addEventListener('click', async () => {
+    try {
+      const j = await (await fetch('/forget-video', { method: 'POST', headers: { 'X-Cambrian': '1' } })).json();
+      switchStatus(j.ok ? 'the remembered video is forgotten' : 'NOT forgotten: ' + (j.error || 'unknown reason'), !j.ok);
+    } catch (e) { switchStatus('NOT forgotten: the viewer could not be reached', true); }
+    pollDessert();
+  });
   $('back-to-video').addEventListener('click', async () => {
     const url = SEL && SEL.last_video; if (!url) return;
     switchStatus('back to the video: checking it can still be played...');
@@ -3136,6 +3144,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       SEL = r; showLive(D);
       const bv = $('back-to-video');  // "back to video": on its camera, with a video remembered
       if (bv) { bv.hidden = !!r.active || !r.last_video; bv.title = r.last_video || ''; }
+      const fv = $('forget-video'); if (fv) fv.hidden = !r.last_video;
       $('dessert-status').textContent = r.active
         ? `on video: ${r.selected_url}` + (r.until ? ` until ${new Date(r.until * 1000).toLocaleString()}` : ' until you switch back')
         : 'on its camera';
@@ -3405,7 +3414,7 @@ class Handler(BaseHTTPRequestHandler):
         # Only this page's own fetch() sends X-Cambrian; a cross-site form
         # can't set custom headers, and a cross-site fetch with one needs a
         # CORS preflight this server never grants.
-        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/save-here", "/upload", "/load-saved", "/copy-from")) or self.headers.get("X-Cambrian") != "1":
+        if not self.path.startswith(("/select", "/randomize", "/amnesia", "/reset-founder", "/save-here", "/upload", "/load-saved", "/copy-from", "/forget-video")) or self.headers.get("X-Cambrian") != "1":
             print(f"select: refused (not from this page) {self.path[:120]}", flush=True)
             self.send_response(403)
             self.end_headers()
@@ -3487,6 +3496,18 @@ class Handler(BaseHTTPRequestHandler):
             print(f"{self.path.split('?')[0].lstrip('/')}: {'ok ' + json.dumps(extra) if ok else 'refused (' + str(error) + ')'}", flush=True)
             body = json.dumps({"ok": ok, "error": error, **extra}).encode("utf-8")
             self.send_response(200 if ok else 400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/forget-video"):  # "forget video": the remembered link cleared (nothing restarts)
+            try:
+                _held(lambda: LAST_VIDEO_PATH.unlink(missing_ok=True))
+                body = json.dumps({"ok": True}).encode("utf-8")
+            except OSError as e:
+                body = json.dumps({"ok": False, "error": str(e)}).encode("utf-8")
+            self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

@@ -37,6 +37,7 @@ Usage:
 
 import argparse
 import contextlib
+import json
 import math
 import os
 
@@ -2610,7 +2611,10 @@ def main() -> int:
         try:
             m, backup = organism_file.install(blob, sandbox.STATE_DIR)
             print(f"Loaded {m.get('name')}; the lineage it replaced is in {backup.name}.")
-            _announce("load", f"{m.get('name')} (from {m.get('ecohost', '?')}) took its place; the one it replaced is in {backup.name}")
+            try:  # announcing it must never undo the report of a load that is done
+                _announce("load", f"{m.get('name')} (from {m.get('ecohost', '?')}) took its place; the one it replaced is in {backup.name}")
+            except Exception:
+                pass
         except Exception as e:
             print(f"Load failed ({e}); this lineage goes on.")
         return sandbox.EXIT_RESTART_ME
