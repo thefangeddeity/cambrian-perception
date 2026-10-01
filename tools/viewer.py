@@ -42,6 +42,23 @@ from urllib.parse import urlparse, parse_qs
 import urllib.request
 
 
+# The last reset of each kind this viewer passed on (time.time()): a second
+# one within RESET_REPEAT_S -- another tab, another person, a double
+# submission -- would wipe the fresh founder or brain the first just made
+# (Ariana, 2026-09-30: two Amnesias 2.5 min apart, the first founder lived
+# 99 s). Refused, with when the first was asked.
+_LAST_RESET: dict = {}
+RESET_REPEAT_S = 120.0
+
+
+def _reset_refused(what: str) -> str | None:
+    t = _LAST_RESET.get(what)
+    if t is not None and time.time() - t < RESET_REPEAT_S:
+        return f"already asked at {time.strftime('%H:%M:%S', time.localtime(t))} -- a fresh one wasn't wiped by a second"
+    _LAST_RESET[what] = time.time()
+    return None
+
+
 _PEERS: dict = {}  # the hive's ecohosts the page last listed: name -> (address, port); Copy from only asks these
 
 
@@ -3155,10 +3172,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if self.path.startswith("/reset-founder"):
-            _write_json_atomic(STATE_DIR / "reset_founder.request", {"t": time.time()})
-            print("reset to founder: requested", flush=True)
-            body = json.dumps({"ok": True}).encode("utf-8")
-            self.send_response(200)
+            refused = _reset_refused("reset-founder")
+            if refused is None:
+                _write_json_atomic(STATE_DIR / "reset_founder.request", {"t": time.time()})
+            print(f"reset to founder: {'requested' if refused is None else 'refused, ' + refused}", flush=True)
+            body = json.dumps({"ok": refused is None, "error": refused}).encode("utf-8")
+            self.send_response(200 if refused is None else 409)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -3169,6 +3188,16 @@ class Handler(BaseHTTPRequestHandler):
             # fresh install's founder): the organism picks it up at its next
             # generation (run_vision.py).
             what = "randomize" if self.path.startswith("/randomize") else "amnesia"
+            refused = _reset_refused(what)
+            if refused is not None:
+                print(f"{what}: refused, {refused}", flush=True)
+                body = json.dumps({"ok": False, "error": refused}).encode("utf-8")
+                self.send_response(409)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             _write_json_atomic(STATE_DIR / f"{what}.request", {"t": time.time()})
             print(f"{what}: requested", flush=True)
             body = json.dumps({"ok": True}).encode("utf-8")

@@ -549,6 +549,18 @@ def _():
     assert not p.exists()
 
 
+@check("a reset asked twice in a row is done once (a second would wipe the fresh founder)")
+def _():
+    from tools import viewer
+    viewer._LAST_RESET.clear()
+    assert viewer._reset_refused("amnesia") is None
+    assert viewer._reset_refused("amnesia") is not None      # the repeat
+    assert viewer._reset_refused("randomize") is None        # another kind is its own
+    viewer._LAST_RESET["amnesia"] -= viewer.RESET_REPEAT_S + 1
+    assert viewer._reset_refused("amnesia") is None          # later, it may be asked again
+    viewer._LAST_RESET.clear()
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")
