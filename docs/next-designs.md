@@ -89,3 +89,17 @@ The caption lists every stacked layer's gate inline ("gates 0.05, 0.26,
 numbers nobody reads there. Replace the list with a "View gates" link that
 shows them on demand (the flatmap already rings each layer's units by its
 gate). Not scheduled.
+
+## 6. Virtual worlds to explore, from orbital-organism (parked)
+
+Today a cambrioid only watches: its camera or a stream decides where it
+looks from, and it can't move. orbital-organism (a sibling project: a
+physics world with its own self-programming organisms) could supply worlds
+it explores -- the cambrioid as a fictional omnipotent being with infinite
+mobility, moving in any direction through a rendered world. That gives it,
+for the first time, outputs that change what it sees by moving its body,
+not only its gaze: the pressure to evolve a motor cortex. Possibly no more
+than a port: orbital-organism renders frames from a viewpoint the
+cambrioid steers, served to it like any other source. Not scheduled; its
+design (what it controls, how motion is priced, how frames reach it) goes
+past a panel first.
