@@ -156,6 +156,7 @@ HISTORY_MAX_BYTES = 12_000_000  # real tail, not a full-file read -- the
 # accepting free-text URLs here would hand anyone on the LAN control
 # over what real content the organism trains against.
 SELECTED_SOURCE_PATH = STATE_DIR / "selected_source.json"
+LAST_VIDEO_PATH = STATE_DIR / "last_video.json"  # the last video it watched, for "back to video" (kept until another is watched)
 
 
 def _held(fn, tries: int = 30):
@@ -850,6 +851,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         <input type="text" id="custom-url" placeholder="a YouTube URL to watch instead of the camera (frames are never saved)" style="flex:1 1 260px">
         <button id="custom-url-submit">watch this</button>
         <button id="dessert-cancel">back to camera</button>
+        <button id="back-to-video" hidden>back to video</button>
       </div>
       <label class="cap" style="display:block; margin-top:6px"><input type="checkbox" id="dessert-timed"> back to the camera by itself at <input type="time" id="dessert-until" value="07:00"></label>
       <div id="submit-status" class="cap" style="margin-top:6px"></div>
@@ -2093,11 +2095,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     let text = '', cls = '';
     if (PENDING) {
       const s = Math.round((now - PENDING.t) / 1000);
-      text = s < 180 ? `Waiting for ${PENDING.label} to take its place at its next generation... (${s} s)`
+      text = s < 180 ? (PENDING.kind === 'source' ? `Switching to ${PENDING.label}: the organism restarts onto it... (${s} s)` : `Waiting for ${PENDING.label} to take its place at its next generation... (${s} s)`)
                      : `${PENDING.label}: not applied yet after ${Math.round(s / 60)} min -- is the organism running? (its status: generation ${d.generation ?? '?'})`;
       cls = s < 180 ? 'wait' : 'bad';
     } else if (lc && now - lc.t * 1000 < 120000 && SEEN_CHANGE !== lc.t) {
-      const title = { load: 'LOADED', brain: 'NEW BRAIN', founder: 'NEW FOUNDER', reset: 'RESET TO FOUNDER' }[lc.kind] || 'CHANGED';
+      const title = { load: 'LOADED', brain: 'NEW BRAIN', founder: 'NEW FOUNDER', reset: 'RESET TO FOUNDER', source: 'NOW WATCHING' }[lc.kind] || 'CHANGED';
       text = lc.ok === false ? `${title} FAILED: ${lc.what}` : `${title} at ${at(lc.t * 1000)}: ${lc.what}`;
       cls = lc.ok === false ? 'bad' : '';
     }
@@ -3103,7 +3105,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     switchStatus('checking the video can be played...');
     try {
       const r = await postSelect('url=' + encodeURIComponent(url) + (until ? '&until=' + Math.floor(until.getTime() / 1000) : ''));
-      if (r.ok) switchStatus('switching to it' + (until ? ` until ${until.toLocaleString()}` : ' until you switch back') + ' -- restarting (watch "watching" above)');
+      if (r.ok) { switchStatus('switching to it' + (until ? ` until ${until.toLocaleString()}` : ' until you switch back') + ' -- restarting (watch "watching" above)'); expectChange('source', 'the video'); }
       else switchStatus('NOT switched: ' + (r.error || 'unknown reason'), true);
       if (r.ok) $('custom-url').value = '';
       pollDessert();
@@ -3113,15 +3115,27 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     switchStatus('going back to the camera...');
     try {
       const r = await postSelect('name=auto');
-      if (r.ok) switchStatus('back to camera -- the organism restarts onto it within about a minute');
+      if (r.ok) { switchStatus('back to camera -- the organism restarts onto it within about a minute'); expectChange('source', 'its camera'); }
       else switchStatus('NOT switched back: ' + (r.error || 'unknown reason'), true);
     } catch (e) { switchStatus('NOT switched back: the viewer could not be reached', true); }
+    pollDessert();
+  });
+  $('back-to-video').addEventListener('click', async () => {
+    const url = SEL && SEL.last_video; if (!url) return;
+    switchStatus('back to the video: checking it can still be played...');
+    try {
+      const r = await postSelect('url=' + encodeURIComponent(url));
+      if (r.ok) { switchStatus('back to the video -- restarting onto it'); expectChange('source', 'the video'); }
+      else switchStatus('NOT switched: ' + (r.error || 'unknown reason'), true);
+    } catch (e) { switchStatus('NOT switched: the viewer could not be reached', true); }
     pollDessert();
   });
   async function pollDessert() {
     try {
       const r = await (await fetch('/sources')).json();
       SEL = r; showLive(D);
+      const bv = $('back-to-video');  // "back to video": on its camera, with a video remembered
+      if (bv) { bv.hidden = !!r.active || !r.last_video; bv.title = r.last_video || ''; }
       $('dessert-status').textContent = r.active
         ? `on video: ${r.selected_url}` + (r.until ? ` until ${new Date(r.until * 1000).toLocaleString()}` : ' until you switch back')
         : 'on its camera';
@@ -3358,7 +3372,12 @@ class Handler(BaseHTTPRequestHandler):
                     selected_name, selected_url, until = data.get("name"), data.get("url"), data.get("until")
                 except (OSError, json.JSONDecodeError):
                     pass
+            try:
+                last_video = json.loads(LAST_VIDEO_PATH.read_text(encoding="utf-8")).get("url")
+            except (OSError, ValueError):
+                last_video = None
             body = json.dumps({
+                "last_video": last_video,
                 "options": [n for n, _ in LIVE_SOURCES],
                 "selected": selected_name,
                 "selected_url": selected_url,
@@ -3523,6 +3542,12 @@ class Handler(BaseHTTPRequestHandler):
         valid_names = {n for n, _ in LIVE_SOURCES}
         ok, error = False, None
         if name == "auto":
+            try:  # the video it leaves is remembered, for "back to video"
+                was = json.loads(SELECTED_SOURCE_PATH.read_text(encoding="utf-8-sig")).get("url") if SELECTED_SOURCE_PATH.exists() else None
+                if was:
+                    _write_json_atomic(LAST_VIDEO_PATH, {"url": was})
+            except (OSError, ValueError):
+                pass
             try:
                 _held(lambda: SELECTED_SOURCE_PATH.unlink(missing_ok=True))
                 ok = True
@@ -3545,6 +3570,7 @@ class Handler(BaseHTTPRequestHandler):
                 # back to its camera by itself (run_vision.py _dessert).
                 try:
                     _write_json_atomic(SELECTED_SOURCE_PATH, {"url": url, **({"until": until} if until else {})})
+                    _write_json_atomic(LAST_VIDEO_PATH, {"url": url})
                 except OSError as e:
                     ok, error = False, f"couldn't save the choice ({e.strerror or e}); try again"
         if ok:

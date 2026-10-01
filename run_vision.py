@@ -1144,6 +1144,24 @@ def _announce(kind: str, what: str, ok: bool = True) -> None:
         pass
 
 
+def _announce_source(source: str) -> None:
+    """Announces what it watches when that changed since its last run (a
+    restart onto the same source says nothing): the camera, or a video."""
+    p = sandbox.STATE_DIR / "last_source.txt"
+    try:
+        before = p.read_text(encoding="utf-8").strip()
+    except OSError:
+        before = None
+    if before == source:
+        return
+    try:
+        p.write_text(source, encoding="utf-8")
+    except OSError:
+        pass
+    if before is not None:
+        _announce("source", "its camera" if _is_device(source) else source)
+
+
 def _last_change() -> dict | None:
     try:
         return json.loads((sandbox.STATE_DIR / LAST_CHANGE).read_text(encoding="utf-8"))
@@ -1277,6 +1295,7 @@ def run(source: str, limits: sandbox.Limits, n_vars: int = TREE_PLAIN_INPUTS) ->
     feed_epoch = int(time.time())
     if _is_device(source) or source == "live":
         print(f"Opening live feed {clip_path!r} (frames kept in memory only, never written to disk)...")
+        _announce_source(clip_path)
         detector = prey_lib.PreyDetector()
         print(f"Prey detector: {'yolov8n loaded' if detector.available else 'MODEL MISSING -- no prey, snacks only'} ({detector.model_path}); plants: {'Open Images V7 model loaded' if detector.flower_net is not None else 'potted plants only (no yolov8n-oiv7 model)'}")
         feed_src = (int(source) if source.isdigit() else source) if _is_device(source) else load_source
