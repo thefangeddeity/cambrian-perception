@@ -750,7 +750,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
   #mb-hud .q { position: absolute; line-height: 15px; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px #000; }
   #mb-hud .g { color: #7cffa0; } #mb-hud .b { color: #ffb000; } #mb-hud .w { color: #ff4040; } #mb-hud .n { color: #e8e8e8; }
   #mb-hud .h { color: #c8c8c8; }
-  @media (max-width: 600px) { #mb-hud { font-size: 11px; } #mb-hud .q { line-height: 14px; } }
+  /* a phone: the tally leaves the picture -- four corner blocks can't share a
+     narrow canvas without running into each other -- and flows below it, one
+     block under another, wrapping like a caption */
+  @media (max-width: 600px) { #mb-hud { position: static; inset: auto; padding: 8px 0 0; font-size: 11px; }
+    #mb-hud .q { position: static; text-align: left !important; line-height: 15px; margin-bottom: 6px; overflow-wrap: anywhere; } }
   #brain-mode a, #mb-mode a, #randomize, #amnesia, #reset-founder, #save-organism, #save-here, #load-organism, #copy-here, #upload-organism { color: #b88a80; } .orgsel { font: inherit; font-size: 12px; max-width: 16em; background: #10161c; color: #e8d8d0; border: 1px solid #3a2a26; }  /* the page's own link colour (not the browser's blue, unreadable on it) */ #brain-mode b, #mb-mode b { color: #ffe2d6; }
   .sleep-views { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
   .sleep-views canvas { width: 100%; height: auto; aspect-ratio: 1; display: block; }
@@ -1688,8 +1692,11 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         const bh = Math.abs(c4[0][1] - c4[3][1]), bw = Math.abs(c4[1][0] - c4[0][0]), hs = Math.min(18, Math.round(Math.min(bh, bw) * 0.3));
         if (hs >= 9) {
           ctx.font = `bold ${hs}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif`;
-          ctx.fillStyle = `rgb(${rgb})`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-          ctx.fillText(q.kind === 'plant' ? '氣' : q.kind === 'thing' ? '神' : '精', Math.min(c4[3][0], c4[0][0]) + 3, Math.min(c4[3][1], c4[2][1]) + 3);
+          ctx.fillStyle = `rgb(${rgb})`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+          // placed by its ink, not its em box (a glyph's ink starts below the em box's top):
+          // the same gap to the box's top as to its left
+          const ch = q.kind === 'plant' ? '氣' : q.kind === 'thing' ? '神' : '精', m = ctx.measureText(ch), gap = 3;
+          ctx.fillText(ch, Math.min(c4[3][0], c4[0][0]) + gap + (m.actualBoundingBoxLeft || 0), Math.min(c4[3][1], c4[2][1]) + gap + (m.actualBoundingBoxAscent || 0.88 * hs));
         }
         const tr = ((d.cortex && d.cortex.tracks) || []).find(k => k.who != null && Math.abs(k.box[0] - q.x0) < 1e-3 && Math.abs(k.box[3] - q.y1) < 1e-3);
         if (tr) { const m = at((g0[0] + g1[0]) / 2, top, (g0[1] + g1[1]) / 2); ctx.fillStyle = `rgb(${rgb})`; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('#' + tr.who, m[0], m[1] - 3); }
