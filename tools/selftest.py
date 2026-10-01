@@ -561,6 +561,27 @@ def _():
     viewer._LAST_RESET.clear()
 
 
+@check("a founder is born with open stacked layers, within what it can carry (arithmetic and time)")
+def _():
+    import random as _r
+    from fishbowl import controller as C
+    from tools import seed
+    for k in range(12):
+        b = C.MosquitoBrain.random(_r.Random(k))
+        seed.seed_layers(b, _r.Random(k))
+        top = C.layers_max(b.n_hidden, b.weights_ih.shape[1], b.weights_ho.shape[0], bool(b.apical))
+        assert 1 <= len(b.layers) <= top, (b.n_hidden, len(b.layers), top)
+        assert all(float(l["gate"][0]) != 0.0 for l in b.layers)
+        assert b.cost_if() <= C.MAX_THINK_FACTOR + 1e-9
+        assert len(b.layer_hidden) == len(b.layers)
+    # evolution can't stack past the clock's bound either
+    b = C.MosquitoBrain.random(_r.Random(0), hidden=1)
+    top = C.layers_max(1)
+    b.layers = [{"W": np.zeros((1, 1)), "U": np.zeros((1, 1)), "b": np.zeros(1), "gate": np.ones(1)} for _ in range(top)]
+    b.reset_hidden()
+    assert not b.duplicate_layer(_r.Random(0))
+
+
 @check("viewer: every <script> parses (node --check), where node exists")
 def _():
     node = shutil.which("node")

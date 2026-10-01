@@ -161,12 +161,53 @@ def _macs(n_hidden: int, n_in: int, n_out: int) -> int:
 REFERENCE_MACS = _macs(HIDDEN, BASE_INPUTS, BASE_OUTPUTS)  # the original brain: thinking costs its THINK_COST
 
 
-def founder_units_max() -> int:
-    """The most hidden units a founder's single layer can have within MAX_THINK_FACTOR."""
+def founder_units_max(layers: int = 0) -> int:
+    """The most hidden units a founder can have within MAX_THINK_FACTOR, with
+    `layers` stacked layers beside them (each 2h^2 + h multiply-adds)."""
     h = MIN_HIDDEN
-    while _macs(h + 1, BASE_INPUTS, BASE_OUTPUTS) <= MAX_THINK_FACTOR * REFERENCE_MACS:
+    while _macs(h + 1, BASE_INPUTS, BASE_OUTPUTS) + layers * (2 * (h + 1) ** 2 + h + 1) <= MAX_THINK_FACTOR * REFERENCE_MACS:
         h += 1
     return h
+
+
+# A stacked layer's step in this Python costs ~12 us whatever its width
+# (2026-09-30, 7elwe) -- interpreter overhead, not arithmetic: the whole
+# reference brain's arithmetic is ~0.1 us. Its energy price stays arithmetic
+# (what a compiled brain would pay); but how MANY layers it can carry is
+# bounded by the clock: their steps must fit in the brain's own share
+# (BRAIN_SHARE) of a look at the reference pace (organism.REFERENCE_GAZES_PER_S)
+# on this host -- else a deep, thin brain would run slower than it looks (a
+# 1-unit brain's arithmetic would allow 6000 layers: 75 ms a look).
+_LAYER_STEP_S: float | None = None
+
+
+def layer_step_seconds() -> float:
+    """This host's time for one stacked layer's step, measured once (the best
+    of a few tries, as hostspeed measures arithmetic)."""
+    global _LAYER_STEP_S
+    if _LAYER_STEP_S is None:
+        import time
+        layer = {"W": np.zeros((1, 1)), "U": np.zeros((1, 1)), "b": np.zeros(1), "gate": np.ones(1)}
+        top, lh, best = np.zeros(1), np.zeros(1), float("inf")
+        for _ in range(5):
+            t0 = time.perf_counter()
+            for _ in range(200):
+                lh = np.tanh(layer["b"] + layer["W"] @ top + layer["U"] @ lh)
+                top = top + float(layer["gate"][0]) * lh
+            best = min(best, (time.perf_counter() - t0) / 200)
+        _LAYER_STEP_S = best
+    return _LAYER_STEP_S
+
+
+def layers_max(n_hidden: int, n_in: int = BASE_INPUTS, n_out: int = BASE_OUTPUTS, apical: bool = False) -> int:
+    """The most stacked layers a brain of n_hidden units can carry: within
+    MAX_THINK_FACTOR's arithmetic, and within its share of a look's time."""
+    from .organism import REFERENCE_GAZES_PER_S
+    h = n_hidden
+    room = MAX_THINK_FACTOR * REFERENCE_MACS - _macs(h, n_in, n_out) - (2 * h if apical else 0)
+    by_arithmetic = int(room // (2 * h * h + h)) if room > 0 else 0
+    by_time = int(BRAIN_SHARE / REFERENCE_GAZES_PER_S // layer_step_seconds())
+    return max(0, min(by_arithmetic, by_time))
 
 
 class MosquitoBrain:
@@ -204,7 +245,7 @@ class MosquitoBrain:
         def matrix(rows: int, cols: int, scale: float = 0.4) -> list[list[float]]:
             return [[rng.uniform(-scale, scale) for _ in range(cols)] for _ in range(rows)]
 
-        top = founder_units_max()
+        top = founder_units_max(layers=1)  # room for at least one stacked layer (tools/seed.py seeds them)
         h = hidden if hidden is not None else min(top, max(MIN_HIDDEN, int(round(math.exp(rng.uniform(0.0, math.log(top)))))))
         return cls(
             weights_ih=matrix(h, BASE_INPUTS, scale=0.4),
@@ -438,7 +479,8 @@ class MosquitoBrain:
         its W and U copy that layer's recurrence, its bias that layer's. A
         silent copy doesn't mutate (only its gate does), so while one waits a
         second would be the identical copy again: refused."""
-        if self.cost_if(extra_layers=1) > MAX_THINK_FACTOR or any(float(l["gate"][0]) == 0.0 for l in self.layers):
+        if (self.cost_if(extra_layers=1) > MAX_THINK_FACTOR or any(float(l["gate"][0]) == 0.0 for l in self.layers)
+                or len(self.layers) + 1 > layers_max(self.n_hidden, self.weights_ih.shape[1], self.weights_ho.shape[0], bool(self.apical))):
             return False
         src = self.layers[-1] if self.layers else {"U": self.weights_hh, "b": self.bias_h}
         self.layers.append({"W": src["U"].copy(), "U": src["U"].copy(), "b": src["b"].copy(), "gate": np.zeros(1)})

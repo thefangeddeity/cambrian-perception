@@ -409,6 +409,15 @@ yardsticks are found.
 | place print averages | short 0.3 per frame, long 0.02 per frame | H | the last few looks against the place's slow print (~50 looks) |
 | a new place | similarity < mean - `SURPRISE_SIGMAS` x its spread, after 100 frames | D | its own surprise line (organism.SURPRISE_SIGMAS), against its own running spread |
 
+### Founders' stacked layers (fishbowl/controller.py, tools/seed.py; 2026-09-30)
+
+| Constant | Value | Kind | Notes |
+|---|---|---|---|
+| layers a brain can carry (`layers_max`) | min(arithmetic, time) | D | arithmetic: what MAX_THINK_FACTOR leaves after its units (2h^2 + h each); time: their steps within BRAIN_SHARE of a look at REFERENCE_GAZES_PER_S, at this host's measured layer step (`layer_step_seconds`, ~4-12 us, interpreter overhead: the price stays arithmetic). Bounds a founder's draw and evolution's duplications alike |
+| a founder's layers | log-uniform, 1 to `layers_max` | D | as its units are drawn (overproduction, then prices prune); open from birth |
+| their weights, bias, gate | +-0.3, +-0.05, +-0.4 (gate never 0) | D | the founder's own recurrent, bias and between-layer weight scales (`MosquitoBrain.random`) |
+| a founder's units | 1 to `founder_units_max(layers=1)` | D | room left for at least one layer (66 units where it was 102) |
+
 ### Viewer only (tools/viewer.py)
 
 Display constants (mesh density, blend widths, the phone's 820 px and 600 px

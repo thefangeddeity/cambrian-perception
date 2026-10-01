@@ -184,8 +184,37 @@ def random_draws(g, rng: random.Random) -> list[str]:
     g.archetypes = rng.randint(1, MAX_HEADS)
     g.archetype_classes = [rng.choice(classes) for _ in range(MAX_HEADS)]
     g.scenes = 1 + sum(rng.random() < 0.5 for _ in range(3))  # three of its +1 / -1 mutation steps from 1, reflected at 1
+    layers = seed_layers(g.brain, rng)
     return [f"apical {g.brain.apical:.2f}", f"plasticity {g.plasticity:.3f}",
-            f"{g.archetypes} archetype heads {g.archetype_classes[:g.archetypes]}", f"{g.scenes} scenes"]
+            f"{g.archetypes} archetype heads {g.archetype_classes[:g.archetypes]}", f"{g.scenes} scenes", layers]
+
+
+def seed_layers(brain, rng: random.Random) -> str:
+    """Stacked layers for a founder, open from birth (a silent copy waits for
+    its gate to mutate open, and evolution rarely kept one): as many as its
+    units, log-uniformly from 1 to the most it can carry (controller.layers_max:
+    arithmetic and time), as its units are drawn; each at the founder's own
+    weight scales -- W and U as its recurrent weights (+-0.3), its bias as
+    theirs (+-0.05), its gate as its between-layer weights (+-0.4), never 0."""
+    import math
+    import numpy as np
+    from fishbowl import controller as C
+    h = brain.n_hidden
+    top = C.layers_max(h, brain.weights_ih.shape[1], brain.weights_ho.shape[0], bool(brain.apical))
+    if top < 1:
+        return "no stacked layers (no room)"
+    n = min(top, max(1, int(round(math.exp(rng.uniform(0.0, math.log(top)))))))
+    def gate():
+        while True:
+            v = rng.uniform(-0.4, 0.4)
+            if v != 0.0:
+                return v
+    brain.layers = [{"W": np.array([[rng.uniform(-0.3, 0.3) for _ in range(h)] for _ in range(h)]),
+                     "U": np.array([[rng.uniform(-0.3, 0.3) for _ in range(h)] for _ in range(h)]),
+                     "b": np.array([rng.uniform(-0.05, 0.05) for _ in range(h)]),
+                     "gate": np.array([gate()])} for _ in range(n)]
+    brain.reset_hidden()
+    return f"{n} stacked layers (of up to {top}), gates {', '.join(f'{float(l['gate'][0]):+.2f}' for l in brain.layers[:6])}{'...' if n > 6 else ''}"
 
 
 def seed_maturation(g, rng: random.Random) -> list[str]:

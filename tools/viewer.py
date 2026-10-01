@@ -2295,7 +2295,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       else { ctx.fillStyle = '#2a1512'; ctx.strokeStyle = '#b88a80'; }
       ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(2, r), 0, 7); ctx.fill(); ctx.stroke();
       if (q.kind === 'hid' && LS.length) {  // its stacked layers, a row of cells under the unit (2D: a column beside it), riding with it
-        const sq = Math.max(3, 6 * q.w * Math.sqrt(B3.zoom)), gap = Math.max(1, sq / 4), y0 = q.sy + Math.max(2, r) + 3;
+        const sq = Math.max(5, 10 * q.w * Math.sqrt(B3.zoom)), gap = Math.max(1, sq / 4), y0 = q.sy + Math.max(2, r) + 3;
         let x0 = q.sx - (LS.length * (sq + gap) - gap) / 2;
         LS.forEach((L, k) => {
           const g = L.gate ? L.gate[0] : 0, x = x0 + k * (sq + gap);
