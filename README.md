@@ -344,8 +344,7 @@ model teaches ("taught") and the nearness its own terrain head feels ("felt").
 "felt nearness: error ... (n ...)" is that head scored before each lesson.
 "Who it knows" lists the individuals its visual cortex has met, by true height
 (in camera heights), step rate and when last seen. Top left: its path, as it
-has integrated it (speed x heading), with a tick for where it faces now. Grey
-shade is what rides with it (a cab's dashboard): it learns this while moving
+has integrated it (speed x heading), with a tick for where it faces now. A dashed green outline marks what rides with it (a cab's dashboard): it learns this while moving
 (what stays put while the world slides past) and remembers it when stopped;
 tau and its gaze ignore it. The HUD reads like a fighter's: heading tape on
 top, speed (SPD) on the left, nearness (NR: T taught, F felt) on the right,

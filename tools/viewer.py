@@ -1706,13 +1706,14 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       // the things, standing on that ground at their distance and height; one
       // the frame cuts is drawn dashed with its cut side open (its base is
       // somewhere nearer, below the frame; or its top above it) and measures nothing
+      ctx.save(); ctx.shadowColor = 'rgba(0, 0, 0, 0.9)'; ctx.shadowBlur = 3;  // its labels outlined dark, as the HUD's: legible over the grid, no backing
       pts.forEach(q => {
         const g0 = place(q.x0, q.y1), g1 = place(q.x1, q.y1); if (!g0 || !g1) return;
         const base = groundAt(q.x, q.z), top = base + q.hgt, cut = q.cutBase || q.cutTop;
         const c4 = [at(g0[0], base, g0[1]), at(g1[0], base, g1[1]), at(g1[0], top, g1[1]), at(g0[0], top, g0[1])];
         const rgb = q.kind === 'plant' ? '156, 207, 122' : q.kind === 'thing' ? '160, 160, 170' : '255, 111, 138';
-        ctx.fillStyle = `rgba(${rgb}, ${cut ? 0.08 + 0.12 * q.conf : 0.2 + 0.35 * q.conf})`; ctx.strokeStyle = `rgba(${rgb}, 0.95)`; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.fill();
+        // stroked only (no fill: MIL-STD symbology); how sure the detector is, in the line's weight and brightness
+        ctx.strokeStyle = `rgba(${rgb}, ${cut ? 0.45 + 0.3 * q.conf : 0.55 + 0.45 * q.conf})`; ctx.lineWidth = 1 + 1.5 * q.conf;
         ctx.setLineDash(cut ? [4, 3] : []);
         const edge = (i, j) => { ctx.beginPath(); ctx.moveTo(c4[i][0], c4[i][1]); ctx.lineTo(c4[j][0], c4[j][1]); ctx.stroke(); };
         if (!q.cutBase) edge(0, 1); edge(1, 2); if (!q.cutTop) edge(2, 3); edge(3, 0);
@@ -1731,6 +1732,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
         const tr = ((d.cortex && d.cortex.tracks) || []).find(k => k.who != null && Math.abs(k.box[0] - q.x0) < 1e-3 && Math.abs(k.box[3] - q.y1) < 1e-3);
         if (tr) { const m = at((g0[0] + g1[0]) / 2, top, (g0[1] + g1[1]) / 2); ctx.fillStyle = `rgb(${rgb})`; ctx.font = '11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('#' + tr.who, m[0], m[1] - 3); }
       });
+      ctx.restore();
       const nCut = pts.filter(q => q.cutBase || q.cutTop).length;
       // where it expects the host it follows (its extrapolation), standing on its ground, dashed
       const ah = last('ahead_boxes');
@@ -1743,10 +1745,21 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
           ctx.beginPath(); ctx.moveTo(c4[0][0], c4[0][1]); c4.slice(1).forEach(r => ctx.lineTo(r[0], r[1])); ctx.closePath(); ctx.stroke(); ctx.restore();
         }
       }
-      // its local frame (what rides with it: a cab, a bonnet), shaded where its eye sees it
+      // its local frame (what rides with it: a cab, a bonnet): the region's
+      // outline where its eye sees it, dashed in the HUD's green -- an
+      // obstruction marked by its edge, not veiled (MIL-STD: no backing)
       if (SP3.pov && sn.local_frame && sn.local_frame.length === rows * cols) {
-        ctx.fillStyle = 'rgba(70, 76, 88, 0.55)';
-        sn.local_frame.forEach((v, k) => { if (v) ctx.fillRect(Math.floor((k % cols) * W / cols), Math.floor(Math.floor(k / cols) * H / rows), Math.ceil(W / cols), Math.ceil(H / rows)); });
+        const lf = sn.local_frame, on = (r, c) => r >= 0 && r < rows && c >= 0 && c < cols && !!lf[r * cols + c];
+        const X = c => Math.round(c * W / cols) + 0.5, Y = r => Math.round(r * H / rows) + 0.5;
+        ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(124, 255, 160, 0.55)'; ctx.lineWidth = 1; ctx.beginPath();
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+          if (!on(r, c)) continue;
+          if (!on(r - 1, c)) { ctx.moveTo(X(c), Y(r)); ctx.lineTo(X(c + 1), Y(r)); }
+          if (!on(r + 1, c)) { ctx.moveTo(X(c), Y(r + 1)); ctx.lineTo(X(c + 1), Y(r + 1)); }
+          if (!on(r, c - 1)) { ctx.moveTo(X(c), Y(r)); ctx.lineTo(X(c), Y(r + 1)); }
+          if (!on(r, c + 1)) { ctx.moveTo(X(c + 1), Y(r)); ctx.lineTo(X(c + 1), Y(r + 1)); }
+        }
+        ctx.stroke(); ctx.restore();
       }
       // its gaze: a reticle where it looks (from its eye, a frame point is a screen point), the ring
       // tightening as something approaches (tau); beside it the nearness its ground model teaches and the one it feels
@@ -1760,28 +1773,28 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       if (SP3.pov) hudNav(ctx, W, H, hz, sn, d);
       note = `horizon ${Math.round(100 * hz)}% down &middot; <b style="color:#ff6f8a">hosts</b> <b style="color:#9ccf7a">plants</b> <b style="color:#a0a0aa">things</b>`
              + (nCut ? ` &middot; dashed: cut by the frame` : '') + (sn.parallax && sn.parallax.some(v => v > 0.05) ? ' &middot; <b style="color:#7fd4ff">parallax</b>' : '')
-             + (sn.local_frame && sn.local_frame.some(Boolean) ? ' &middot; <b style="color:#8a92a2">rides with it</b>' : '');
+             + (sn.local_frame && sn.local_frame.some(Boolean) ? ' &middot; <b style="color:#7cffa0">dashed green: rides with it</b>' : '');
     }
     // its path (path integration: speed x heading), bottom left; north up = its first heading; its facing now as a tick
     const path = d.path, INSET = Math.min(110, H * 0.3);
     if (path && path.length > 1) {
       const side = INSET, ox = 8, oy = H - INSET - 20;
-      ctx.fillStyle = 'rgba(5, 7, 10, 0.9)'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);
-      ctx.strokeStyle = '#1c2a36'; ctx.lineWidth = 1; ctx.strokeRect(ox, oy, side, side);
+      ctx.fillStyle = '#05070a'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);  // a window, opaque (an MFD inset): nothing seen through it
+      ctx.strokeStyle = 'rgba(124, 255, 160, 0.35)'; ctx.lineWidth = 1; ctx.strokeRect(ox + 0.5, oy + 0.5, side, side);
       const xs = path.map(p => p[0]), ys = path.map(p => p[1]);
       const cxp = (Math.min(...xs) + Math.max(...xs)) / 2, cyp = (Math.min(...ys) + Math.max(...ys)) / 2;
       const span = Math.max(1, Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) * 1.15;
       const P = p => [ox + side / 2 + (p[0] - cxp) / span * side, oy + side / 2 - (p[1] - cyp) / span * side];
-      ctx.strokeStyle = 'rgba(255, 176, 102, 0.85)'; ctx.beginPath(); path.forEach((p, k) => { const q = P(p); k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();
-      const e = P(path[path.length - 1]); ctx.fillStyle = 'rgb(255, 176, 102)'; ctx.beginPath(); ctx.arc(e[0], e[1], 3, 0, 7); ctx.fill();
-      if (sn.heading != null) { const a = sn.heading * Math.PI / 180; ctx.strokeStyle = 'rgb(255, 176, 102)'; ctx.beginPath(); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[0] + 9 * Math.sin(a), e[1] - 9 * Math.cos(a)); ctx.stroke(); }
-      ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.strokeStyle = 'rgba(124, 255, 160, 0.85)'; ctx.beginPath(); path.forEach((p, k) => { const q = P(p); k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();  // the HUD's green (amber is caution)
+      const e = P(path[path.length - 1]); ctx.strokeStyle = 'rgb(124, 255, 160)'; ctx.beginPath(); ctx.arc(e[0], e[1], 3, 0, 7); ctx.stroke();
+      if (sn.heading != null) { const a = sn.heading * Math.PI / 180; ctx.beginPath(); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[0] + 9 * Math.sin(a), e[1] - 9 * Math.cos(a)); ctx.stroke(); }
+      ctx.fillStyle = 'rgba(124, 255, 160, 0.85)'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
       ctx.fillText(`path ${span.toFixed(0)} eye-heights`, ox, oy + side + 3);
     }
     // inset: the lines its trees read on its eye
     const N = d.receptors || 12, side = INSET, cell = side / N, ox = W - side - 8, oy = H - INSET - 20;
-    ctx.fillStyle = 'rgba(5, 7, 10, 0.9)'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);
-    ctx.strokeStyle = '#1c2a36'; ctx.lineWidth = 1; ctx.strokeRect(ox, oy, side, side);
+    ctx.fillStyle = '#05070a'; ctx.fillRect(ox - 4, oy - 4, side + 8, side + 20);  // a window, opaque (an MFD inset)
+    ctx.strokeStyle = 'rgba(124, 255, 160, 0.35)'; ctx.lineWidth = 1; ctx.strokeRect(ox + 0.5, oy + 0.5, side, side);
     let edges = 0;
     const arc = (x, y, a, L, pr, bend, ys) => { ctx.beginPath(); for (let i = 0; i <= 12; i++) { const tp = (i / 6 - 1) * L, np = 0.5 * (bend || 0) * (tp / pr) * (tp / pr) * pr, px = x - tp * Math.sin(a) + np * Math.cos(a), py = y + (tp * Math.cos(a) + np * Math.sin(a)) * ys; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); } ctx.stroke(); };  // an oriented pool's line (an arc when it bends: blocks.py)
     (function walk(n) {
@@ -1793,9 +1806,9 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       }
       (n.children || []).forEach(walk);
     })(d.trees && d.trees.response);
-    ctx.fillStyle = '#9a6f67'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(124, 255, 160, 0.85)'; ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(edges ? `lines: ${edges} on its eye` : 'lines: none yet', ox, oy + side + 3);
-    if (hz == null) { ctx.fillStyle = '#9a6f67'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
+    if (hz == null) { ctx.fillStyle = 'rgba(124, 255, 160, 0.85)'; ctx.font = '12px monospace'; ctx.textAlign = 'center'; ctx.fillText(note, (W - side) / 2, H / 2); }
     $('space-cap').innerHTML = note;
     const ts = d.scores && d.scores.terrain;
     $('space-cap').innerHTML += ts ? ` &middot; felt vs taught nearness: off by ${ts.mae.toFixed(2)} &plusmn; ${ts.mae_se.toFixed(2)} of 1 (${ts.n} looks)` : '';
