@@ -93,3 +93,103 @@ def yielded() -> dict | None:
 def describe_yielded(y: dict) -> str:
     when = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(y.get("at", 0))))
     return f"off -- the {y.get('to', 'livecam')} took the camera at {when}; `cambrian --start` takes it back"
+
+
+# ---- autostart (docs/suite.md) ----------------------------------------------
+# Whether the organism comes back on its own at boot. On while it is being
+# developed; the finished default is off: the livecam is the always-on default
+# and the organism starts only on `cambrian --start` (or comes back at boot
+# only if that was this same boot -- a crash restart, not a reboot).
+AUTOSTART_DEFAULT = True  # development; False once testing is done
+SETTINGS = ROOT / "cambrian.json"
+STARTED = ROOT / "state" / "started.json"   # when `cambrian --start` last ran: this boot's, or an older one
+
+
+def autostart() -> bool:
+    try:
+        return bool(json.loads(SETTINGS.read_text(encoding="utf-8-sig")).get("autostart", AUTOSTART_DEFAULT))
+    except (OSError, ValueError):
+        return AUTOSTART_DEFAULT
+
+
+def set_autostart(on: bool) -> None:
+    try:
+        cfg = json.loads(SETTINGS.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        cfg = {}
+    cfg["autostart"] = bool(on)
+    tmp = SETTINGS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    tmp.replace(SETTINGS)
+
+
+def boot_time() -> float:
+    """When this machine booted (seconds since the epoch)."""
+    if WINDOWS:
+        import ctypes
+        return time.time() - ctypes.windll.kernel32.GetTickCount64() / 1000.0
+    if MACOS:
+        out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True, text=True).stdout
+        try:
+            return float(out.split("sec =")[1].split(",")[0])
+        except (IndexError, ValueError):
+            return 0.0
+    try:
+        return time.time() - float(Path("/proc/uptime").read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0.0
+
+
+def mark_started() -> None:
+    """`cambrian --start` ran now: this boot's starts (a crash restart) go ahead."""
+    STARTED.parent.mkdir(parents=True, exist_ok=True)
+    STARTED.write_text(json.dumps({"boot": boot_time(), "t": time.time()}), encoding="utf-8")
+
+
+def started_this_boot() -> bool:
+    try:
+        return abs(json.loads(STARTED.read_text(encoding="utf-8"))["boot"] - boot_time()) < 300  # boot times read a little apart
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def may_start() -> bool:
+    """May the organism start now: autostart on, or `cambrian --start` this boot."""
+    return autostart() or started_this_boot()
+
+
+def start_livecam() -> None:
+    """The camera back to the livecam, through its own public command (when
+    the organism declines to start at boot and the livecam is installed)."""
+    cmd = livecam_command()
+    if cmd is None and not WINDOWS and not MACOS:
+        import shutil
+        cmd = [shutil.which("camdash")] if shutil.which("camdash") else None
+    if not cmd:
+        return
+    try:
+        subprocess.run(cmd + (["start"] if MACOS else ["--start"]), capture_output=True, timeout=120,
+                       creationflags=NO_WINDOW if WINDOWS else 0)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+if __name__ == "__main__":
+    # --may-start: the Linux unit's ExecCondition (0 = start; 1 = skip, and the camera goes to the livecam)
+    # --mark-started / --autostart on|off: for tools/cambrian
+    verb = sys.argv[1] if len(sys.argv) > 1 else ""
+    if verb == "--may-start":
+        if may_start():
+            sys.exit(0)
+        print("not starting at boot: autostart is off (`cambrian --start` starts it; `cambrian --autostart on` brings it back at boot)")
+        start_livecam()
+        sys.exit(1)
+    if verb == "--mark-started":
+        mark_started()
+        sys.exit(0)
+    if verb == "--autostart":
+        if len(sys.argv) > 2 and sys.argv[2] in ("on", "off"):
+            set_autostart(sys.argv[2] == "on")
+        print(f"autostart: {'on' if autostart() else 'off'}")
+        sys.exit(0)
+    sys.exit(2)

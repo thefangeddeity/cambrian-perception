@@ -11,6 +11,8 @@ tools/cambrian over systemd). Same verbs everywhere:
                        --start (what the livecam calls when it starts;
                        docs/suite.md)
   cambrian --status    what runs, and how the organism is doing
+  cambrian --autostart on|off  whether it comes back on its own at boot
+                       (off: only on --start; the livecam is the default)
   cambrian --save [file]  save the organism (default ~/Games/Lifeforms/Cambrioids;
                        on Windows C:\\Users\\<you>\\Games\\Lifeforms\\Cambrioids)
   cambrian --load <file>  load a saved one at its next generation (this one is
@@ -66,6 +68,7 @@ def _running() -> bool:
 def start() -> int:
     # Taking the camera: the livecam yields first (the suite, docs/suite.md).
     suite.YIELDED.unlink(missing_ok=True)
+    suite.mark_started()  # this boot's starts go ahead, autostart on or off
     if not suite.yield_livecam():
         return 1  # never both on the camera
     if _running():
@@ -104,6 +107,7 @@ def yield_(by: str = "livecam") -> int:
 
 
 def status() -> int:
+    print(f"autostart : {'on' if suite.autostart() else 'off'}")
     pid = _service_pid()
     up = pid or _running()
     y = suite.yielded()
@@ -142,6 +146,11 @@ def status() -> int:
 
 def main() -> int:
     verb = (sys.argv[1] if len(sys.argv) > 1 else "--status").lstrip("-")
+    if verb == "autostart":
+        if len(sys.argv) > 2 and sys.argv[2] in ("on", "off"):
+            suite.set_autostart(sys.argv[2] == "on")
+        print(f"autostart : {'on -- it comes back at boot' if suite.autostart() else 'off -- only on cambrian --start; the livecam is the default'}")
+        return 0
     if verb == "restart":
         stop()
         return start()

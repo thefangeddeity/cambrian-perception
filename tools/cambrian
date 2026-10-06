@@ -70,7 +70,10 @@ EOF
 }
 
 case "$1" in
-    --start|start)     take_camera && status ;;
+    --start|start)     R=$(dirname "$(dirname "$(readlink -f "$0")")")
+                       as_root "$R/.venv/bin/python" "$R/tools/suite.py" --mark-started; take_camera && status ;;
+    --autostart|autostart) R=$(dirname "$(dirname "$(readlink -f "$0")")")
+                       as_root "$R/.venv/bin/python" "$R/tools/suite.py" --autostart "$2" ;;
     --stop|stop)       as_root systemctl stop cambrian.target && echo "stopped (checkpoint saved)" ;;
     --restart|restart) as_root systemctl restart cambrian.target && status ;;
     --yield|yield)     as_root systemctl disable --quiet --now cambrian.target && echo "stopped (checkpoint saved); off until \`cambrian --start\`" ;;

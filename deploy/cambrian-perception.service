@@ -13,6 +13,9 @@ WorkingDirectory=/srv/cambrian/cambrian-perception
 # One long process (a 2026-09-29 panel): no --seconds bound. It saves every
 # 10 minutes and on stop; a clean exit is a reconfiguration (a video chosen)
 # and systemd starts it again.
+# Autostart off (docs/suite.md): skipped at boot unless `cambrian --start`
+# ran this boot -- a skip, not a failure, so Restart= doesn't loop it
+ExecCondition=/srv/cambrian/cambrian-perception/.venv/bin/python tools/suite.py --may-start
 ExecStart=/srv/cambrian/cambrian-perception/.venv/bin/python run_vision.py /dev/video0
 
 # Real, hard resource caps: this must not interfere with other

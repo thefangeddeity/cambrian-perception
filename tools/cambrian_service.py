@@ -160,6 +160,13 @@ def main() -> int:
     if y:
         log(f"service: not starting, {suite.describe_yielded(y)}")
         return 0
+    # Autostart off (docs/suite.md): at boot it stays off unless `cambrian
+    # --start` ran this boot; the camera goes back to the livecam. A clean
+    # exit, so neither Task Scheduler nor launchd starts it again.
+    if not suite.may_start():
+        log("service: not starting at boot -- autostart is off (`cambrian --start` starts it)")
+        suite.start_livecam()
+        return 0
     SERVICE_STOP.unlink(missing_ok=True)
     log(f"service: start (source {source}, viewer port {port}, python {py})")
     env_extra = {"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}

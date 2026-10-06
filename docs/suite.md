@@ -6,7 +6,16 @@ never run together:
 
 - **Starting either stops the other.** The one that's stopped stays off,
   across reboots too, until someone starts it again.
-- **At boot, whichever was on at shutdown comes back.**
+- **At boot, the livecam is the default.** The livecam comes back at boot
+  as before. The organism comes back only if its **autostart** is on; with
+  autostart off it starts only on `cambrian --start`, even if it had the
+  camera at shutdown -- its boot start declines, and hands the camera back
+  to the livecam. A restart after a crash in the same boot still counts as
+  started.
+- **Autostart is a toggle: `cambrian --autostart on|off`** (stored in its
+  `cambrian.json`; shown by `cambrian --status` and on its page). It is on
+  while the organism is being developed (`tools/suite.py`
+  `AUTOSTART_DEFAULT`); the finished default is off.
 - **Each side says why the other is off.** Its status says "off: the other
   has the camera", with the command that takes it back. While it runs, its
   page notes that the other is off.
@@ -24,6 +33,7 @@ product works alone; when only one is installed, the contract does nothing.
 | Yield (stop, stay off) | `cambrian --yield` / `camdash --yield` | `cambrian --yield livecam` / `camdash --yield organism` | `cambrian --yield livecam` / `livecam yield organism` |
 | Exclusion | systemd: the two targets `Conflicts=` each other | each start first calls the other's yield | the same |
 | Off at boot | the yielded target is disabled | the yielded side has a `yielded` record in its state, and its boot start exits cleanly | the same |
+| Organism's autostart off | its unit's `ExecCondition` (`tools/suite.py --may-start`) skips the start at boot unless `cambrian --start` ran this boot | its boot task's service declines the same way and exits cleanly | its login agent's service declines the same way |
 
 On Linux a plain `systemctl start` of either target still stops the other (the
 conflict). Only the start commands also change which one comes back at boot.

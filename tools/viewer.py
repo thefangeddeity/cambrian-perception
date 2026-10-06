@@ -848,6 +848,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
     <!-- what it watches: a YouTube video instead of its camera (frames are never saved) -->
     <div id="dessert-card" style="margin-top:12px">
       <div id="dessert-status" class="cap" style="color:var(--cyan)">--</div>
+      <div id="autostart-note" class="cap"></div>
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px">
         <input type="text" id="custom-url" placeholder="a YouTube URL to watch instead of the camera (frames are never saved)" style="flex:1 1 260px">
         <button id="custom-url-submit">watch this</button>
@@ -3161,6 +3162,7 @@ addEventListener('error', e => { const r = document.documentElement; r.dataset.j
       if (bv) { bv.hidden = !!r.active || !r.last_video; bv.title = r.last_video || ''; }
       const fv = $('forget-video'); if (fv) fv.hidden = !r.last_video;
       const fl = $('feed-loop'); if (fl && document.activeElement !== fl) fl.checked = !!r.loop_feed;
+      const an = $('autostart-note'); if (an && r.autostart != null) an.textContent = r.autostart ? 'autostart on: it comes back at boot (cambrian --autostart off)' : 'autostart off: it starts only on cambrian --start; the livecam is the default';
       $('dessert-status').textContent = r.active
         ? `on video: ${r.selected_url}` + (r.until ? ` until ${new Date(r.until * 1000).toLocaleString()}` : ' until you switch back')
         : 'on its camera';
@@ -3419,8 +3421,14 @@ class Handler(BaseHTTPRequestHandler):
                 loop_feed = bool(json.loads(LOOP_FEED_PATH.read_text(encoding="utf-8")).get("on"))
             except (OSError, ValueError):
                 loop_feed = False
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                import suite as _suite
+                autostart = _suite.autostart()
+            except Exception:
+                autostart = None
             body = json.dumps({
-                "last_video": last_video, "loop_feed": loop_feed,
+                "last_video": last_video, "loop_feed": loop_feed, "autostart": autostart,
                 "options": [n for n, _ in LIVE_SOURCES],
                 "selected": selected_name,
                 "selected_url": selected_url,
